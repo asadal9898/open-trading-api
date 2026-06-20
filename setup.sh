@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
 #
 # open-trading-api 개발 환경 셋업 스크립트
-# - uv, git 설치 확인 및 자동 설치
+# - curl, git, uv 설치 확인 및 자동 설치
+# - Docker 설치 확인 (백테스트 Lean 엔진용) + 권한 안내
 # - 가상환경 생성 + kis_backtest editable 설치
 # - kis_devlp.yaml 을 ~/KIS/config/ 로 복사
+# - Lean 백테스트 데이터 초기화 + symbol csv 중복 키 제거
 # - Claude Code 설치 확인 + kis-quant-plugin 설치
 #
 # 사용법:
 #   cd ~/workspace/open-trading-api
 #   bash setup.sh
 #
-# 주의: 이 스크립트는 ~/workspace/open-trading-api 안에서 실행해야 합니다.
+# 주의:
+#   - 이 스크립트는 ~/workspace/open-trading-api 안에서 실행해야 합니다.
+#   - Docker 를 처음 설치하면 권한 적용을 위해 "로그아웃 후 재로그인"이 필요합니다.
+#     그 경우 재로그인 후 setup.sh 를 한 번 더 실행하면 나머지가 이어서 진행됩니다.
+#   - 여러 번 실행해도 안전합니다(이미 된 단계는 건너뜀).
 
-set -e  # 오류 발생 시 즉시 중단
+set -e
 
-# ----- 색상/로그 헬퍼 -----
 info()  { echo -e "\033[1;34m[INFO]\033[0m  $1"; }
 ok()    { echo -e "\033[1;32m[ OK ]\033[0m  $1"; }
 warn()  { echo -e "\033[1;33m[WARN]\033[0m  $1"; }
@@ -29,20 +34,18 @@ if [ ! -f "./backtester/pyproject.toml" ]; then
 fi
 info "프로젝트 루트 확인됨: $(pwd)"
 
-# ----- 1. apt 업데이트 + curl / git 설치 확인 -----
+# ----- 1. apt 업데이트 + curl / git -----
 info "apt 패키지 목록 업데이트..."
 sudo apt update
 
-# curl: uv / Claude Code 설치에 필요하므로 가장 먼저 확인
 if command -v curl >/dev/null 2>&1; then
-    ok "curl 이미 설치됨: $(curl --version | head -n1)"
+    ok "curl 이미 설치됨"
 else
-    warn "curl 미설치 → 설치 진행 (uv/Claude Code 설치에 필요)"
+    warn "curl 미설치 → 설치 진행"
     sudo apt install -y curl
-    ok "curl 설치 완료: $(curl --version | head -n1)"
+    ok "curl 설치 완료"
 fi
 
-# git
 if command -v git >/dev/null 2>&1; then
     ok "git 이미 설치됨: $(git --version)"
 else
@@ -51,13 +54,12 @@ else
     ok "git 설치 완료: $(git --version)"
 fi
 
-# ----- 2. uv 설치 확인 -----
+# ----- 2. uv -----
 if command -v uv >/dev/null 2>&1; then
     ok "uv 이미 설치됨: $(uv --version)"
 else
     warn "uv 미설치 → 설치 진행"
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    # 설치 직후 현재 셸 PATH 에 반영 (보통 ~/.local/bin)
     export PATH="$HOME/.local/bin:$PATH"
     if command -v uv >/dev/null 2>&1; then
         ok "uv 설치 완료: $(uv --version)"
@@ -67,7 +69,45 @@ else
     fi
 fi
 
-# ----- 3. 가상환경 + kis_backtest editable 설치 -----
+# ----- 3. Docker (백테스트 Lean 엔진용) -----
+DOCKER_READY=0
+if command -v docker >/dev/null 2>&1; then
+    ok "docker 명령 존재"
+else
+    warn "Docker 미설치 → 설치 진행 (백테스트에 필요)"
+    sudo apt install -y docker.io
+    ok "docker.io 설치 완료"
+fi
+
+if docker info >/dev/null 2>&1; then
+    ok "Docker 정상 동작 (권한 OK)"
+    DOCKER_READY=1
+else
+    warn "Docker 데몬에 접근할 수 없습니다 (권한 또는 미실행)."
+    if ! id -nG "$USER" | grep -qw docker; then
+        warn "사용자를 docker 그룹에 추가합니다: $USER"
+        sudo usermod -aG docker "$USER"
+        echo
+        err "════════════════════════════════════════════════════════"
+        err " Docker 그룹 권한이 방금 추가되었습니다."
+        err " 적용하려면 [로그아웃 후 재로그인] (또는 재부팅) 하세요."
+        err " 재로그인 후 'bash setup.sh' 를 다시 실행하면 이어서 진행됩니다."
+        err "════════════════════════════════════════════════════════"
+        echo
+        warn "Lean 데이터 초기화 단계는 건너뛰고, 나머지는 계속 진행합니다."
+    else
+        warn "docker 그룹에는 속해 있으나 데몬 접근 실패 → Docker 서비스 시작 시도"
+        sudo systemctl enable --now docker 2>/dev/null || true
+        if docker info >/dev/null 2>&1; then
+            ok "Docker 서비스 시작됨 (권한 OK)"
+            DOCKER_READY=1
+        else
+            warn "Docker 가 아직 준비되지 않았습니다. 재로그인 후 setup.sh 재실행 권장."
+        fi
+    fi
+fi
+
+# ----- 4. 가상환경 + kis_backtest editable -----
 info "가상환경 생성 (이미 있으면 재사용)..."
 uv venv
 
@@ -82,10 +122,9 @@ else
     exit 1
 fi
 
-# ----- 4. kis_devlp.yaml 을 ~/KIS/config/ 로 복사 -----
+# ----- 5. kis_devlp.yaml 복사 -----
 info "KIS 설정 폴더 준비..."
 mkdir -p "$HOME/KIS/config"
-
 if [ -f "$HOME/KIS/config/kis_devlp.yaml" ]; then
     warn "~/KIS/config/kis_devlp.yaml 이미 존재 → 덮어쓰지 않음 (기존 키 보호)"
 else
@@ -99,7 +138,36 @@ else
     fi
 fi
 
-# ----- 5. Claude Code 설치 확인 + 플러그인 -----
+# ----- 6. Lean 데이터 초기화 + csv 중복 키 제거 -----
+LEAN_CSV="./backtester/.lean-workspace/data/symbol-properties/symbol-properties-database.csv"
+if [ "$DOCKER_READY" = "1" ]; then
+    if [ -f "$LEAN_CSV" ]; then
+        ok "Lean 데이터 이미 초기화됨 (symbol-properties csv 존재)"
+    else
+        info "Lean 백테스트 데이터 초기화 (setup_lean_data.sh)..."
+        bash backtester/scripts/setup_lean_data.sh
+        ok "Lean 데이터 초기화 완료"
+    fi
+    if [ -f "$LEAN_CSV" ]; then
+        DUP=$(awk -F',' '/^krx,/ {print $2}' "$LEAN_CSV" | sort | uniq -d | head -1)
+        if [ -n "$DUP" ]; then
+            warn "symbol csv 중복 키 발견 → 제거 (첫 등장만 유지)"
+            cp "$LEAN_CSV" "$LEAN_CSV.bak"
+            awk -F',' '
+              /^krx,/ { if (seen[$2]++) next }
+              { print }
+            ' "$LEAN_CSV.bak" > "$LEAN_CSV"
+            ok "중복 키 제거 완료 (백업: $LEAN_CSV.bak)"
+        else
+            ok "symbol csv 중복 키 없음"
+        fi
+    fi
+else
+    warn "Docker 미준비 → Lean 데이터 초기화 건너뜀."
+    warn "재로그인 후 'bash setup.sh' 재실행 시 이 단계가 진행됩니다."
+fi
+
+# ----- 7. Claude Code + 플러그인 -----
 if command -v claude >/dev/null 2>&1; then
     ok "Claude Code 이미 설치됨: $(claude --version 2>/dev/null || echo '버전 확인 불가')"
 else
@@ -113,7 +181,6 @@ else
     fi
 fi
 
-# kis-quant-plugin 설치 (.claude 디렉터리 유무로 판단)
 if [ -d "./.claude/skills" ]; then
     ok "kis-quant-plugin 이미 설치됨 (.claude/skills 존재)"
 else
@@ -135,7 +202,11 @@ ok "====================================="
 echo
 info "다음 단계:"
 echo "  1) ~/KIS/config/kis_devlp.yaml 에 본인 App Key/Secret/계좌 입력"
-echo "  2) 백테스트 MCP 서버 실행 (별도 터미널):"
-echo "       bash backtester/scripts/start_mcp.sh"
-echo "  3) Claude Code 실행 후 /mcp 로 연결 확인:"
+if [ "$DOCKER_READY" != "1" ]; then
+    echo "  2) [중요] 로그아웃 후 재로그인 → 'bash setup.sh' 재실행 (Docker 권한 적용)"
+fi
+echo "  3) 백테스트 동작 확인:"
+echo "       uv run python mytrading/runners/check_auth.py"
+echo "       uv run python mytrading/runners/run_backtest.py"
+echo "  4) Claude Code 실행:"
 echo "       claude"
