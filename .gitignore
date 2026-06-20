@@ -180,3 +180,8 @@ settings.local.json
 mytrading/results/*
 !mytrading/results/.gitkeep
 mytrading/**/__pycache__/
+
+# kis-quant-plugin 생성물 (setup.sh 실행 시 자동 생성)
+.claude/
+.mcp.json
+AGENTS.md
