@@ -13,3 +13,10 @@ backtest:
 logging:
   level: "INFO"
   results_dir: "mytrading/results"
+
+# 레이트리밋 대응 — 조회 호출 간격(초)
+# 모의(vps) 계좌는 초당 호출 제한이 낮아 간격을 크게. 실전(prod)은 작게.
+# EGW00201(초당 거래건수 초과)이 계속 나면 vps_sleep 값을 더 키우세요.
+rate_limit:
+  vps_sleep: 1.0
+  prod_sleep: 0.1
