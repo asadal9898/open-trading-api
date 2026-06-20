@@ -1,0 +1,15 @@
+# 모드는 여기서 관리하지 않습니다 (환경변수 KIS_MODE 사용)
+# 모의: 그냥 실행  /  실전: KIS_MODE=prod uv run ...
+# (kis_mode 를 굳이 적는다면 vps 만 허용됩니다. prod 는 환경변수로만)
+
+trading:
+  symbols: ["005930"]      # 대상 종목 (삼성전자)
+  default_qty: 1           # 기본 주문 수량
+
+backtest:
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"
+
+logging:
+  level: "INFO"
+  results_dir: "mytrading/results"

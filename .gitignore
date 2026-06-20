@@ -176,3 +176,7 @@ backtester/examples/output/*.py
 settings.local.json
 
 .serena/
+# mytrading
+mytrading/results/*
+!mytrading/results/.gitkeep
+mytrading/**/__pycache__/
