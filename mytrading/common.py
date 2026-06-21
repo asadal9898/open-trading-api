@@ -105,6 +105,26 @@ def init(require_confirm: bool = True):
     return ka
 
 
+def resolve_date(value: str) -> str:
+    """
+    config 의 날짜 문자열을 실제 날짜(YYYY-MM-DD)로 변환.
+      - "today" / "now" / 빈값 → 오늘 날짜
+      - "YYYY-MM-DD"            → 그대로
+    """
+    from datetime import datetime
+    if value is None or str(value).strip().lower() in ("today", "now", ""):
+        return datetime.now().strftime("%Y-%m-%d")
+    return str(value).strip()
+
+
+def get_backtest_period() -> tuple:
+    """config backtest 의 (start_date, end_date) 를 실제 날짜로 반환. end 는 today 지원."""
+    bt = CONFIG.get("backtest", {})
+    start = resolve_date(bt.get("start_date", "2024-01-01"))
+    end = resolve_date(bt.get("end_date", "today"))
+    return start, end
+
+
 def get_data_provider():
     """
     백테스트용 KISDataProvider 생성.

@@ -1,22 +1,24 @@
 # 모드는 여기서 관리하지 않습니다 (환경변수 KIS_MODE 사용)
 # 모의: 그냥 실행  /  실전: KIS_MODE=prod uv run ...
-# (kis_mode 를 굳이 적는다면 vps 만 허용됩니다. prod 는 환경변수로만)
 
 trading:
   symbols: ["005930"]      # 대상 종목 (삼성전자)
   default_qty: 1           # 기본 주문 수량
 
 backtest:
-  start_date: "2024-01-01"
-  end_date: "2024-12-31"
+  start_date: "2023-01-01"
+  end_date: "today"        # "today" = 오늘 날짜 자동. 고정하려면 "2024-12-31" 식으로.
+
+# 데이터 prefetch 설정
+data:
+  prefetch_start: "2020-01-01"   # 미리 받아둘 시작일 (이 이후를 캐시에 채움)
 
 logging:
   level: "INFO"
   results_dir: "mytrading/results"
 
 # 레이트리밋 대응 — 조회 호출 간격(초)
-# 모의(vps) 계좌는 초당 호출 제한이 낮아 간격을 크게. 실전(prod)은 작게.
-# EGW00201(초당 거래건수 초과)이 계속 나면 vps_sleep 값을 더 키우세요.
+# 모의(vps)는 초당 호출 제한이 낮아 간격을 크게. EGW00201 계속 나면 vps_sleep 키우기.
 rate_limit:
   vps_sleep: 1.0
   prod_sleep: 0.1

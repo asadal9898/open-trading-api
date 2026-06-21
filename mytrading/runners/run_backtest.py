@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 
 from kis_backtest import LeanClient, STRATEGY_REGISTRY
 import kis_backtest.strategies.preset  # 프리셋 10종 자동 등록
-from mytrading.common import CONFIG, get_data_provider, resolve_mode
+from mytrading.common import CONFIG, get_data_provider, resolve_mode, get_backtest_period
 
 # Lean 데이터(.lean-workspace)는 backtester/ 안에 있고,
 # client.py가 cwd 기준 상대경로(.lean-workspace)로 데이터를 찾으므로
@@ -44,8 +44,7 @@ def main():
     # 2. 설정값 읽기 (mytrading_config.yaml)
     bt_cfg = CONFIG.get("backtest", {})
     symbols = CONFIG.get("trading", {}).get("symbols", ["005930"])
-    start_date = bt_cfg.get("start_date", "2024-01-01")
-    end_date = bt_cfg.get("end_date", "2024-12-31")
+    start_date, end_date = get_backtest_period()  # end_date "today" 자동 처리
 
     print("=" * 55)
     print(f"  백테스트 실행")
