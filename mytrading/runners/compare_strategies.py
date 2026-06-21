@@ -19,13 +19,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from kis_backtest import LeanClient, STRATEGY_REGISTRY
+from kis_backtest import LeanClient, STRATEGY_REGISTRY, StrategyFileLoader, LeanCodeGenerator
 import kis_backtest.strategies.preset  # 프리셋 10종 자동 등록
 from mytrading.common import CONFIG, get_data_provider, get_backtest_period, resolve_mode
 from mytrading.data_manager import ensure_data_multi
 
 BACKTESTER_DIR = ROOT / "backtester"
 RESULTS_DIR = ROOT / "mytrading" / "results"
+CONFIGS_DIR = ROOT / "mytrading" / "configs"   # 내 yaml 전략 폴더
 
 # CSV/표에 출력할 지표 (속성명, 헤더, 포맷함수)
 # 모든 비율 지표(수익률/CAGR/MDD/승률)는 0~ 형태의 비율이므로 ×100 해서 퍼센트로 표시.
@@ -61,7 +62,7 @@ def _get(result, attr):
 
 
 def run_one(client, strategy_id, symbols, start, end):
-    """전략 하나 백테스트 → dict 반환 (실패 시 success=False)."""
+    """프리셋 전략 하나 백테스트 → dict 반환 (실패 시 success=False)."""
     try:
         r = client.backtest_strategy(
             strategy_id=strategy_id, symbols=symbols,
@@ -75,22 +76,55 @@ def run_one(client, strategy_id, symbols, start, end):
         return {"strategy_id": strategy_id, "success": False}
 
 
+def run_yaml(client, yaml_path, symbols, start, end):
+    """yaml 전략 백테스트 (schema → Lean 코드 → backtest_custom)."""
+    sid = yaml_path.stem.replace(".kis", "")  # my_rsi.kis.yaml → my_rsi
+    try:
+        schema = StrategyFileLoader.load_as_schema(str(yaml_path))
+        gen = LeanCodeGenerator(schema)
+        code = gen.generate(symbols=symbols, start_date=start, end_date=end)
+        r = client.backtest_custom(code, symbols, start, end)
+        row = {attr: _get(r, attr) for attr, _, _ in METRICS}
+        row["strategy_id"] = sid + " (내전략)"  # 내 전략 표시
+        row["success"] = True
+        return row
+    except Exception as e:
+        print(f"    [실패] {sid}: {e}")
+        return {"strategy_id": sid, "success": False}
+
+
+def list_yaml_strategies():
+    """configs/ 폴더의 모든 .kis.yaml 파일 목록."""
+    if not CONFIGS_DIR.exists():
+        return []
+    return sorted(CONFIGS_DIR.glob("*.kis.yaml"))
+
+
 def main():
-    # 1. 비교할 전략 목록
+    # 1. 비교할 전략 목록 (프리셋 + configs/ 의 yaml)
     all_ids = list(STRATEGY_REGISTRY.list().keys())
+    yaml_files = list_yaml_strategies()
+    # configs 에 같은 id 의 yaml 이 있으면, 레지스트리 프리셋은 제외 (yaml 우선)
+    # → 깨진 프리셋을 configs yaml 로 덮어쓰는 효과 (중복 방지)
+    yaml_ids = {yf.stem.replace(".kis", "") for yf in yaml_files}
     if len(sys.argv) > 1:
         target = [s for s in sys.argv[1:] if s in all_ids]
         invalid = [s for s in sys.argv[1:] if s not in all_ids]
         if invalid:
             print(f"[무시] 알 수 없는 전략: {invalid}")
+        yaml_files = []  # 특정 전략 지정 시 yaml 은 제외
     else:
-        target = all_ids
+        target = [sid for sid in all_ids if sid not in yaml_ids]
+        overridden = [sid for sid in all_ids if sid in yaml_ids]
+        if overridden:
+            print(f"[configs 우선] 레지스트리 대신 내 yaml 사용: {overridden}")
 
     symbols = CONFIG.get("trading", {}).get("symbols", ["005930"])
     start, end = get_backtest_period()
 
+    total = len(target) + len(yaml_files)
     print("=" * 60)
-    print(f"  전략 비교  ({len(target)}종)")
+    print(f"  전략 비교  (프리셋 {len(target)}종 + 내전략 {len(yaml_files)}종 = {total}종)")
     print(f"  종목 : {symbols}")
     print(f"  기간 : {start} ~ {end}")
     print(f"  모드 : {resolve_mode()}")
@@ -106,9 +140,14 @@ def main():
     rows = []
     try:
         client = LeanClient(data_provider=get_data_provider())
+        # 3-1. 프리셋
         for i, sid in enumerate(target, 1):
-            print(f"\n[{i}/{len(target)}] {sid} 백테스트 중...")
+            print(f"\n[{i}/{total}] {sid} 백테스트 중...")
             rows.append(run_one(client, sid, symbols, start, end))
+        # 3-2. 내 yaml 전략
+        for j, yf in enumerate(yaml_files, len(target) + 1):
+            print(f"\n[{j}/{total}] {yf.stem} (yaml) 백테스트 중...")
+            rows.append(run_yaml(client, yf, symbols, start, end))
     finally:
         os.chdir(original_cwd)
 
