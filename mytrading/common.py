@@ -177,6 +177,45 @@ def get_data_provider():
     return KISDataProvider(auth)
 
 
+def get_brokerage():
+    """
+    주문/잔고용 KISBrokerageProvider 생성.
+    현재 모드(vps/prod)에 맞는 키를 선택. get_data_provider 와 동일한 인증.
+
+    ⚠️ 주의: 이 provider 로 submit_order 하면 실제 주문이 들어갑니다.
+            vps(모의)면 모의 계좌, prod(실전)면 실제 계좌. 호출 전 반드시 init() 으로
+            모드를 확인하세요.
+    """
+    from kis_backtest.providers.kis import KISAuth, KISBrokerageProvider
+
+    mode = resolve_mode()
+    cfg = _load_kis_devlp()
+    is_paper = (mode == "vps")
+
+    if is_paper:
+        app_key = cfg["paper_app"]
+        app_secret = cfg["paper_sec"]
+        account_no = str(cfg["my_paper_stock"])
+    else:
+        app_key = cfg["my_app"]
+        app_secret = cfg["my_sec"]
+        account_no = str(cfg["my_acct_stock"])
+
+    auth = KISAuth(
+        app_key=app_key,
+        app_secret=app_secret,
+        account_no=account_no,
+        is_paper=is_paper,
+    )
+    # 조회 호출 간격도 적용 (레이트리밋 대응)
+    import kis_auth as ka
+    ka.auth(svr=mode)
+    rate_cfg = CONFIG.get("rate_limit", {})
+    ka._smartSleep = float(rate_cfg.get(f"{mode}_sleep", 1.0 if is_paper else 0.1))
+
+    return KISBrokerageProvider.from_auth(auth)
+
+
 if __name__ == "__main__":
     print(f"설정 파일: {CONFIG_PATH} ({'있음' if CONFIG_PATH.exists() else '없음'})")
     print(f"결정된 모드: {resolve_mode()}")
