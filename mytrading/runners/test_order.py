@@ -21,6 +21,9 @@ sys.path.insert(0, str(ROOT))
 
 from kis_backtest.models.enums import OrderSide, OrderType, OrderStatus
 from mytrading.common import init, get_brokerage, get_data_provider, CONFIG
+from mytrading.notify import (
+    notify_order_submitted, notify_order_filled, notify_error,
+)
 
 QTY = 1  # 테스트는 1주만
 
@@ -79,21 +82,41 @@ def main():
         print("취소했습니다.")
         return
 
-    # 5. 주문 제출
+    # 5. 주문 제출 (영업일 아님/장외 등은 깔끔히 처리)
     print("\n주문 제출 중...")
-    order = brokerage.submit_order(
-        symbol=symbol,
-        side=OrderSide.BUY,
-        quantity=QTY,
-        order_type=order_type,
-        price=price,
-    )
+    try:
+        order = brokerage.submit_order(
+            symbol=symbol,
+            side=OrderSide.BUY,
+            quantity=QTY,
+            order_type=order_type,
+            price=price,
+        )
+    except Exception as e:
+        # 모의투자 영업일 아님, 장 시간 외, 잔고 부족 등
+        msg = str(e)
+        print(f"\n  ⚠️ 주문이 접수되지 않았습니다: {msg}")
+        if "영업일" in msg:
+            print("     (오늘은 거래일이 아닙니다. 평일 09:00~15:30 에 다시 시도하세요.)")
+        elif "시간" in msg or "장" in msg:
+            print("     (장 운영 시간이 아닐 수 있습니다. 평일 09:00~15:30 확인.)")
+        notify_error("주문 실패", msg)
+        return
+
     print(f"  주문 접수됨 — 주문번호: {order.id}, 상태: {order.status}")
+    notify_order_submitted(symbol, "BUY", QTY, price_desc)
 
     # 6. 체결 확인 (잠시 대기 후 주문내역 조회)
     print("\n체결 확인 중... (3초 대기)")
     time.sleep(3)
-    orders = brokerage.get_orders()
+    try:
+        orders = brokerage.get_orders()
+    except Exception as e:
+        print(f"  주문내역 조회 실패: {e}")
+        print("  (주문은 접수됐을 수 있으니 check_balance.py 로 확인하세요.)")
+        notify_error("체결 확인 실패", str(e))
+        return
+
     target = next((o for o in orders if o.id == order.id), None)
     if target is None:
         print(f"  주문 {order.id} 을 주문내역에서 찾지 못했습니다. get_orders 전체:")
@@ -107,10 +130,15 @@ def main():
             print(f"  체결가    : {target.average_price:,.0f} 원")
         if target.status == OrderStatus.FILLED:
             print("  ✅ 체결 완료")
+            # 체결가가 없으면 주문가/현재가로 대체
+            fill_price = target.average_price or price or ask
+            notify_order_filled(symbol, symbol, "BUY",
+                                target.filled_quantity or QTY, fill_price)
         elif target.status in (OrderStatus.SUBMITTED, OrderStatus.PENDING):
             print("  ⏳ 미체결 (지정가가 시장과 안 맞으면 대기 상태일 수 있음)")
         elif target.status == OrderStatus.REJECTED:
             print("  ❌ 거부됨 — 사유를 KIS 에서 확인하세요")
+            notify_error("주문 거부됨", f"{symbol} 주문이 거부되었습니다")
 
     print("\n주문 테스트 완료. 잔고/보유는 check_balance.py 로 확인하세요.")
 
