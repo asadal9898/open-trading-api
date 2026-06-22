@@ -3,7 +3,8 @@
 brokerage 연결과 인증이 잘 되는지 확인하는 용도.
 
 실행:
-    uv run python mytrading/runners/check_balance.py            # 모의(vps)
+    uv run python mytrading/runners/check_balance.py              # 모의(vps)
+    uv run python mytrading/runners/check_balance.py --telegram   # 잔고를 폰으로도 전송
     KIS_MODE=prod uv run python mytrading/runners/check_balance.py  # 실전(YES 확인)
 """
 import sys
@@ -13,9 +14,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from mytrading.common import init, get_brokerage, get_data_provider, CONFIG
+from mytrading.notify import notify_balance
 
 
 def main():
+    # --telegram 플래그: 잔고를 텔레그램으로도 전송
+    to_telegram = "--telegram" in sys.argv
+
     # 모드 확인 + 실전 가드 (조회만 해도 init 으로 모드 명확히)
     init()
 
@@ -50,6 +55,12 @@ def main():
             print(f"  {sym}: {q}")
         except Exception as e:
             print(f"  {sym}: 조회 실패 - {e}")
+
+    # 4. 텔레그램 전송 (옵션)
+    if to_telegram:
+        ok = notify_balance(bal.total_cash, bal.total_equity,
+                            bal.total_pnl, bal.total_pnl_percent)
+        print("\n[텔레그램]", "전송됨 ✅" if ok else "전송 실패 ❌")
 
     print("\n조회 완료 — brokerage 연결 정상")
 
