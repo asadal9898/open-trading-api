@@ -48,6 +48,85 @@ def _load_kis_devlp() -> dict:
         return yaml.safe_load(f) or {}
 
 
+def _resolve_account(is_paper: bool) -> dict:
+    """
+    현재 사용할 계좌의 키/계좌번호를 결정.
+    - kis_devlp.yaml 에 users 섹션이 있으면: 선택된 계좌(기본 Owner 첫 주문가능 계좌) 사용
+    - 없으면: 기존 단일계정 키(my_app/paper_app 등) 사용 (하위호환)
+
+    계좌 선택은 환경변수로 지정 가능:
+      KIS_USER     : 사용자 키 (기본 Owner)
+      KIS_ACCOUNT  : 계좌 이름 (기본 첫 주문가능 계좌)
+
+    반환: {app_key, app_secret, account_no, source, can_order}
+    """
+    # 멀티계좌 시도
+    try:
+        from mytrading.accounts import load_accounts
+        adata = load_accounts()
+    except Exception:
+        adata = None
+
+    if adata and adata.enabled:
+        user_key = os.environ.get("KIS_USER", "").strip()
+        acct_name = os.environ.get("KIS_ACCOUNT", "").strip()
+
+        user = adata.get_user(user_key) if user_key else (adata.owner or adata.users[0])
+        if user is None:
+            user = adata.users[0]
+
+        acct = None
+        if acct_name:
+            acct = next((a for a in user.accounts if a.name == acct_name), None)
+        if acct is None:
+            acct = next((a for a in user.accounts if a.can_order), None) or user.accounts[0]
+
+        # 모의 모드인데 그 계좌에 모의 키가 없으면 단일계정 폴백
+        if is_paper and not acct.has_paper:
+            print(f"  [account] {user.key}/{acct.name} 에 모의 키 없음 → 단일계정 폴백")
+        else:
+            return {
+                "app_key": acct.paper_app if is_paper else acct.app_key,
+                "app_secret": acct.paper_sec if is_paper else acct.app_secret,
+                "account_no": acct.account_no(is_paper),
+                "source": f"{user.key}/{acct.name}",
+                "can_order": acct.can_order,
+                "prod": acct.prod,
+            }
+
+    # 하위호환: 기존 단일계정 키
+    cfg = _load_kis_devlp()
+    if is_paper:
+        return {"app_key": cfg["paper_app"], "app_secret": cfg["paper_sec"],
+                "account_no": str(cfg["my_paper_stock"]),
+                "source": "단일계정(모의)", "can_order": True, "prod": str(cfg.get("my_prod", "01"))}
+    else:
+        return {"app_key": cfg["my_app"], "app_secret": cfg["my_sec"],
+                "account_no": str(cfg["my_acct_stock"]),
+                "source": "단일계정(실전)", "can_order": True, "prod": str(cfg.get("my_prod", "01"))}
+
+
+def _inject_auth_cfg(acc: dict, is_paper: bool):
+    """
+    원본 kis_auth 의 전역 _cfg 에 선택된 계좌 키를 주입한다.
+    auth() 가 _cfg[my_app]/_cfg[paper_app] 등을 직접 읽으므로,
+    auth() 호출 직전에 이 값을 선택된 계좌로 덮어써야 한다.
+    (원본 kis_auth.py 는 수정하지 않고 전역만 덮어씀 — _smartSleep 패턴과 동일)
+    """
+    import kis_auth as ka
+    if is_paper:
+        ka._cfg["paper_app"] = acc["app_key"]
+        ka._cfg["paper_sec"] = acc["app_secret"]
+        ka._cfg["my_paper_stock"] = acc["account_no"]
+    else:
+        ka._cfg["my_app"] = acc["app_key"]
+        ka._cfg["my_sec"] = acc["app_secret"]
+        ka._cfg["my_acct_stock"] = acc["account_no"]
+    # 계좌 상품코드(prod)도 주입 (auth 의 product 기본값 및 계좌 조회에 사용)
+    if acc.get("prod"):
+        ka._cfg["my_prod"] = acc["prod"]
+
+
 def resolve_mode() -> str:
     """
     모드 결정 우선순위:
@@ -81,6 +160,12 @@ def init(require_confirm: bool = True):
     인증이 끝난 kis_auth 모듈(ka)을 반환.
     """
     mode = resolve_mode()
+
+    # 선택된 계좌 키를 kis_auth 전역에 주입 후 인증
+    is_paper = (mode == "vps")
+    acc = _resolve_account(is_paper)
+    print(f"  [account] {acc['source']} (계좌 {acc['account_no']})")
+    _inject_auth_cfg(acc, is_paper)
 
     # 인증 (svr 항상 명시 — 기본값 prod에 절대 의존하지 않음)
     ka.auth(svr=mode)
@@ -128,9 +213,7 @@ def get_backtest_period() -> tuple:
 def get_data_provider():
     """
     백테스트용 KISDataProvider 생성.
-    현재 모드(vps/prod)에 맞는 앱키/시크릿/계좌를 kis_devlp.yaml 에서 선택.
-    - vps  → paper_app / paper_sec / my_paper_stock  (is_paper=True)
-    - prod → my_app / my_sec / my_acct_stock         (is_paper=False)
+    현재 모드(vps/prod)에 맞는 계좌(멀티계좌 users 또는 단일계정)를 자동 선택.
 
     주의: prod 선택 시에도 백테스트는 과거 데이터 조회일 뿐 실제 주문은 아님.
           단, 실전 키의 호출 제한/요금 정책이 적용될 수 있음.
@@ -138,22 +221,14 @@ def get_data_provider():
     from kis_backtest.providers.kis import KISAuth, KISDataProvider
 
     mode = resolve_mode()
-    cfg = _load_kis_devlp()
     is_paper = (mode == "vps")
-
-    if is_paper:
-        app_key = cfg["paper_app"]
-        app_secret = cfg["paper_sec"]
-        account_no = str(cfg["my_paper_stock"])
-    else:
-        app_key = cfg["my_app"]
-        app_secret = cfg["my_sec"]
-        account_no = str(cfg["my_acct_stock"])
+    acc = _resolve_account(is_paper)
+    print(f"  [account] {acc['source']} (계좌 {acc['account_no']})")
 
     auth = KISAuth(
-        app_key=app_key,
-        app_secret=app_secret,
-        account_no=account_no,
+        app_key=acc["app_key"],
+        app_secret=acc["app_secret"],
+        account_no=acc["account_no"],
         is_paper=is_paper,
     )
 
@@ -165,6 +240,7 @@ def get_data_provider():
     #   (원본 코드는 수정하지 않고, 전역 변수만 덮어쓴다)
     import kis_auth as ka
 
+    _inject_auth_cfg(acc, is_paper)  # 선택된 계좌 키 주입
     ka.auth(svr=mode)  # 토큰 발급 + 전역 환경 설정
 
     # config 의 rate_limit 값으로 호출 간격 지정 (없으면 모드별 안전 기본값)
@@ -180,7 +256,7 @@ def get_data_provider():
 def get_brokerage():
     """
     주문/잔고용 KISBrokerageProvider 생성.
-    현재 모드(vps/prod)에 맞는 키를 선택. get_data_provider 와 동일한 인증.
+    현재 모드(vps/prod)에 맞는 계좌(멀티계좌 users 또는 단일계정)를 자동 선택.
 
     ⚠️ 주의: 이 provider 로 submit_order 하면 실제 주문이 들어갑니다.
             vps(모의)면 모의 계좌, prod(실전)면 실제 계좌. 호출 전 반드시 init() 으로
@@ -189,26 +265,21 @@ def get_brokerage():
     from kis_backtest.providers.kis import KISAuth, KISBrokerageProvider
 
     mode = resolve_mode()
-    cfg = _load_kis_devlp()
     is_paper = (mode == "vps")
-
-    if is_paper:
-        app_key = cfg["paper_app"]
-        app_secret = cfg["paper_sec"]
-        account_no = str(cfg["my_paper_stock"])
-    else:
-        app_key = cfg["my_app"]
-        app_secret = cfg["my_sec"]
-        account_no = str(cfg["my_acct_stock"])
+    acc = _resolve_account(is_paper)
+    print(f"  [account] {acc['source']} (계좌 {acc['account_no']})")
+    if not acc.get("can_order", True):
+        print(f"  ⚠️ [account] {acc['source']} 는 주문 불가 계좌(IRP 등)입니다. 조회만 가능.")
 
     auth = KISAuth(
-        app_key=app_key,
-        app_secret=app_secret,
-        account_no=account_no,
+        app_key=acc["app_key"],
+        app_secret=acc["app_secret"],
+        account_no=acc["account_no"],
         is_paper=is_paper,
     )
     # 조회 호출 간격도 적용 (레이트리밋 대응)
     import kis_auth as ka
+    _inject_auth_cfg(acc, is_paper)  # 선택된 계좌 키 주입
     ka.auth(svr=mode)
     rate_cfg = CONFIG.get("rate_limit", {})
     ka._smartSleep = float(rate_cfg.get(f"{mode}_sleep", 1.0 if is_paper else 0.1))
