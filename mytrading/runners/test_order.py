@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from kis_backtest.models.enums import OrderSide, OrderType, OrderStatus
-from mytrading.common import init, get_brokerage, get_data_provider, CONFIG
+from mytrading.common import init, get_brokerage, get_data_provider, CONFIG, assert_can_order
 from mytrading.notify import (
     notify_order_submitted, notify_order_filled, notify_error,
 )
@@ -35,6 +35,10 @@ def main():
 
     # 1. 모드 확인 + 실전 가드
     init()
+
+    # 주문 가능 계좌인지 확인 (IRP 등 조회전용이면 중단)
+    if not assert_can_order():
+        return
 
     data = get_data_provider()
     brokerage = get_brokerage()

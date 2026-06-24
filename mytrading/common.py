@@ -287,6 +287,31 @@ def get_brokerage():
     return KISBrokerageProvider.from_auth(auth)
 
 
+def current_account_info() -> dict:
+    """
+    현재 모드에서 선택된 계좌 정보를 반환 (주문/조회 전 확인용).
+    반환: {source, account_no, can_order}
+    """
+    mode = resolve_mode()
+    is_paper = (mode == "vps")
+    acc = _resolve_account(is_paper)
+    return {"source": acc["source"], "account_no": acc["account_no"],
+            "can_order": acc.get("can_order", True)}
+
+
+def assert_can_order() -> bool:
+    """
+    현재 선택된 계좌가 주문 가능한지 확인.
+    주문 불가(IRP 등)면 안내 출력 후 False 반환 → 러너는 주문 중단.
+    """
+    info = current_account_info()
+    if not info["can_order"]:
+        print(f"  🚫 {info['source']} 는 주문 불가 계좌입니다 (IRP 등 조회 전용).")
+        print("     주문하려면 KIS_ACCOUNT 로 주문 가능한 계좌를 선택하세요.")
+        return False
+    return True
+
+
 if __name__ == "__main__":
     print(f"설정 파일: {CONFIG_PATH} ({'있음' if CONFIG_PATH.exists() else '없음'})")
     print(f"결정된 모드: {resolve_mode()}")
