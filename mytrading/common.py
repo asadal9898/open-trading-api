@@ -48,6 +48,19 @@ def _load_kis_devlp() -> dict:
         return yaml.safe_load(f) or {}
 
 
+# 계좌 정보를 한 실행에서 한 번만 출력하기 위한 플래그
+_account_printed = None
+
+
+def _print_account_once(acc: dict):
+    """선택된 계좌를 한 번만 출력 (같은 계좌 중복 출력 방지)."""
+    global _account_printed
+    key = (acc["source"], acc["account_no"])
+    if _account_printed != key:
+        print(f"  [account] {acc['source']} (계좌 {acc['account_no']})")
+        _account_printed = key
+
+
 def _resolve_account(is_paper: bool) -> dict:
     """
     현재 사용할 계좌의 키/계좌번호를 결정.
@@ -164,7 +177,7 @@ def init(require_confirm: bool = True):
     # 선택된 계좌 키를 kis_auth 전역에 주입 후 인증
     is_paper = (mode == "vps")
     acc = _resolve_account(is_paper)
-    print(f"  [account] {acc['source']} (계좌 {acc['account_no']})")
+    _print_account_once(acc)
     _inject_auth_cfg(acc, is_paper)
 
     # 인증 (svr 항상 명시 — 기본값 prod에 절대 의존하지 않음)
@@ -223,7 +236,7 @@ def get_data_provider():
     mode = resolve_mode()
     is_paper = (mode == "vps")
     acc = _resolve_account(is_paper)
-    print(f"  [account] {acc['source']} (계좌 {acc['account_no']})")
+    _print_account_once(acc)
 
     auth = KISAuth(
         app_key=acc["app_key"],
@@ -267,7 +280,7 @@ def get_brokerage():
     mode = resolve_mode()
     is_paper = (mode == "vps")
     acc = _resolve_account(is_paper)
-    print(f"  [account] {acc['source']} (계좌 {acc['account_no']})")
+    _print_account_once(acc)
     if not acc.get("can_order", True):
         print(f"  ⚠️ [account] {acc['source']} 는 주문 불가 계좌(IRP 등)입니다. 조회만 가능.")
 
