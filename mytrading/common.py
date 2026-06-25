@@ -119,6 +119,41 @@ def _resolve_account(is_paper: bool) -> dict:
                 "source": "단일계정(실전)", "can_order": True, "prod": str(cfg.get("my_prod", "01"))}
 
 
+def _invalidate_token_if_mode_changed(is_paper: bool):
+    """
+    모의/실전 모드가 직전과 다르면 토큰 캐시를 비운다.
+    kis_auth 는 모의/실전이 같은 날짜 파일(KIS{YYYYMMDD})을 공유하므로,
+    모드 전환 시 이전 토큰을 그대로 쓰면 'EGW00123 만료/무효' 에러가 난다.
+    → 모드가 바뀔 때만 비워서 강제 재발급 (같은 모드면 토큰 재사용 — 효율적).
+
+    ※ 각 실행이 별도 프로세스라 마지막 모드를 파일(~/KIS/cache/.last_mode)에 기록해
+       프로세스가 바뀌어도 모드 전환을 감지한다.
+    """
+    import kis_auth as ka
+    mode = "vps" if is_paper else "prod"
+    mode_file = Path.home() / "KIS" / "cache" / ".last_mode"
+    mode_file.parent.mkdir(parents=True, exist_ok=True)
+
+    last_mode = None
+    try:
+        if mode_file.exists():
+            last_mode = mode_file.read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+
+    if last_mode is not None and last_mode != mode:
+        try:
+            if hasattr(ka, "token_tmp") and Path(ka.token_tmp).exists():
+                Path(ka.token_tmp).write_text("", encoding="utf-8")
+        except Exception:
+            pass
+
+    try:
+        mode_file.write_text(mode, encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _inject_auth_cfg(acc: dict, is_paper: bool):
     """
     원본 kis_auth 의 전역 _cfg 에 선택된 계좌 키를 주입한다.
@@ -127,6 +162,8 @@ def _inject_auth_cfg(acc: dict, is_paper: bool):
     (원본 kis_auth.py 는 수정하지 않고 전역만 덮어씀 — _smartSleep 패턴과 동일)
     """
     import kis_auth as ka
+    # 모드 전환 시 토큰 무효화 (모의↔실전 충돌 방지)
+    _invalidate_token_if_mode_changed(is_paper)
     if is_paper:
         ka._cfg["paper_app"] = acc["app_key"]
         ka._cfg["paper_sec"] = acc["app_secret"]

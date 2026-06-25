@@ -1,33 +1,21 @@
-# 계좌별 자금 비중 (%) — 현금/공격/보수/안전
-# kis_devlp.yaml 의 users > 계좌 'name' 과 이름으로 연결됩니다.
-# 각 계좌의 비중 합은 100 이어야 합니다 (로더가 검증).
+# 공용 종목풀 — 모든 계좌가 참조하는 종목 분류 리스트
+# 계좌는 비중(allocations.yaml)만 다르고, 종목은 이 풀에서 공통으로 사용합니다.
 #
-# 종목 자체는 universe.yaml(공용 종목풀)에 정의하고,
-# 여기서는 각 분류(공격/보수/안전)에 자금을 얼마나 배분할지만 정합니다.
+# 분류:
+#   aggressive (공격) : 개별주, 변동성 큰 종목 (떨어진 우량 배당주 등)
+#   moderate   (보수) : 안정적 개별주
+#   safe       (안전) : 지수 ETF(S&P500/나스닥100), 채권 ETF 등 분산 자산
+#
+# 형식: { code: "종목코드6자리", name: "표시이름" }
+# ※ 자동매매에 쓰려면 각 종목/전략을 반드시 백테스트로 검증한 뒤 추가하세요.
 
-users:
-  Owner:
-    accounts:
-      일반증권1:
-        cash: 30          # 현금 보유 (투자 안 함)
-        aggressive: 30    # 공격 투자
-        moderate: 20      # 보수 투자
-        safe: 20          # 안전 투자 (ETF 등)
-      # 일반증권2:
-      #   cash: 40
-      #   aggressive: 20
-      #   moderate: 20
-      #   safe: 20
-      # ISA:
-      #   cash: 20
-      #   aggressive: 40
-      #   moderate: 20
-      #   safe: 20
+aggressive:
+  - { code: "005930", name: "삼성전자" }
+  # - { code: "000660", name: "SK하이닉스" }
 
-  # brother:
-  #   accounts:
-  #     일반증권1:
-  #       cash: 50
-  #       aggressive: 20
-  #       moderate: 15
-  #       safe: 15
+moderate: []
+  # - { code: "", name: "" }
+
+safe: []
+  # - { code: "379800", name: "KODEX 미국S&P500" }
+  # - { code: "", name: "채권 ETF" }
