@@ -64,6 +64,13 @@ class AllocationPlan:
     cash_target: float = 0.0                 # 현금 목표(투자 안 함)
     lines: List[TargetLine] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    # 현금 분석 (매도대금 고려 + 현금목표 존중)
+    current_cash: float = 0.0                # 현재 주문가능 현금
+    total_buy_needed: float = 0.0            # 총 매수 필요액 (BUY 차액 합)
+    total_sell_proceeds: float = 0.0         # 매도 예정 대금 (SELL 차액 합, 양수)
+    available_for_buy: float = 0.0           # 매수 가용 = 현금 + 매도대금 − 현금목표
+    cash_sufficient: bool = True             # 가용 ≥ 매수필요?
+    shortfall: float = 0.0                   # 부족분 (부족할 때만 > 0)
 
 
 def build_plan(snapshot, portfolio, user_key: str,
@@ -122,6 +129,21 @@ def build_plan(snapshot, portfolio, user_key: str,
                 current_qty=cur_qty,
             ))
 
+    # ---- 현금 분석 (매도대금 고려 + 현금목표 존중) ----
+    plan.current_cash = float(snapshot.available_cash)
+    # BUY 차액 합(매수 필요), SELL 차액 합(매도로 들어올 대금)
+    plan.total_buy_needed = sum(
+        ln.diff_value for ln in plan.lines if ln.diff_value > 0)
+    plan.total_sell_proceeds = sum(
+        -ln.diff_value for ln in plan.lines if ln.diff_value < 0)
+    # 매수 가용 = 현재 현금 + 매도 예정 대금 − 현금 목표(비중상 남길 현금)
+    plan.available_for_buy = (plan.current_cash
+                              + plan.total_sell_proceeds
+                              - plan.cash_target)
+    plan.cash_sufficient = plan.available_for_buy >= plan.total_buy_needed
+    if not plan.cash_sufficient:
+        plan.shortfall = plan.total_buy_needed - plan.available_for_buy
+
     return plan
 
 
@@ -147,6 +169,23 @@ def print_plan(plan: AllocationPlan) -> None:
             print(f"    [{_CAT_LABEL[ln.category]}] {ln.name}({ln.symbol})")
             print(f"        목표 {ln.target_value:,.0f} / 현재 {ln.current_value:,.0f} "
                   f"({ln.current_qty}주) → {arrow} {abs(ln.diff_value):,.0f}원")
+
+    # 현금 분석 (매도대금 고려 + 현금목표 존중)
+    print(f"\n  [현금 분석]")
+    print(f"    현재 주문가능현금 : {plan.current_cash:,.0f}원")
+    print(f"    매도 예정 대금(+)  : {plan.total_sell_proceeds:,.0f}원")
+    print(f"    현금 목표(−)       : {plan.cash_target:,.0f}원 (비중상 남길 현금)")
+    print(f"    → 매수 가용현금     : {plan.available_for_buy:,.0f}원")
+    print(f"    매수 필요액        : {plan.total_buy_needed:,.0f}원")
+    if plan.cash_sufficient:
+        surplus = plan.available_for_buy - plan.total_buy_needed
+        print(f"    ✅ 충분 (여유 {surplus:,.0f}원)")
+    else:
+        ratio = (plan.available_for_buy / plan.total_buy_needed * 100
+                 if plan.total_buy_needed > 0 else 0)
+        print(f"    ⚠️ 부족 {plan.shortfall:,.0f}원 "
+              f"(가용으로는 목표의 약 {ratio:.0f}%까지 매수 가능)")
+        print(f"       → 1-b 에서 비중 비율 유지하며 가용 한도로 축소 매수 예정")
 
     if plan.warnings:
         print(f"\n  [참고]")
