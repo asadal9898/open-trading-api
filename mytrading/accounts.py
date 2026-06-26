@@ -32,6 +32,24 @@ _PENSION_PRODS = {"22", "29"}  # 22=개인연금, 29=퇴직연금
 
 
 @dataclass
+class Allocation:
+    """계좌 자금 비중 (%). 합이 100이어야 정상."""
+    cash: float = 0.0          # 현금 (투자 안 함)
+    aggressive: float = 0.0    # 공격 투자
+    moderate: float = 0.0      # 보수 투자
+    safe: float = 0.0          # 안전 투자 (ETF 등)
+
+    @property
+    def total(self) -> float:
+        return self.cash + self.aggressive + self.moderate + self.safe
+
+    @property
+    def is_valid(self) -> bool:
+        # 부동소수 오차 허용 (99.9~100.1)
+        return abs(self.total - 100.0) < 0.1 or self.total == 0.0
+
+
+@dataclass
 class Account:
     name: str
     app_key: str
@@ -42,6 +60,9 @@ class Account:
     paper_app: Optional[str] = None
     paper_sec: Optional[str] = None
     paper_stock: Optional[str] = None  # 모의 증권계좌 8자리 (yaml: my_paper_stock)
+    allocation: Optional[Allocation] = None   # 비중 설정 (없으면 None)
+    # 종목 리스트: {"aggressive": [{code,name}], "moderate": [...], "safe": [...]}
+    universe: dict = field(default_factory=dict)
 
     @property
     def has_paper(self) -> bool:
@@ -52,6 +73,15 @@ class Account:
         """모드에 맞는 계좌번호 반환."""
         return self.paper_stock if is_paper else self.acct_stock
 
+    def symbols(self, category: str = None) -> list:
+        """종목 코드 리스트. category 지정 시 그 분류만, 없으면 전체."""
+        if category:
+            return [s["code"] for s in self.universe.get(category, [])]
+        out = []
+        for cat in ("aggressive", "moderate", "safe"):
+            out += [s["code"] for s in self.universe.get(cat, [])]
+        return out
+
 
 @dataclass
 class User:
@@ -59,6 +89,8 @@ class User:
     name: str
     role: str = "trader"          # owner / trader
     telegram_chat_id: str = ""
+    notify_day: str = ""          # 주간 알림 요일 (토/일/월... 또는 sat/sun, 빈값=기본 토)
+    notify_time: str = ""         # 주간 알림 시각 (HH:MM, 빈값=기본 15:00)
     accounts: List[Account] = field(default_factory=list)
 
     @property
@@ -124,6 +156,34 @@ def load_accounts(path: Path = ACCOUNTS_PATH) -> AccountsData:
                     f"{ukey}/{name}: 연금/IRP 계열 → can_order 를 false 로 강제 (주문 불가)")
                 can_order = False
 
+            # 비중(allocation) 파싱 (선택)
+            alloc = None
+            alloc_raw = acc.get("allocation")
+            if isinstance(alloc_raw, dict):
+                alloc = Allocation(
+                    cash=float(alloc_raw.get("cash", 0) or 0),
+                    aggressive=float(alloc_raw.get("aggressive", 0) or 0),
+                    moderate=float(alloc_raw.get("moderate", 0) or 0),
+                    safe=float(alloc_raw.get("safe", 0) or 0),
+                )
+                if not alloc.is_valid:
+                    warnings.append(
+                        f"{ukey}/{name}: 비중 합이 {alloc.total:.0f}% (100 아님) → 확인 필요")
+
+            # 종목 리스트(universe) 파싱 (선택)
+            universe = {}
+            uni_raw = acc.get("universe")
+            if isinstance(uni_raw, dict):
+                for cat in ("aggressive", "moderate", "safe"):
+                    items = uni_raw.get(cat) or []
+                    clean = []
+                    for it in items:
+                        if isinstance(it, dict) and str(it.get("code", "")).strip():
+                            clean.append({"code": str(it["code"]).strip(),
+                                          "name": str(it.get("name", "")).strip()})
+                    if clean:
+                        universe[cat] = clean
+
             accounts.append(Account(
                 name=name,
                 app_key=str(acc["my_app"]).strip(),
@@ -134,6 +194,8 @@ def load_accounts(path: Path = ACCOUNTS_PATH) -> AccountsData:
                 paper_app=(str(acc["paper_app"]).strip() if acc.get("paper_app") else None),
                 paper_sec=(str(acc["paper_sec"]).strip() if acc.get("paper_sec") else None),
                 paper_stock=(str(acc["my_paper_stock"]).strip() if acc.get("my_paper_stock") else None),
+                allocation=alloc,
+                universe=universe,
             ))
 
         if not accounts:
@@ -145,6 +207,8 @@ def load_accounts(path: Path = ACCOUNTS_PATH) -> AccountsData:
             name=str(ublock.get("name", ukey)),
             role=str(ublock.get("role", "trader")),
             telegram_chat_id=str(ublock.get("telegram_chat_id", "")),
+            notify_day=str(ublock.get("notify_day", "")).strip(),
+            notify_time=str(ublock.get("notify_time", "")).strip(),
             accounts=accounts,
         ))
 
@@ -173,6 +237,16 @@ def list_accounts(data: Optional[AccountsData] = None) -> None:
             order = "주문O" if a.can_order else "조회만"
             paper = "+모의" if a.has_paper else ""
             print(f"  - {a.name}: {a.acct_stock}/{a.prod} [{order}]{paper}")
+            if a.allocation:
+                al = a.allocation
+                print(f"      비중: 현금 {al.cash:.0f} / 공격 {al.aggressive:.0f} "
+                      f"/ 보수 {al.moderate:.0f} / 안전 {al.safe:.0f} (합 {al.total:.0f})")
+            if a.universe:
+                for cat, label in (("aggressive","공격"),("moderate","보수"),("safe","안전")):
+                    items = a.universe.get(cat, [])
+                    if items:
+                        names = ", ".join(f"{s['name']}({s['code']})" for s in items)
+                        print(f"      {label}: {names}")
     if data.warnings:
         print("\n⚠️ 경고:")
         for w in data.warnings:
