@@ -117,6 +117,28 @@ def build_account_section(brokerage) -> str:
     return "\n".join(lines)
 
 
+def build_trades_section(mode: str = None) -> str:
+    """이번 주 매매 내역 섹션 (거래 로그에서)."""
+    from mytrading.trade_log import trades_in_week, summarize
+    try:
+        trades = trades_in_week(mode=mode)
+    except Exception as e:
+        return f"📈 <b>이번 주 매매</b>\n  (조회 실패: {_esc(e)})"
+
+    lines = [f"📈 <b>이번 주 매매</b> ({len(trades)}건)"]
+    if not trades:
+        lines.append("  매매 없음")
+    else:
+        for t in trades:
+            ts = str(t.get("ts", ""))[5:16].replace("T", " ")  # MM-DD HH:MM
+            side_kr = "매수" if t.get("side") == "BUY" else "매도"
+            px = t.get("price")
+            px_str = f"{px:,.0f}" if isinstance(px, (int, float)) else "-"
+            lines.append(f"  {ts} {_esc(t.get('name', t.get('symbol')))} "
+                         f"{t.get('quantity')}주 {side_kr} @ {px_str}")
+    return "\n".join(lines)
+
+
 def build_message(brokerage=None, config: dict = None) -> str:
     """주간 알림 전체 메시지 생성."""
     if config is None:
@@ -131,7 +153,8 @@ def build_message(brokerage=None, config: dict = None) -> str:
     parts.append("")
     if brokerage is not None:
         parts.append(build_account_section(brokerage))
-    # TODO: 그 주 매매 내역 (거래 로그 생기면 추가)
+        parts.append("")
+    parts.append(build_trades_section())
     return "\n".join(parts)
 
 

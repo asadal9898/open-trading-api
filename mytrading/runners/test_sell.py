@@ -24,6 +24,7 @@ from mytrading.common import init, get_brokerage, get_data_provider, CONFIG, ass
 from mytrading.notify import (
     notify_order_submitted, notify_order_filled, notify_error,
 )
+from mytrading.trade_log import record_trade
 
 
 def _select_held(positions) -> str:
@@ -175,6 +176,11 @@ def main():
 
     print(f"  주문 접수됨 — 주문번호: {order.id}, 상태: {order.status}")
     notify_order_submitted(symbol, "SELL", qty, price_desc)
+
+    # 거래 로그 기록 (접수 시점)
+    record_trade(symbol=symbol, name=name, side="SELL", quantity=qty,
+                 price=(price if price is not None else bid),
+                 order_id=str(order.id), status="submitted")
 
     # 8. 체결 확인
     print("\n체결 확인 중... (3초 대기)")
