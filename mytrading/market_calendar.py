@@ -140,6 +140,85 @@ def next_holidays(days: int = 14, from_date: str = None) -> list:
     return holidays
 
 
+def next_week_holidays(from_date: str = None) -> list:
+    """
+    '다음 주' 월~금 중 휴장(공휴일)만 반환. 주말(토/일)은 제외.
+    - 기준일이 속한 주의 '다음 주 월요일'부터 그 주 금요일까지 확인
+    - 그 평일 중 개장 안 하는 날(opnd_yn=N)만 = 공휴일
+    반환: [{date, weekday}, ...]  (없으면 빈 리스트)
+    """
+    base = datetime.strptime(from_date, "%Y%m%d") if from_date else datetime.now()
+    # 이번 주 월요일 = base - base.weekday()일, 다음 주 월요일 = +7일
+    this_monday = base - timedelta(days=base.weekday())
+    next_monday = this_monday + timedelta(days=7)
+
+    cal = get_calendar(base.strftime("%Y%m%d"))
+    cal_map = {rec["date"]: rec for rec in cal}
+
+    wd_kr = ["월", "화", "수", "목", "금", "토", "일"]
+    holidays = []
+    for i in range(5):  # 월~금만
+        d = next_monday + timedelta(days=i)
+        ds = d.strftime("%Y%m%d")
+        rec = cal_map.get(ds)
+        if rec is not None:
+            is_open = rec["opnd_yn"] == "Y"
+        else:
+            is_open = True  # 캘린더에 없으면 개장으로 간주 (평일이므로)
+        if not is_open:  # 평일인데 개장 안 함 = 공휴일
+            holidays.append({"date": ds, "weekday": wd_kr[d.weekday()]})
+    return holidays
+
+
+# 거래소 코드 (pandas-market-calendars)
+_EXCHANGE = {
+    "us": "NYSE",     # 미국 (뉴욕증권거래소)
+    "japan": "JPX",   # 일본 (일본거래소)
+    "korea": "XKRX",  # 한국 (참고용)
+}
+
+
+def overseas_next_week_holidays(market: str, from_date: str = None) -> list:
+    """
+    해외 거래소의 '다음 주' 월~금 휴장일 (주말 제외).
+    pandas-market-calendars 의 개장일 스케줄을 받아, 평일 중 개장 안 하는 날을 휴장으로 판단.
+
+    market: "us"(NYSE) / "japan"(JPX) / "korea"(XKRX)
+    반환: [{date(YYYYMMDD), weekday}, ...]  (없으면 빈 리스트)
+    """
+    try:
+        import pandas_market_calendars as mcal
+    except ImportError:
+        return []  # 라이브러리 없으면 빈 결과 (설정 꺼두면 됨)
+
+    code = _EXCHANGE.get(market)
+    if not code:
+        return []
+
+    base = datetime.strptime(from_date, "%Y%m%d") if from_date else datetime.now()
+    this_monday = base - timedelta(days=base.weekday())
+    next_monday = this_monday + timedelta(days=7)
+    next_friday = next_monday + timedelta(days=4)
+
+    try:
+        cal = mcal.get_calendar(code)
+        sched = cal.schedule(start_date=next_monday.strftime("%Y-%m-%d"),
+                             end_date=next_friday.strftime("%Y-%m-%d"))
+        # 개장일 집합 (YYYYMMDD)
+        open_days = set(sched.index.strftime("%Y%m%d").tolist())
+    except Exception:
+        return []
+
+    wd_kr = ["월", "화", "수", "목", "금", "토", "일"]
+    holidays = []
+    for i in range(5):  # 월~금
+        d = next_monday + timedelta(days=i)
+        ds = d.strftime("%Y%m%d")
+        if ds not in open_days:  # 평일인데 개장일 목록에 없음 = 휴장
+            holidays.append({"date": ds, "weekday": wd_kr[d.weekday()]})
+    return holidays
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
     if args and args[0] == "--next":

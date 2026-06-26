@@ -1,6 +1,11 @@
 # 모드는 여기서 관리하지 않습니다 (환경변수 KIS_MODE 사용)
 # 모의: 그냥 실행  /  실전: KIS_MODE=prod uv run ...
 
+weekly_report:
+  overseas:
+    us: true      # 미국장 휴장 표시 (기본 off)
+    japan: true   # 일본장 휴장 표시 (기본 off)
+
 trading:
   symbols: ["005930"]      # 대상 종목 (삼성전자)
   default_qty: 1           # 기본 주문 수량
