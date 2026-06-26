@@ -36,10 +36,13 @@ class Allocation:
     aggressive: float = 0.0
     moderate: float = 0.0
     safe: float = 0.0
+    free: float = 0.0          # 자유 투자 (개인별 재량 종목)
+    # 개인별 자유 종목 [{code, name}] — free 비중으로 살 종목 (사람마다 다름)
+    free_symbols: List[dict] = field(default_factory=list)
 
     @property
     def total(self) -> float:
-        return self.cash + self.aggressive + self.moderate + self.safe
+        return self.cash + self.aggressive + self.moderate + self.safe + self.free
 
     @property
     def is_valid(self) -> bool:
@@ -92,15 +95,27 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
         for acc_name, vals in accts.items():
             if not isinstance(vals, dict):
                 continue
+            # free_symbols(개인별 자유 종목) 파싱
+            free_syms = []
+            for it in (vals.get("free_symbols") or []):
+                if isinstance(it, dict) and str(it.get("code", "")).strip():
+                    free_syms.append({"code": str(it["code"]).strip(),
+                                      "name": str(it.get("name", "")).strip()})
             al = Allocation(
                 cash=float(vals.get("cash", 0) or 0),
                 aggressive=float(vals.get("aggressive", 0) or 0),
                 moderate=float(vals.get("moderate", 0) or 0),
                 safe=float(vals.get("safe", 0) or 0),
+                free=float(vals.get("free", 0) or 0),
+                free_symbols=free_syms,
             )
             if not al.is_valid:
                 warnings.append(
                     f"{ukey}/{acc_name}: 비중 합 {al.total:.0f}% (100 아님) → 확인 필요")
+            # free 비중이 있는데 자유 종목이 없으면 안내
+            if al.free > 0 and not free_syms:
+                warnings.append(
+                    f"{ukey}/{acc_name}: free 비중 {al.free:.0f}%인데 free_symbols 없음")
             allocations.setdefault(ukey, {})[acc_name] = al
 
     # --- 종목풀 ---
@@ -118,6 +133,34 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
     return Portfolio(allocations=allocations, universe=universe, warnings=warnings)
 
 
+def get_watch_symbols(config: dict = None) -> list:
+    """
+    조회/주문 대상 종목 코드 리스트를 반환.
+    우선순위: universe.yaml 종목풀 → (비면) mytrading_config.yaml 의 trading.symbols → ["005930"]
+    config: mytrading_config.yaml 로드 딕셔너리 (폴백용, 없으면 universe/기본값만)
+    """
+    pf = load_portfolio()
+    syms = pf.symbols()  # universe 전체 (공격+보수+안전)
+    if syms:
+        return syms
+    # 폴백: config 의 trading.symbols
+    if config:
+        cfg_syms = (config.get("trading", {}) or {}).get("symbols")
+        if cfg_syms:
+            return list(cfg_syms)
+    return ["005930"]
+
+
+def get_symbol_names() -> dict:
+    """종목코드 → 이름 매핑 (universe 기준). 표시용."""
+    pf = load_portfolio()
+    out = {}
+    for cat in _CATEGORIES:
+        for s in pf.names(cat):
+            out[s["code"]] = s["name"]
+    return out
+
+
 def print_portfolio(pf: Optional[Portfolio] = None) -> None:
     if pf is None:
         pf = load_portfolio()
@@ -129,7 +172,11 @@ def print_portfolio(pf: Optional[Portfolio] = None) -> None:
         print(f"[{ukey}]")
         for name, al in accts.items():
             print(f"  - {name}: 현금 {al.cash:.0f} / 공격 {al.aggressive:.0f} "
-                  f"/ 보수 {al.moderate:.0f} / 안전 {al.safe:.0f} (합 {al.total:.0f})")
+                  f"/ 보수 {al.moderate:.0f} / 안전 {al.safe:.0f} / 자유 {al.free:.0f} "
+                  f"(합 {al.total:.0f})")
+            if al.free_symbols:
+                fs = ", ".join(f"{s['name']}({s['code']})" for s in al.free_symbols)
+                print(f"      자유종목: {fs}")
 
     print("\n=== 종목풀 (universe) ===")
     for cat in _CATEGORIES:

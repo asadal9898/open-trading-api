@@ -1,21 +1,25 @@
 # 공용 종목풀 — 모든 계좌가 참조하는 종목 분류 리스트
 # 계좌는 비중(allocations.yaml)만 다르고, 종목은 이 풀에서 공통으로 사용합니다.
 #
-# 분류:
-#   aggressive (공격) : 개별주, 변동성 큰 종목 (떨어진 우량 배당주 등)
-#   moderate   (보수) : 안정적 개별주
+# 분류 (공용 — 모두가 같은 종목):
+#   aggressive (공격) : 개별주, 변동성 큰 종목 (기술주, 바이오)
+#   moderate   (보수) : 안정적 개별주 (떨어진 우량 배당주 등)
 #   safe       (안전) : 지수 ETF(S&P500/나스닥100), 채권 ETF 등 분산 자산
+#
+# ※ 자유 투자(free)는 사람마다 다르므로 여기(공용)가 아니라
+#    allocations.yaml 의 각 계좌 free_symbols 에 개인별로 둡니다.
 #
 # 형식: { code: "종목코드6자리", name: "표시이름" }
 # ※ 자동매매에 쓰려면 각 종목/전략을 반드시 백테스트로 검증한 뒤 추가하세요.
 
 aggressive:
   - { code: "005930", name: "삼성전자" }
-  # - { code: "000660", name: "SK하이닉스" }
+  - { code: "000660", name: "SK하이닉스" }
 
-moderate: []
-  # - { code: "", name: "" }
+moderate:
+  - { code: "049720", name: "고려신용정보" }
+  - { code: "009680", name: "모토닉" }
 
-safe: []
-  # - { code: "379800", name: "KODEX 미국S&P500" }
+safe:
+  - { code: "379800", name: "KODEX 미국S&P500" }
   # - { code: "", name: "채권 ETF" }

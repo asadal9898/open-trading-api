@@ -2,6 +2,8 @@
 계좌 조회 러너 — 잔고 / 보유종목 / 현재가 조회 (주문 안 함, 가장 안전)
 brokerage 연결과 인증이 잘 되는지 확인하는 용도.
 
+현재가는 universe.yaml 종목풀을 조회합니다 (비어있으면 config 폴백).
+
 실행:
     uv run python mytrading/runners/check_balance.py              # 모의(vps)
     uv run python mytrading/runners/check_balance.py --telegram   # 잔고를 폰으로도 전송
@@ -9,12 +11,11 @@ brokerage 연결과 인증이 잘 되는지 확인하는 용도.
 """
 import sys
 from pathlib import Path
-
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-
 from mytrading.common import init, get_brokerage, get_data_provider, CONFIG
 from mytrading.notify import notify_balance
+from mytrading.portfolio import get_watch_symbols, get_symbol_names
 
 
 def main():
@@ -45,16 +46,26 @@ def main():
                   f"@ 평단 {p.average_price:,.0f} / 현재 {p.current_price:,.0f} "
                   f"({p.unrealized_pnl_percent:+.2f}%)")
 
-    # 3. 관심 종목 현재가 (config symbols)
+    # 3. 관심 종목 현재가 (universe.yaml 종목풀, 비면 config 폴백)
     print("\n[현재가]")
     data = get_data_provider()
-    symbols = CONFIG.get("trading", {}).get("symbols", ["005930"])
+    symbols = get_watch_symbols(CONFIG)
+    names = get_symbol_names()
+    if not symbols:
+        print("  (종목풀 비어있음 — universe.yaml 에 종목을 추가하세요)")
     for sym in symbols:
+        label = f"{names.get(sym, '')}({sym})" if names.get(sym) else sym
         try:
             q = data.get_quote(sym)
-            print(f"  {sym}: {q}")
+            # 호가 핵심만 간결히 출력 (bid/ask)
+            bid = getattr(q, "bid_price", None)
+            ask = getattr(q, "ask_price", None)
+            if bid is not None and ask is not None:
+                print(f"  {label}: 매수 {bid:,.0f} / 매도 {ask:,.0f}")
+            else:
+                print(f"  {label}: {q}")
         except Exception as e:
-            print(f"  {sym}: 조회 실패 - {e}")
+            print(f"  {label}: 조회 실패 - {e}")
 
     # 4. 텔레그램 전송 (옵션)
     if to_telegram:

@@ -1,33 +1,44 @@
-# 계좌별 자금 비중 (%) — 현금/공격/보수/안전
+# 계좌별 자금 비중 (%) — 현금/공격/보수/안전/자유(free)
 # kis_devlp.yaml 의 users > 계좌 'name' 과 이름으로 연결됩니다.
 # 각 계좌의 비중 합은 100 이어야 합니다 (로더가 검증).
 #
-# 종목 자체는 universe.yaml(공용 종목풀)에 정의하고,
-# 여기서는 각 분류(공격/보수/안전)에 자금을 얼마나 배분할지만 정합니다.
+# 분류:
+#   cash       : 현금 보유 (투자 안 함)
+#   aggressive : 공격 — universe.yaml 공격 종목풀 (공용)
+#   moderate   : 보수 — universe.yaml 보수 종목풀 (공용)
+#   safe       : 안전 — universe.yaml 안전 종목풀 (공용)
+#   free       : 자유 — 각자 재량 종목 (개인별, 아래 free_symbols 에 직접 지정)
+#
+# free 는 사람마다 다른 자유 투자 영역입니다 (자율성 보장).
+# free 비중을 두면 free_symbols 에 그 사람이 원하는 종목을 직접 넣습니다.
 
 users:
   Owner:
     accounts:
       일반증권1:
-        cash: 30          # 현금 보유 (투자 안 함)
-        aggressive: 30    # 공격 투자
-        moderate: 20      # 보수 투자
-        safe: 20          # 안전 투자 (ETF 등)
+        cash: 20
+        aggressive: 30
+        moderate: 20
+        safe: 20
+        free: 10           # 자유 투자 10% (합 100)
+        free_symbols:       # Owner 의 자유 종목 (개인별)
+          - { code: "000660", name: "SK하이닉스" }
       # 일반증권2:
-      #   cash: 40
+      #   cash: 30
       #   aggressive: 20
       #   moderate: 20
       #   safe: 20
-      # ISA:
-      #   cash: 20
-      #   aggressive: 40
-      #   moderate: 20
-      #   safe: 20
+      #   free: 10
+      #   free_symbols:
+      #     - { code: "", name: "" }
 
   # brother:
   #   accounts:
   #     일반증권1:
-  #       cash: 50
+  #       cash: 40
   #       aggressive: 20
   #       moderate: 15
   #       safe: 15
+  #       free: 10
+  #       free_symbols:      # 동생의 자유 종목 (Owner 와 다름)
+  #         - { code: "", name: "" }

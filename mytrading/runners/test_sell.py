@@ -26,10 +26,44 @@ from mytrading.notify import (
 )
 
 
-def main():
-    symbol = sys.argv[1] if len(sys.argv) > 1 else \
-        CONFIG.get("trading", {}).get("symbols", ["005930"])[0]
+def _select_held(positions) -> str:
+    """
+    매도할 종목을 보유 목록에서 선택.
+    - 명령행 인자(sys.argv[1])로 주면 그대로 사용
+    - 없으면 보유 종목 메뉴에서 선택 (보유 1개면 자동)
+    반환: 종목코드 (취소/없음 시 빈 문자열)
+    """
+    held_list = [p for p in positions if p.quantity > 0]
 
+    if len(sys.argv) > 1:
+        return sys.argv[1].strip()
+
+    if not held_list:
+        return ""
+    if len(held_list) == 1:
+        return held_list[0].symbol
+
+    print("\n[매도할 종목 선택 — 보유 종목]")
+    for i, p in enumerate(held_list, 1):
+        nm = p.name or p.symbol
+        print(f"  {i}) {nm}({p.symbol}) {p.quantity}주 "
+              f"@ 평단 {p.average_price:,.0f} ({p.unrealized_pnl_percent:+.2f}%)")
+    print("  0) 취소")
+    raw = input(f"선택 (0~{len(held_list)}): ").strip()
+
+    if raw == "0" or raw == "":
+        return ""
+    try:
+        idx = int(raw)
+        if 1 <= idx <= len(held_list):
+            return held_list[idx - 1].symbol
+    except ValueError:
+        pass
+    print("잘못된 선택.")
+    return ""
+
+
+def main():
     # 1. 모드 확인 + 실전 가드
     init()
 
@@ -40,8 +74,7 @@ def main():
     data = get_data_provider()
     brokerage = get_brokerage()
 
-    # 2. 보유 종목 확인 (매도는 보유가 있어야 함)
-    print(f"\n[{symbol} 보유 확인]")
+    # 2. 보유 종목 조회 후 매도할 종목 선택
     try:
         positions = brokerage.get_positions()
     except Exception as e:
@@ -49,10 +82,22 @@ def main():
         notify_error("매도 실패", f"보유 조회 실패: {e}")
         return
 
+    if not [p for p in positions if p.quantity > 0] and len(sys.argv) <= 1:
+        print("\n보유 종목이 없습니다. 매도할 수 없습니다.")
+        print("  (먼저 test_order.py 로 매수하거나, check_balance.py 로 보유를 확인하세요.)")
+        return
+
+    symbol = _select_held(positions)
+    if not symbol:
+        print("취소했습니다.")
+        return
+
+    # 3. 선택한 종목 보유 확인
+    print(f"\n[{symbol} 보유 확인]")
     held = next((p for p in positions if p.symbol == symbol), None)
     if held is None or held.quantity <= 0:
         print(f"  {symbol} 보유 수량이 없습니다. 매도할 수 없습니다.")
-        print("  (먼저 test_order.py 로 매수하거나, check_balance.py 로 보유를 확인하세요.)")
+        print("  (check_balance.py 로 보유를 확인하세요.)")
         return
 
     name = held.name or symbol
