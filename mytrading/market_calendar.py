@@ -6,6 +6,16 @@
 ⚠️ KIS 주의: 국내휴장일조회는 원장서비스 연관이라 1일 1회 호출 권장.
    → 이 모듈은 조회 결과를 당일 파일 캐시에 저장해 중복 호출을 막는다.
 
+[휴장일 소스 선택 — 검토 결과(2026-06)]
+  - 국내: KIS API(chk_holiday) 사용. pandas-market-calendars(XKRX)로 통일을
+    검토했으나, XKRX 가 제헌절(7/17, 법정공휴일 아니지만 증시는 휴장) 등
+    한국 증시 고유 휴장을 놓침. KIS 가 더 정확하므로 국내는 KIS 유지.
+    (토큰 충돌은 common 의 모드전환 토큰무효화 + 1일1회 캐시로 완화됨)
+  - 해외(미국/일본): pandas-market-calendars(NYSE/JPX) 사용. KIS 의
+    countries-holiday 는 휴장일이 아니라 '결제일자' 조회라 부적합.
+    market-calendars 가 거래소 실제 휴장(독립기념일 대체휴장 등)을 정확히 잡음.
+  → 시장별로 가장 정확한 소스를 쓴다 (통일보다 정확도 우선).
+
 사용:
     from mytrading.market_calendar import is_market_open, next_holidays
     if is_market_open():          # 오늘 개장일인가?
