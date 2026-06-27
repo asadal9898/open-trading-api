@@ -120,3 +120,60 @@ def ensure_data_multi(symbols: List[str], start: str = "2020-01-01",
     for sym in symbols:
         ensure_data(sym, start=start, end=end)
     print("데이터 관리 완료")
+
+
+def get_52w_range(symbol: str, asof: Optional[date] = None, window: int = 252) -> Optional[dict]:
+    """
+    52주(기본 252거래일) 최저/최고가 + 현재가 위치.
+    캐시된 일봉 CSV(_cache_path)에서 계산. 데이터 부족/없으면 None.
+
+    asof: 기준일(없으면 최신). 이 날짜 이하의 마지막 window개로 계산.
+    반환: {low, high, last, low_date, high_date, pct_from_low, pct_from_high, n}
+    - value_range(저점매수): pct_from_low <= buy_zone% 이면 저점 근처 → 매수
+    - momentum(신고가):     pct_from_high >= -X% (0 근접) 이면 고점권 → 매수
+    """
+    path = _cache_path(symbol)
+    if not path.exists():
+        return None
+    rows = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(",")
+            if len(parts) < 5:
+                continue
+            d = parts[0]
+            try:
+                hi = float(parts[2]); lo = float(parts[3]); cl = float(parts[4])
+            except ValueError:
+                continue  # 헤더 등 스킵
+            rows.append((d, hi, lo, cl))
+    if not rows:
+        return None
+
+    if asof is not None:
+        cut = asof.strftime("%Y%m%d")
+        rows = [r for r in rows if r[0] <= cut]
+    if not rows:
+        return None
+
+    win = rows[-window:]
+    last_d, _, _, last_close = win[-1]
+    high = max(r[1] for r in win)
+    low = min(r[2] for r in win)
+    high_date = max(win, key=lambda r: r[1])[0]
+    low_date = min(win, key=lambda r: r[2])[0]
+
+    pct_from_low = (last_close - low) / low * 100 if low > 0 else 0.0
+    pct_from_high = (last_close - high) / high * 100 if high > 0 else 0.0
+
+    return {
+        "symbol": symbol,
+        "low": low, "high": high, "last": last_close,
+        "low_date": low_date, "high_date": high_date,
+        "pct_from_low": round(pct_from_low, 2),
+        "pct_from_high": round(pct_from_high, 2),
+        "n": len(win),
+    }

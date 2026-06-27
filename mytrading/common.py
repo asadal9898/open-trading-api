@@ -261,7 +261,7 @@ def get_backtest_period() -> tuple:
 
 
 # 유효한 국면 값
-_VALID_REGIMES = ("bull", "bear", "sideways")
+_VALID_REGIMES = ("bull", "bear", "sideways", "toppish")
 
 
 def get_regime(market: str = "domestic") -> str:
