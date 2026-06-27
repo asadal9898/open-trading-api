@@ -1,22 +1,26 @@
 """
-거시 지수 수집 — 해외/국내 주요 지수 일봉을 받아 CSV 캐시에 저장.
+거시 데이터 수집 — 해외/국내 지수 + 환율 일봉을 받아 CSV 캐시에 저장.
 
 시장 국면 판단(market_regime)의 참고 데이터.
 ⚠️ 자동 매매 신호가 아니라, Owner 가 국면을 판단할 때 보는 참고 자료.
 
 데이터 소스: KIS inquire_daily_chartprice (해외주식-012, FHKST03030100)
-  - fid_cond_mrkt_div_code="N"(해외지수), env_dv="demo"(모의 가능 — 토큰충돌 없음)
+  - fid_cond_mrkt_div_code: N=해외지수, X=환율, I=국채(금리), S=금선물
+  - env_dv="demo"(모의 가능 — 토큰충돌 없음)
   - 응답 output2: stck_bsop_date(날짜), ovrs_nmix_prpr(종가),
                   ovrs_nmix_oprc(시가), ovrs_nmix_hgpr(고가), ovrs_nmix_lwpr(저가), acml_vol(거래량)
-  - 이 API 하나로 지수(N)/환율(X)/국채금리(I)/금선물(S) 다 받음 (확장 가능)
+  - 이 API 하나로 지수(N)/환율(X)/국채금리(I)/금선물(S) 다 받음
 
 저장: backtester/.lean-workspace/data/index/{key}.csv
       형식: YYYYMMDD,open,high,low,close,volume  (기존 종목 일봉과 동일)
 
-지수 코드 (검증 완료 / KIS 해외지수):
-  한국: KOSPI
-  미국: SPX(S&P500) COMP(나스닥종합) NDX(나스닥100)  ※ 다우는 가격가중이라 제외
-  일본·중국: 코드 미확보 — KIS 해외지수 마스터/문의로 확보 후 INDICES 에 추가
+코드 (검증 완료):
+  지수(N): 한국 KOSPI / 미국 SPX(S&P500) COMP(나스닥종합) NDX(나스닥100)  ※ 다우 제외(가격가중)
+           일본 JP#NI225(니케이225) / 중국 SHANG(상해종합)
+  환율(X): FX@KRW(달러/원) FX@JPY(엔/원) FX@CNY(위안/원) FX@EUR(유로)
+  미확보: 국채금리(I)·금선물(S) — KIS 문의 필요 (공식 자료에 코드 없음)
+  ※ 지수 코드는 해외지수 마스터(frgn_code.mst)에서 확보. find_index_code.py 로 검색 가능.
+    다른 지수: HK#HS(홍콩항셍) CH#000300(CSI300) TW#WT(대만) SX5E(유로스톡스50) GR#DAX(독일) 등
 
 사용:
     from mytrading.index_data import ensure_index_data, INDICES
@@ -25,7 +29,7 @@
 
 CLI:
     uv run python mytrading/index_data.py                 # 전체 수집
-    uv run python mytrading/index_data.py kospi sp500     # 일부만
+    uv run python mytrading/index_data.py kospi fx_usd    # 일부만
 """
 import sys
 import time
@@ -36,16 +40,26 @@ from typing import Optional, List
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _INDEX_DIR = _REPO_ROOT / "backtester" / ".lean-workspace" / "data" / "index"
 
-# 지수 목록 (key: 코드/시장구분/이름). 일본·중국은 코드 확보 후 추가.
-# 다우(.DJI)는 가격가중 방식이라 시총가중인 S&P500/나스닥과 산출이 달라
-# 국면 분석을 왜곡할 수 있어 제외. 시총가중 지수만 사용.
+# 수집 대상 (key: 코드/시장구분/이름). key 가 곧 CSV 파일명({key}.csv).
+#   market 구분: N=해외지수, X=환율, I=국채(금리), S=금선물
+#   다우(.DJI)는 가격가중이라 시총가중인 S&P500/나스닥과 산출이 달라
+#   국면 분석을 왜곡할 수 있어 제외. 시총가중 지수만 사용.
 INDICES = {
+    # ── 지수 (N) ──
     "kospi":     {"code": "KOSPI", "market": "N", "name": "코스피"},
     "sp500":     {"code": "SPX",   "market": "N", "name": "S&P500"},
     "nasdaq":    {"code": "COMP",  "market": "N", "name": "나스닥종합"},
     "nasdaq100": {"code": "NDX",   "market": "N", "name": "나스닥100"},
-    # "nikkei":  {"code": "???",   "market": "N", "name": "니케이225"},   # 코드 확보 후
-    # "shanghai":{"code": "???",   "market": "N", "name": "상해종합"},    # 코드 확보 후
+    "nikkei":    {"code": "JP#NI225", "market": "N", "name": "니케이225"},
+    "shanghai":  {"code": "SHANG",    "market": "N", "name": "상해종합"},
+    # ── 환율 (X) ── 원화 기준 (FX@통화)
+    "fx_usd":    {"code": "FX@KRW", "market": "X", "name": "달러/원"},
+    "fx_jpy":    {"code": "FX@JPY", "market": "X", "name": "엔/원"},
+    "fx_cny":    {"code": "FX@CNY", "market": "X", "name": "위안/원"},
+    "fx_eur":    {"code": "FX@EUR", "market": "X", "name": "유로"},
+    # ── 국채금리(I)·금선물(S) ── 코드 미확보 (공식 자료에 없음, KIS 문의 필요)
+    # "ust10y":  {"code": "???",   "market": "I", "name": "미국채10년"},
+    # "gold":    {"code": "???",   "market": "S", "name": "금선물"},
 }
 
 _API_DIR = _REPO_ROOT / "examples_llm" / "overseas_stock" / "inquire_daily_chartprice"
