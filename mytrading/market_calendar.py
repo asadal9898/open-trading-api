@@ -65,7 +65,10 @@ def _fetch_holiday_df(bass_dt: str):
     from chk_holiday import chk_holiday
     try:
         import kis_auth as ka
-        from mytrading.common import _resolve_account, _inject_auth_cfg
+        from mytrading.common import _resolve_account, _inject_auth_cfg, resolve_mode
+
+        # 호출 전 원래 모드 기억 (휴장일 조회는 실전 서버를 잠깐 빌려 씀 → 끝나면 반납)
+        original_mode = resolve_mode()  # "vps" or "prod"
 
         # 실전(prod) 계좌 키 주입 후 실전 서버 인증
         # (토큰 모드 충돌은 _inject_auth_cfg 가 모드 전환 감지해 자동 처리)
@@ -76,8 +79,20 @@ def _fetch_holiday_df(bass_dt: str):
         print(f"[market_calendar] 실전 인증 실패: {e}")
         print("  (휴장일 조회는 실전 앱키가 필요합니다. 일반증권 my_app/my_sec 확인)")
         return pd.DataFrame()
-    # max_depth 넉넉히 (1년치 ~264건을 경고 없이 받아 당일 캐시 → 재호출 없음)
-    return chk_holiday(bass_dt=bass_dt, max_depth=20)
+
+    try:
+        # max_depth 넉넉히 (1년치 ~264건을 경고 없이 받아 당일 캐시 → 재호출 없음)
+        return chk_holiday(bass_dt=bass_dt, max_depth=20)
+    finally:
+        # 원래 모드가 모의(vps)였으면 모의로 복원 (실전 모드 잔류로 인한
+        # 후속 계좌조회 EGW02005 '실전 TR이 아닙니다' 방지)
+        if original_mode == "vps":
+            try:
+                back_acc = _resolve_account(is_paper=True)
+                _inject_auth_cfg(back_acc, is_paper=True)
+                ka.auth(svr="vps")
+            except Exception as e:
+                print(f"[market_calendar] 모의 모드 복원 실패(무시): {e}")
 
 
 def get_calendar(bass_dt: str = None, use_cache: bool = True) -> list:
