@@ -260,6 +260,42 @@ def get_backtest_period() -> tuple:
     return start, end
 
 
+# 유효한 국면 값
+_VALID_REGIMES = ("bull", "bear", "sideways")
+
+
+def get_regime(market: str = "domestic") -> str:
+    """
+    시장 국면 반환 (Owner 가 config 에 설정한 값).
+    market: "domestic"(국내/코스피) / "overseas"(해외/미국 추종)
+    반환: "bull" / "bear" / "sideways"  (미설정/오류 시 "sideways" 안전 기본)
+
+    ※ 자동 판단이 아니라 사람이 config.market_regime 에 적어둔 상태값.
+    """
+    mr = CONFIG.get("market_regime", {}) or {}
+    val = str(mr.get(market, "")).strip().lower()
+    if val in _VALID_REGIMES:
+        return val
+    # 미설정/오타 시 중립(sideways) — 분할 결정에서 가장 보수적
+    return "sideways"
+
+
+def regime_for_symbol(symbol: str, overseas_symbols=None) -> str:
+    """
+    종목에 적용할 국면을 반환.
+    해외 추종 종목(예: KODEX 미국S&P500)은 overseas 국면, 나머지는 domestic.
+    overseas_symbols: 해외 추종으로 볼 종목코드 집합 (없으면 전부 domestic).
+    """
+    overseas_symbols = set(overseas_symbols or [])
+    market = "overseas" if symbol in overseas_symbols else "domestic"
+    return get_regime(market)
+
+
+def regime_info() -> dict:
+    """국면 설정 전체 (메타 포함) 반환. 출력/확인용."""
+    return dict(CONFIG.get("market_regime", {}) or {})
+
+
 def get_data_provider():
     """
     백테스트용 KISDataProvider 생성.
