@@ -275,6 +275,12 @@ def get_data_provider():
     acc = _resolve_account(is_paper)
     _print_account_once(acc)
 
+    import kis_auth as ka
+    # KISAuth 생성자가 내부에서 ka.auth 를 호출하므로, 그 전에 선택된 계좌 키를
+    # 전역 _cfg 에 주입해야 한다. (안 그러면 ka.auth 가 _cfg["paper_app"] 등을
+    # 못 찾아 KeyError. _inject 가 모드전환 토큰무효화도 함께 처리)
+    _inject_auth_cfg(acc, is_paper)
+
     auth = KISAuth(
         app_key=acc["app_key"],
         app_secret=acc["app_secret"],
@@ -288,9 +294,6 @@ def get_data_provider():
     # 기본 0.1초로 남아 모의 계좌 초당 호출 제한에 걸린다.
     # → 여기서 kis_auth 를 인증하고, config 값으로 _smartSleep 을 명시적으로 설정한다.
     #   (원본 코드는 수정하지 않고, 전역 변수만 덮어쓴다)
-    import kis_auth as ka
-
-    _inject_auth_cfg(acc, is_paper)  # 선택된 계좌 키 주입
     ka.auth(svr=mode)  # 토큰 발급 + 전역 환경 설정
 
     # config 의 rate_limit 값으로 호출 간격 지정 (없으면 모드별 안전 기본값)
@@ -321,6 +324,11 @@ def get_brokerage():
     if not acc.get("can_order", True):
         print(f"  ⚠️ [account] {acc['source']} 는 주문 불가 계좌(IRP 등)입니다. 조회만 가능.")
 
+    import kis_auth as ka
+    # KISAuth 생성자가 ka.auth 를 호출하므로, 그 전에 키를 _cfg 에 주입해야 한다.
+    # (get_data_provider 와 동일한 이유 — paper_app KeyError 방지)
+    _inject_auth_cfg(acc, is_paper)
+
     auth = KISAuth(
         app_key=acc["app_key"],
         app_secret=acc["app_secret"],
@@ -328,8 +336,6 @@ def get_brokerage():
         is_paper=is_paper,
     )
     # 조회 호출 간격도 적용 (레이트리밋 대응)
-    import kis_auth as ka
-    _inject_auth_cfg(acc, is_paper)  # 선택된 계좌 키 주입
     ka.auth(svr=mode)
     rate_cfg = CONFIG.get("rate_limit", {})
     ka._smartSleep = float(rate_cfg.get(f"{mode}_sleep", 1.0 if is_paper else 0.1))
