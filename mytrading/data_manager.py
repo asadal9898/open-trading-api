@@ -177,3 +177,69 @@ def get_52w_range(symbol: str, asof: Optional[date] = None, window: int = 252) -
         "pct_from_high": round(pct_from_high, 2),
         "n": len(win),
     }
+
+def get_trend(symbol: str, asof: Optional[date] = None,
+              mas=(5, 20, 60)) -> Optional[dict]:
+    """
+    이동평균선 + 추세 상태. momentum(주도주) 추세 판단용.
+    캐시된 일봉 CSV(_cache_path)에서 계산. 데이터 부족/없으면 None.
+
+    mas: 계산할 이동평균 기간들 (기본 5/20/60일선)
+    asof: 기준일(없으면 최신).
+    반환: {last, ma5, ma20, ma60, above_ma5, above_ma20, ma5_slope, n}
+    ※ momentum 매도 규칙(5일선 이탈 등)은 백테스트로 확정 예정.
+      이 함수는 판단에 필요한 '재료'(이동평균·추세)만 제공.
+    """
+    path = _cache_path(symbol)
+    if not path.exists():
+        return None
+    closes = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(",")
+            if len(parts) < 5:
+                continue
+            try:
+                cl = float(parts[4])
+            except ValueError:
+                continue
+            closes.append((parts[0], cl))
+    if not closes:
+        return None
+
+    if asof is not None:
+        cut = asof.strftime("%Y%m%d")
+        closes = [c for c in closes if c[0] <= cut]
+    if not closes:
+        return None
+
+    vals = [c[1] for c in closes]
+    last = vals[-1]
+
+    def _ma(period, offset=0):
+        end = len(vals) - offset
+        if end < period:
+            return None
+        seg = vals[end - period:end]
+        return sum(seg) / period
+
+    out = {"symbol": symbol, "last": last, "n": len(vals)}
+    for p in mas:
+        m = _ma(p)
+        out[f"ma{p}"] = round(m, 2) if m is not None else None
+
+    ma5 = out.get("ma5")
+    ma20 = out.get("ma20")
+    out["above_ma5"] = (last >= ma5) if ma5 is not None else None
+    out["above_ma20"] = (last >= ma20) if ma20 is not None else None
+
+    ma5_prev = _ma(5, offset=1)
+    if ma5 is not None and ma5_prev is not None:
+        out["ma5_slope"] = round(ma5 - ma5_prev, 2)
+    else:
+        out["ma5_slope"] = None
+
+    return out

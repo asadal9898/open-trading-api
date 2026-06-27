@@ -54,9 +54,9 @@ order_pace:
 
   # 사용자 가중치 (0~1.0) — base에 더해짐 (스타일별)
   user_weight:
-    accumulate:  0.0
-    momentum:    0.5
-    value_range: 0.0
+    accumulate:  { buy: 0.0, sell: 0.0 }
+    momentum:    { buy: 0.5, sell: 0.0 }   # 매수만 적극, 매도는 기본(국면 따름)
+    value_range: { buy: 0.0, sell: 0.0 }
 
   max_slice: 20            # 곱셈 결과 상한 (한 번에 최대 20%)
 
