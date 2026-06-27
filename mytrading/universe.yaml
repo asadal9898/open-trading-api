@@ -13,13 +13,31 @@
 # ※ 자동매매에 쓰려면 각 종목/전략을 반드시 백테스트로 검증한 뒤 추가하세요.
 
 aggressive:
-  - { code: "005930", name: "삼성전자" }
-  - { code: "000660", name: "SK하이닉스" }
+  - { code: "005930", name: "삼성전자",   style: "momentum" }
+  - { code: "000660", name: "SK하이닉스", style: "momentum" }
 
 moderate:
-  - { code: "049720", name: "고려신용정보" }
-  - { code: "009680", name: "모토닉" }
+  - { code: "049720", name: "고려신용정보", style: "value_range" }
+  - { code: "009680", name: "모토닉",       style: "value_range" }
 
 safe:
-  - { code: "379800", name: "KODEX 미국S&P500" }
-  # - { code: "", name: "채권 ETF" }
+  - { code: "379800", name: "KODEX 미국S&P500", style: "accumulate", note: "미국 대표지수" }
+  - { code: "114260", name: "KODEX 국고채3년", style: "accumulate", note: "수수료 0.150%, 거래량 대장(삼성)" }
+  - { code: "481430", name: "RISE 국고채10년액티브", style: "accumulate", note: "수수료 0.050%, 금리 하락기 유리" }
+
+  # 후보 (거래량 부족으로 제외):
+  #   438560 SOL 국고채3년 (수수료 0.020% 최저지만 거래량 32주)
+  #   438570 SOL 국고채10년 (수수료 0.050%, 거래량 149주)
+  #   114100 RISE 국고채3년 (수수료 0.115%, 거래량 5,850)
+
+    #0192S0  | SOL 코스피200채권혼합50
+    #183700  | RISE 200채권혼합50
+    #214980  | KODEX 단기채권PLUS
+    #153130  | KODEX 단기채권
+    #272580  | TIGER 단기채권액티브
+    #440640  | ACE 단기채권알파액티브
+    #0052S0  | 1Q 미국S&P500미국채혼합50액티브
+    #0057H0  | PLUS 미국S&P500미국채혼합50액티브
+    #0080X0  | SOL 미국S&P500미국채혼합50
+    #0089B0  | PLUS 미국나스닥100미국채혼합50
+    #0111P0  | 1Q 미국나스닥100미국채혼합50액티브

@@ -126,8 +126,13 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
         clean = []
         for it in items:
             if isinstance(it, dict) and str(it.get("code", "")).strip():
-                clean.append({"code": str(it["code"]).strip(),
-                              "name": str(it.get("name", "")).strip()})
+                entry = {"code": str(it["code"]).strip(),
+                         "name": str(it.get("name", "")).strip()}
+                # 선택 필드 보존 (style/note/cadence/slice — 1-b 국면별 매매용)
+                for k in ("style", "note", "cadence", "slice"):
+                    if it.get(k) is not None:
+                        entry[k] = it[k]
+                clean.append(entry)
         universe[cat] = clean
 
     return Portfolio(allocations=allocations, universe=universe, warnings=warnings)

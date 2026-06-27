@@ -68,8 +68,9 @@ def build_holiday_section(config: dict = None) -> str:
     ov = (cfg.get("weekly_report", {}) or {}).get("overseas", {}) or {}
     show_us = bool(ov.get("us", False))
     show_jp = bool(ov.get("japan", False))
+    show_cn = bool(ov.get("china", False))
 
-    if show_us or show_jp:
+    if show_us or show_jp or show_cn:
         from mytrading.market_calendar import overseas_next_week_holidays
         lines.append("")
         lines.append("🌏 <b>다음 주 휴장 (해외)</b>")
@@ -91,7 +92,16 @@ def build_holiday_section(config: dict = None) -> str:
                     lines.append(f"  일본장 {md} ({h['weekday']}) 휴장")
             else:
                 lines.append("  일본장: 휴장 없음")
-
+        if show_cn:
+            cn_hs = overseas_next_week_holidays("china")
+            if cn_hs:
+                for h in cn_hs:
+                    d = h["date"]
+                    md = f"{d[4:6]}/{d[6:8]}"
+                    lines.append(f"  중국장 {md} ({h['weekday']}) 휴장")
+            else:
+                lines.append("  중국장: 휴장 없음")
+                
     return "\n".join(lines)
 
 

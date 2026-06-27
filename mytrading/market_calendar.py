@@ -199,6 +199,7 @@ def next_week_holidays(from_date: str = None) -> list:
 _EXCHANGE = {
     "us": "NYSE",     # 미국 (뉴욕증권거래소)
     "japan": "JPX",   # 일본 (일본거래소)
+    "china": "SSE",    # ← 추가 (상해증권거래소)
     "korea": "XKRX",  # 한국 (참고용)
 }
 
