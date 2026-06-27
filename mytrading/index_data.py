@@ -18,7 +18,11 @@
   지수(N): 한국 KOSPI / 미국 SPX(S&P500) COMP(나스닥종합) NDX(나스닥100)  ※ 다우 제외(가격가중)
            일본 JP#NI225(니케이225) / 중국 SHANG(상해종합)
   환율(X): FX@KRW(달러/원) FX@JPY(엔/원) FX@CNY(위안/원) FX@EUR(유로)
-  미확보: 국채금리(I)·금선물(S) — KIS 문의 필요 (공식 자료에 코드 없음)
+  금리(I): Y0202(미국채10년) Y0201(미국채30년) Y0204(미국연방기금금리) Y0207(일본채10년)
+           ※ 금리는 종가가 수익률(%) 값 (예: 4.87). 가격이 아님에 유의.
+  원자재(N): NYGOLD(금COMEX) WTIF(WTI원유) CHICORN(옥수수CBOT)  ※ 다 N으로 조회, 가격 USD
+            ※ 대두(M0303)·밀(M0302)은 마스터에 있으나 이 API로 데이터 안 줌. 옥수수만 됨.
+            다른 원자재: BRENTF(브렌트유) GOLDLNPM(런던금) XAU(필라델금은) 등 N으로 가능
   ※ 지수 코드는 해외지수 마스터(frgn_code.mst)에서 확보. find_index_code.py 로 검색 가능.
     다른 지수: HK#HS(홍콩항셍) CH#000300(CSI300) TW#WT(대만) SX5E(유로스톡스50) GR#DAX(독일) 등
 
@@ -57,9 +61,17 @@ INDICES = {
     "fx_jpy":    {"code": "FX@JPY", "market": "X", "name": "엔/원"},
     "fx_cny":    {"code": "FX@CNY", "market": "X", "name": "위안/원"},
     "fx_eur":    {"code": "FX@EUR", "market": "X", "name": "유로"},
-    # ── 국채금리(I)·금선물(S) ── 코드 미확보 (공식 자료에 없음, KIS 문의 필요)
-    # "ust10y":  {"code": "???",   "market": "I", "name": "미국채10년"},
-    # "gold":    {"code": "???",   "market": "S", "name": "금선물"},
+    # ── 국채금리 (I) ── 종가가 수익률(%) 값. 국면 판단 참고(금리↑=위험자산 부담)
+    "ust10y":    {"code": "Y0202", "market": "I", "name": "미국채10년"},
+    "ust30y":    {"code": "Y0201", "market": "I", "name": "미국채30년"},
+    "us_ffr":    {"code": "Y0204", "market": "I", "name": "미국연방기금금리"},
+    "jgb10y":    {"code": "Y0207", "market": "I", "name": "일본채10년"},
+    # ── 원자재 ── 금/원유/옥수수. 다 N(지수)으로 조회됨 (가격, USD)
+    "gold":      {"code": "NYGOLD",  "market": "N", "name": "금(COMEX)"},
+    "wti":       {"code": "WTIF",    "market": "N", "name": "WTI원유"},
+    "corn":      {"code": "CHICORN", "market": "N", "name": "옥수수(CBOT)"},
+    # 대두(M0303)·밀(M0302)은 마스터에 있으나 이 API로 데이터 안 줌(모의·실전 모두).
+    # 옥수수만 CHICORN 이름형식 코드로 조회됨. 곡물은 동조해 움직이므로 옥수수가 대표.
 }
 
 _API_DIR = _REPO_ROOT / "examples_llm" / "overseas_stock" / "inquire_daily_chartprice"
