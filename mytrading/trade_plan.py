@@ -1,0 +1,128 @@
+"""
+주문 계획 빌더 (1-b 7번) — 오늘 무엇을 얼마나 사고팔지 '계획'만 계산·출력.
+
+⚠️ 실제 주문은 하지 않음. 계산·출력만. (백테스트·검증 후 별도로 주문 연결)
+
+흐름:
+  1. tradable_symbols(category) → confirm=Approval 종목만 (매매 대상)
+  2. 각 종목 style 별 분기:
+     - value_range : value_range_signal(52주 가격) → buy/sell/hold
+                     buy/sell 이면 compute_slice 로 비율 산출
+     - momentum    : is_trade_day(cadence) → 매매일이면 compute_slice(buy)
+     - accumulate  : is_trade_day(cadence) → 매매일이면 compute_slice(buy) 정기매수
+  3. 종목별 계획 출력: {symbol, name, style, action, slice_pct, reason}
+
+cadence: universe 에 cadence 필드 있으면 사용, 없으면 style 기본값
+  accumulate→weekly, momentum→daily, value_range→(신호 기반, cadence 무관)
+
+사용:
+  KIS_MODE=prod uv run python mytrading/trade_plan.py            # 전체 카테고리
+  KIS_MODE=prod uv run python mytrading/trade_plan.py --category aggressive
+"""
+import sys
+from pathlib import Path
+from datetime import date
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from mytrading.common import init, regime_for_symbol
+from mytrading.portfolio import load_portfolio
+from mytrading.order_pace import is_trade_day, compute_slice, value_range_signal
+
+# style 별 기본 cadence (universe 에 cadence 필드 없을 때)
+_DEFAULT_CADENCE = {
+    "accumulate": "weekly",
+    "momentum": "daily",
+    "value_range": "daily",   # 실제론 신호로 판단, cadence 는 형식상
+}
+
+
+def _plan_for_symbol(s: dict, asof: date = None) -> dict:
+    """종목 1개의 오늘 매매 계획. s 는 universe 종목 dict."""
+    asof = asof or date.today()
+    code = s["code"]
+    name = s.get("name", code)
+    style = s.get("style", "accumulate")
+    cadence = s.get("cadence") or _DEFAULT_CADENCE.get(style, "weekly")
+
+    regime = regime_for_symbol(code)
+
+    plan = {
+        "symbol": code, "name": name, "style": style,
+        "regime": regime, "action": "hold", "slice_pct": 0.0, "reason": "",
+    }
+
+    if style == "value_range":
+        # 52주 가격 신호로 buy/sell/hold
+        sig = value_range_signal(code, asof)
+        action = sig.get("action", "hold")
+        plan["action"] = action
+        plan["reason"] = sig.get("reason", "")
+        if action in ("buy", "sell"):
+            plan["slice_pct"] = compute_slice(style, regime, action)
+    else:
+        # momentum / accumulate : cadence 로 매매일 판정 → 매수
+        if is_trade_day(cadence, asof):
+            sl = compute_slice(style, regime, "buy")
+            if sl > 0:
+                plan["action"] = "buy"
+                plan["slice_pct"] = sl
+                plan["reason"] = f"{cadence} 매매일 ({regime})"
+            else:
+                plan["reason"] = f"slice=0 (국면 {regime})"
+        else:
+            plan["reason"] = f"{cadence} 비매매일"
+
+    return plan
+
+
+def build_plan(category: str = None, asof: date = None) -> list:
+    """카테고리(없으면 전체)의 Approval 종목 매매 계획 리스트."""
+    asof = asof or date.today()
+    pf = load_portfolio()
+    cats = [category] if category else ["aggressive", "moderate", "safe"]
+
+    plans = []
+    for cat in cats:
+        approval_codes = set(pf.tradable_symbols(cat))   # Approval 만
+        for s in pf.names(cat):
+            if s["code"] in approval_codes:
+                plans.append(_plan_for_symbol(s, asof))
+    return plans
+
+
+def main():
+    args = sys.argv[1:]
+    category = None
+    if "--category" in args:
+        i = args.index("--category")
+        if i + 1 < len(args):
+            category = args[i + 1]
+
+    init(require_confirm=False)
+    asof = date.today()
+    plans = build_plan(category, asof)
+
+    print("=" * 60)
+    print(f"  주문 계획 ({asof}) — {category or '전체'} · ⚠️ 계산만, 주문 안 함")
+    print("=" * 60)
+    if not plans:
+        print("  Approval 종목 없음.")
+        return
+
+    act_count = {"buy": 0, "sell": 0, "hold": 0}
+    for p in plans:
+        act_count[p["action"]] = act_count.get(p["action"], 0) + 1
+        mark = {"buy": "🟢 매수", "sell": "🔴 매도", "hold": "⚪ 대기"}.get(p["action"], p["action"])
+        sl = f" {p['slice_pct']:.1f}%" if p["slice_pct"] > 0 else ""
+        print(f"  {mark}{sl}  {p['symbol']} {p['name']} [{p['style']}/{p['regime']}]")
+        print(f"        → {p['reason']}")
+    print("-" * 60)
+    print(f"  매수 {act_count['buy']} · 매도 {act_count['sell']} · 대기 {act_count['hold']}")
+    print("  ※ 실제 주문은 별도 — 이 계획은 검증·확인용입니다.")
+
+
+if __name__ == "__main__":
+    main()
