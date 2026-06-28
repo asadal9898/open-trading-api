@@ -26,7 +26,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 # 재무 API 예제 경로 추가
 _EX = _REPO_ROOT / "examples_llm" / "domestic_stock"
-for sub in ("finance_financial_ratio", "ksdinfo_dividend"):
+for sub in ("finance_financial_ratio", "ksdinfo_dividend", "finance_income_statement"):
     p = _EX / sub
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
@@ -74,6 +74,7 @@ def get_financials(symbol: str, years: int = 5) -> Optional[dict]:
             "debt_ratio": _to_float(r.get("lblt_rate")),
             "op_profit_growth": _to_float(r.get("bsop_prfi_inrt")),
             "roe": _to_float(r.get("roe_val")),
+            "eps": _to_float(r.get("eps")),   # 주당순이익 (배당성향 검증용)
         })
     if not rows:
         return None
@@ -81,11 +82,25 @@ def get_financials(symbol: str, years: int = 5) -> Optional[dict]:
     recent = rows[:years]
     roe_pos = sum(1 for x in recent if (x["roe"] or 0) > 0)
 
+    # 연간 결산 EPS (stac_yymm 이 12월). 첫 행은 분기(예:202603)일 수 있어
+    # 분기 EPS 를 연간 배당과 나누면 배당성향이 뻥튀기됨 → 연간 EPS 만 사용.
+    annual_eps = None
+    annual_eps_year = None
+    for x in rows:
+        yr = str(x.get("year", ""))
+        if yr.endswith("12") and x.get("eps") is not None:
+            annual_eps = x["eps"]
+            annual_eps_year = yr
+            break
+
     return {
         "symbol": symbol,
         "latest_year": rows[0]["year"],
         "debt_ratio": rows[0]["debt_ratio"],
         "roe": rows[0]["roe"],
+        "eps": rows[0]["eps"],              # 최근 EPS (분기 포함, 참고용)
+        "annual_eps": annual_eps,           # 연간 결산 EPS (배당성향용)
+        "annual_eps_year": annual_eps_year,
         "rows": recent,
         "roe_positive_years": roe_pos,
     }
@@ -120,18 +135,27 @@ def get_dividend_yield(symbol: str, price: float,
     if df is None or df.empty:
         return {"symbol": symbol, "annual_dividend": 0.0, "yield_pct": 0.0, "count": 0}
 
-    # 최근 1년 주당 배당금 합 (현금배당만; 주식배당 제외)
-    total = 0.0
-    cnt = 0
-    cutoff = (None if not f_dt else f_dt)
+    # 가장 최근 "사업연도"의 배당만 합산 (현금배당; 주식배당 제외)
+    # ⚠️ 기존 버그: 기간(400일) 안 모든 배당을 더해, 연1회 배당주는 2년치가 합산돼
+    #    배당률이 2~3배 부풀려짐. → record_date 연도별로 묶어 최근 연도만 합산.
+    by_year = {}   # 연도 -> [배당금...]
     for _, r in df.iterrows():
         rec = str(r.get("record_date", ""))
-        if cutoff and rec < cutoff:
+        if len(rec) < 4:
             continue
         amt = _to_float(r.get("per_sto_divi_amt"), 0.0) or 0.0
-        if amt > 0:
-            total += amt
-            cnt += 1
+        if amt <= 0:
+            continue
+        yr = rec[:4]
+        by_year.setdefault(yr, []).append(amt)
+
+    if not by_year:
+        return {"symbol": symbol, "annual_dividend": 0.0, "yield_pct": 0.0, "count": 0}
+
+    latest_year = max(by_year.keys())     # 가장 최근 사업연도
+    amts = by_year[latest_year]
+    total = sum(amts)                     # 그 해 배당 합 (분기배당이면 여러 번)
+    cnt = len(amts)
 
     yld = (total / price * 100) if price and price > 0 else 0.0
     return {
@@ -139,6 +163,67 @@ def get_dividend_yield(symbol: str, price: float,
         "annual_dividend": round(total, 1),
         "yield_pct": round(yld, 2),
         "count": cnt,
+        "year": latest_year,
+    }
+
+
+def get_operating_profit(symbol: str, years: int = 5,
+                         exclude_years=None) -> Optional[dict]:
+    """
+    영업이익(bsop_prti) 추이 — 손익계산서(finance_income_statement).
+    "영업이익이 꾸준히 흑자인가" 판단용 (차영석 조건2).
+
+    years: 최근 몇 년을 볼지
+    exclude_years: 위기 연도 리스트(예: ["2008","2020"]) — 판단에서 제외.
+                   시스템 위기(리먼·코로나)는 회사 잘못 아니므로 흑자 판단서 뺌.
+    반환: {
+      "symbol",
+      "rows": [{year, op_profit}, ...] 최근→과거 (제외연도 표시),
+      "checked_years": 위기 제외하고 실제 본 해 수,
+      "positive_years": 그중 영업이익>0 인 해 수,
+      "all_positive": 위기 제외 모든 해가 흑자인가 (조건2 통과 여부),
+    }
+    데이터 없으면 None.
+    """
+    exclude_years = set(str(y) for y in (exclude_years or []))
+    try:
+        from finance_income_statement import finance_income_statement
+    except Exception:
+        return None
+    try:
+        df = finance_income_statement(
+            fid_div_cls_code="0",            # 0=년
+            fid_cond_mrkt_div_code="J",
+            fid_input_iscd=symbol,
+        )
+    except Exception:
+        return None
+    if df is None or df.empty:
+        return None
+
+    rows = []
+    for _, r in df.iterrows():
+        yymm = str(r.get("stac_yymm", ""))
+        yr = yymm[:4] if len(yymm) >= 4 else yymm
+        op = _to_float(r.get("bsop_prti"))  # 영업이익
+        rows.append({"year": yr, "op_profit": op,
+                     "excluded": yr in exclude_years})
+
+    if not rows:
+        return None
+
+    recent = rows[:years]
+    # 위기 연도 제외하고 흑자 판단
+    checked = [x for x in recent if not x["excluded"] and x["op_profit"] is not None]
+    positive = [x for x in checked if x["op_profit"] > 0]
+    all_positive = (len(checked) > 0 and len(positive) == len(checked))
+
+    return {
+        "symbol": symbol,
+        "rows": recent,
+        "checked_years": len(checked),
+        "positive_years": len(positive),
+        "all_positive": all_positive,
     }
 
 
@@ -157,3 +242,7 @@ if __name__ == "__main__":
         if dy:
             print(f"  연배당 {dy['annual_dividend']}원 | 시가배당률 {dy['yield_pct']}% "
                   f"| 배당 {dy['count']}회")
+        op = get_operating_profit(sym, exclude_years=["2008", "2020"])
+        if op:
+            print(f"  영업이익 흑자: {op['positive_years']}/{op['checked_years']}년 "
+                  f"(위기제외) → 꾸준흑자 {op['all_positive']}")

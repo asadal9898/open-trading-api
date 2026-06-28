@@ -60,6 +60,16 @@ order_pace:
 
   max_slice: 20            # 곱셈 결과 상한 (한 번에 최대 20%)
 
+# 배당주 자동 추가 기준 셋팅값
+dividend_filter:
+  exclude_years: ["2008", "2020"]
+  profit_years: 5
+  rate_limit_sec: 0.5
+  rate_threshold: 3.0
+  debt_max: 100.0
+  kospi:   { rate_threshold: 4.0, debt_max: 100.0, min_volume: 30000, top_n: 20 }
+  kosdaq:  { rate_threshold: 4.5, debt_max: 80.0,  min_volume: 20000, top_n: 20 }
+
 trading:
   symbols: ["005930"]      # 대상 종목 (삼성전자)
   default_qty: 1           # 기본 주문 수량

@@ -3,7 +3,7 @@
 
 조건 (config order_pace 옆 dividend_filter, 없으면 기본값):
   1. 시가배당률 >= rate_threshold (%)   — 금리보다 높은 배당
-  2. ROE>0 최근 profit_years 년 모두    — 영업이익 꾸준 (흑자 지속)
+  2. 영업이익 흑자 지속 (위기연도 제외)        — 본업 꾸준
   3. 부채비율 <= debt_max (%)           — 재무 안정
 
 데이터: finance_data(재무·배당) + data_manager(현재가).
@@ -34,50 +34,114 @@ except Exception:
 _DEFAULTS = {
     "rate_threshold": 3.0,   # 시가배당률 최소 %
     "debt_max": 100.0,       # 부채비율 최대 %
-    "profit_years": 5,       # ROE>0 이어야 하는 최근 년 수
+    "profit_years": 5,       # 영업이익 흑자 봐야 하는 최근 년 수
+    "exclude_years": ["2008", "2020"],  # 위기 연도 (영업이익 판단서 제외)
+    "payout_max": 150.0,     # 배당성향 상한 % (초과는 데이터오류·특별배당 의심)
 }
 
 
-def _filter_cfg() -> dict:
+def _filter_cfg(market: str = None) -> dict:
+    """배당주 필터 기준.
+    market 없으면: 수동 검사 기본값 (dividend_filter 최상위).
+    market 있으면(kospi/kosdaq): 공통(exclude_years 등) + 시장별 기준 병합.
+    """
     cfg = CONFIG.get("dividend_filter", {}) or {}
     out = dict(_DEFAULTS)
-    out.update({k: cfg[k] for k in _DEFAULTS if k in cfg})
+    # 공통/수동 기본값 (최상위 키)
+    for k in ("rate_threshold", "debt_max", "profit_years", "exclude_years", "payout_max"):
+        if k in cfg:
+            out[k] = cfg[k]
+    # 시장별 덮어쓰기 (전체 스캔)
+    if market and market in cfg and isinstance(cfg[market], dict):
+        mk = cfg[market]
+        for k in ("rate_threshold", "debt_max", "profit_years",
+                  "min_volume", "top_n"):
+            if k in mk:
+                out[k] = mk[k]
     return out
 
 
 def _current_price(symbol: str) -> float:
-    """현재가 — 52주 range 의 last 종가 사용 (캐시 CSV)."""
-    if get_52w_range is None:
-        return 0.0
-    r = get_52w_range(symbol)
-    return float(r["last"]) if r else 0.0
+    """현재가 조회. inquire_price(실시간) 우선, 실패 시 52주 캐시 종가.
+    배당주 스캔은 universe 밖 종목도 보므로 캐시 없을 수 있음 → inquire_price 직접 사용."""
+    # 1순위: inquire_price (캐시 불필요, 실시간)
+    try:
+        ip_dir = _REPO_ROOT / "examples_llm" / "domestic_stock" / "inquire_price"
+        if str(ip_dir) not in sys.path:
+            sys.path.insert(0, str(ip_dir))
+        import inquire_price as _ip
+        df = _ip.inquire_price(env_dv="real", fid_cond_mrkt_div_code="J",
+                               fid_input_iscd=symbol)
+        if df is not None and not df.empty:
+            v = df.iloc[0].get("stck_prpr", None)  # 주식 현재가
+            if v not in (None, "", "0"):
+                return float(str(v).replace(",", ""))
+    except Exception:
+        pass
+    # 2순위: 52주 캐시 종가 (universe 종목은 캐시 있음)
+    if get_52w_range is not None:
+        try:
+            r = get_52w_range(symbol)
+            if r:
+                return float(r["last"])
+        except Exception:
+            pass
+    return 0.0
 
 
 def screen(symbol: str, cfg: dict) -> dict:
-    """한 종목 배당주 판정. 반환: {symbol, pass, dividend, debt, roe_years, reasons, ...}"""
+    """한 종목 배당주 판정. 반환: {symbol, pass, dividend, debt, op_ok, reasons, ...}
+
+    조건 (차영석 3조건):
+      1. 시가배당률 >= rate_threshold (금리보다 높은 배당)
+      2. 영업이익 꾸준 흑자 (위기연도 exclude_years 제외)
+      3. 부채비율 <= debt_max
+    """
+    from mytrading.finance_data import get_operating_profit
     price = _current_price(symbol)
     fin = get_financials(symbol, years=cfg["profit_years"])
     dy = get_dividend_yield(symbol, price) if price > 0 else None
+    op = get_operating_profit(symbol, years=cfg["profit_years"],
+                              exclude_years=cfg.get("exclude_years", []))
 
     div_yield = dy["yield_pct"] if dy else 0.0
     debt = fin["debt_ratio"] if fin else None
-    roe_pos = fin["roe_positive_years"] if fin else 0
+    op_ok = op["all_positive"] if op else False
+    op_pos = op["positive_years"] if op else 0
+    op_chk = op["checked_years"] if op else 0
+
+    # 배당성향 교차검증 (데이터 오류 탐지)
+    # 배당성향 = 주당배당금 ÷ EPS. 정상은 0~100%(여유두어 payout_max).
+    # KIS face_val 오류로 배당금이 N배 부풀려지면 배당성향이 튀어 잡힘.
+    # (EPS 는 face_val 영향 안 받아 정확 → 교차검증 가능)
+    eps = (fin.get("annual_eps") or fin.get("eps")) if fin else None
+    annual_div = dy["annual_dividend"] if dy else 0.0
+    payout = None
+    payout_ok = True   # EPS 없거나 적자면 검증 스킵(통과 취급)
+    payout_max = cfg.get("payout_max", 150.0)
+    if eps and eps > 0 and annual_div > 0:
+        payout = annual_div / eps * 100
+        payout_ok = (payout <= payout_max)
 
     # 조건 판정
     c1 = div_yield >= cfg["rate_threshold"]
-    c2 = roe_pos >= cfg["profit_years"]
+    c2 = op_ok   # 영업이익 흑자 지속 (위기 제외)
     c3 = (debt is not None) and (debt <= cfg["debt_max"])
-    passed = c1 and c2 and c3
+    c4 = payout_ok   # 배당성향 정상 (데이터 오류 아님)
+    passed = c1 and c2 and c3 and c4
 
     reasons = []
     reasons.append(f"배당 {div_yield:.2f}%{'≥' if c1 else '<'}{cfg['rate_threshold']:.0f}% {'✓' if c1 else '✗'}")
-    reasons.append(f"ROE>0 {roe_pos}/{cfg['profit_years']}년 {'✓' if c2 else '✗'}")
+    reasons.append(f"영업이익흑자 {op_pos}/{op_chk}년(위기제외) {'✓' if c2 else '✗'}")
     dtxt = f"{debt:.1f}%" if debt is not None else "?"
     reasons.append(f"부채 {dtxt}{'≤' if c3 else '>'}{cfg['debt_max']:.0f}% {'✓' if c3 else '✗'}")
+    if payout is not None:
+        reasons.append(f"배당성향 {payout:.0f}%{'≤' if c4 else '>'}{payout_max:.0f}% {'✓' if c4 else '✗(데이터의심)'}")
 
     return {
         "symbol": symbol, "price": price,
-        "dividend": div_yield, "debt": debt, "roe_years": roe_pos,
+        "dividend": div_yield, "debt": debt,
+        "op_ok": op_ok, "op_years": f"{op_pos}/{op_chk}",
         "pass": passed, "reasons": reasons,
     }
 
@@ -136,14 +200,26 @@ def add_to_universe(results: list, uni_path: Path = None) -> int:
         name = _stock_name(code) or code
         debt = r.get("debt")
         debt_s = f"{debt:.0f}%" if debt is not None else "?"
-        note = f"배당 {r['dividend']:.1f}% 부채 {debt_s} (AI {today})"
+        note = f"배당 {r['dividend']:.1f}% 부채 {debt_s} (필터통과)"
         line = (f'  - {{ code: "{code}", name: "{name}", style: "value_range", '
                 f'added_by: "AI", confirm: "Waiting", added_date: "{today}", '
                 f'note: "{note}" }}\n')
         to_add.append((code, name, line))
 
     if to_add:
+        # 파일이 줄바꿈으로 끝나는지 확인 — 마지막 줄에 \n 없으면 먼저 추가
+        # (없으면 기존 마지막 줄에 새 항목이 붙어 yaml 깨짐)
+        need_newline = False
+        try:
+            with open(uni_path, "rb") as f:
+                f.seek(-1, 2)  # 파일 끝 1바이트
+                if f.read(1) != b"\n":
+                    need_newline = True
+        except Exception:
+            need_newline = True  # 빈 파일 등은 그냥 진행
         with open(uni_path, "a", encoding="utf-8") as f:
+            if need_newline:
+                f.write("\n")
             for _code, _name, line in to_add:
                 f.write(line)
 
@@ -172,11 +248,11 @@ def main():
 
     if not codes:
         print("사용: find_dividend_stocks.py 049720 009680 ...  또는  --universe")
-        print(f"기준: 배당률≥{cfg['rate_threshold']}% / ROE>0 {cfg['profit_years']}년 / 부채≤{cfg['debt_max']}%")
+        print(f"기준: 배당률≥{cfg['rate_threshold']}% / 영업이익흑자 {cfg["profit_years"]}년 / 부채≤{cfg['debt_max']}%")
         return
 
     print(f"배당주 기준: 시가배당률≥{cfg['rate_threshold']:.0f}% · "
-          f"ROE>0 최근{cfg['profit_years']}년 · 부채비율≤{cfg['debt_max']:.0f}%")
+          f"영업이익흑자 최근{cfg["profit_years"]}년 · 부채비율≤{cfg['debt_max']:.0f}%")
     print("=" * 72)
 
     results = []
