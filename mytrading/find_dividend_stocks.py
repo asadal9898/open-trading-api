@@ -141,6 +141,7 @@ def screen(symbol: str, cfg: dict) -> dict:
     return {
         "symbol": symbol, "price": price,
         "dividend": div_yield, "debt": debt,
+        "div_count": dy["count"] if dy else 0,   # 배당 횟수(주기): 연1·반기2·분기4
         "op_ok": op_ok, "op_years": f"{op_pos}/{op_chk}",
         "pass": passed, "reasons": reasons,
     }
@@ -201,9 +202,11 @@ def add_to_universe(results: list, uni_path: Path = None) -> int:
         debt = r.get("debt")
         debt_s = f"{debt:.0f}%" if debt is not None else "?"
         note = f"배당 {r['dividend']:.1f}% 부채 {debt_s} (필터통과)"
+        div_cnt = r.get("div_count", 0) or 0   # 배당 주기: 연1·반기2·분기4 (0이면 생략)
+        div_field = f'dividend: {div_cnt}, ' if div_cnt > 0 else ''
         line = (f'  - {{ code: "{code}", name: "{name}", style: "value_range", '
                 f'added_by: "AI", confirm: "Waiting", added_date: "{today}", '
-                f'note: "{note}" }}\n')
+                f'{div_field}note: "{note}" }}\n')
         to_add.append((code, name, line))
 
     if to_add:

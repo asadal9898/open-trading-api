@@ -38,8 +38,11 @@ safe:
   #0089B0  | PLUS 미국나스닥100미국채혼합50
   #0111P0  | 1Q 미국나스닥100미국채혼합50액티브
 
+# ETF 리츠 펀드 ETN은 보수적 투자에 넣지 않습니다.
 # 종목 상태 : 승인(Approval) 시 매수 또는 매도, 멈춤 (Paused) 매수 매도 중단
-# AI 추천 종목 : 승인 대기(Waiting) 시 매수 또는 매도 아무것도 하지 않음. 거절 (Rejected) 시 승인 되지 않음, 앞으로 추천하지 않아도 됩니다.  
+# AI 추천 종목 : 승인 대기(Waiting) 시 매수 또는 매도 아무것도 하지 않음. 거절 (Rejected) 시 승인 되지 않음, 앞으로 추천하지 않아도 됩니다.
+# dividend : 연배당 1, 반기 배당 2, 분기배당 4  
 moderate:
-  - { code: "049720", name: "고려신용정보", style: "value_range" , added_by: "Owner", confirm: "Paused", added_date: "2026-06-28", note: "배당주 채권추심"}
-  - { code: "009680", name: "모토닉",      style: "value_range" , added_by: "Owner", confirm: "Approval",  added_date: "2026-06-28", note: "배당주 자동차부품"}
+  - { code: "049720", name: "고려신용정보", style: "value_range" , added_by: "Owner", confirm: "Paused",  added_date: "2026-06-28", dividend: 2, note: "배당주 채권추심"}
+  - { code: "009680", name: "모토닉",      style: "value_range" , added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 1, note: "배당주 자동차부품"}
+  - { code: "002100", name: "경농", style: "value_range", added_by: "AI", confirm: "Waiting", added_date: "2026-06-29", dividend: 2, note: "배당 7.6% 부채 77% (필터통과)" }

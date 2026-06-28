@@ -1,0 +1,40 @@
+# 배당락일 캘린더 — 연도별 (종목과 분리). 자동 생성.
+# 배당락일 = 배당기준일 1거래일 전. amount=주당배당금.
+'2025':
+  049720:
+  - ex_date: '20251230'
+    record_date: '20251231'
+    amount: 260.0
+  - ex_date: '20250627'
+    record_date: '20250630'
+    amount: 240.0
+  009680:
+  - ex_date: '20251230'
+    record_date: '20251231'
+    amount: 790.0
+  '002100':
+  - ex_date: '20251230'
+    record_date: '20251231'
+    amount: 500.0
+  - ex_date: '20250627'
+    record_date: '20250630'
+    amount: 200.0
+'2024':
+  049720:
+  - ex_date: '20241230'
+    record_date: '20241231'
+    amount: 230.0
+  - ex_date: '20240628'
+    record_date: '20240630'
+    amount: 220.0
+  009680:
+  - ex_date: '20241230'
+    record_date: '20241231'
+    amount: 600.0
+  '002100':
+  - ex_date: '20241230'
+    record_date: '20241231'
+    amount: 250.0
+  - ex_date: '20240628'
+    record_date: '20240630'
+    amount: 200.0

@@ -227,6 +227,88 @@ def get_operating_profit(symbol: str, years: int = 5,
     }
 
 
+def _prev_trading_day(date_str: str, open_days: set = None) -> str:
+    """date_str(YYYYMMDD)의 직전 거래일(YYYYMMDD). 휴장일은 건너뜀.
+    배당락일 = 배당기준일의 1거래일 전 (이날 사면 배당 못 받음).
+
+    open_days: 개장일 set(YYYYMMDD) 를 넘기면 그걸 사용 (API 호출 0회).
+               없으면 캘린더를 1회 받아서 판정.
+    """
+    from datetime import datetime, timedelta
+    d = datetime.strptime(date_str, "%Y%m%d")
+
+    # 개장일 set 준비 (없으면 기준일 30일 이전부터 캘린더 1회 조회)
+    if open_days is None:
+        try:
+            from mytrading.market_calendar import get_calendar
+            base = (d - timedelta(days=30)).strftime("%Y%m%d")
+            cal = get_calendar(base)
+            open_days = {rec["date"] for rec in cal if rec.get("opnd_yn") == "Y"}
+        except Exception:
+            open_days = None
+
+    for _ in range(15):   # 최대 15일(연휴 대비) 뒤로
+        d = d - timedelta(days=1)
+        ds = d.strftime("%Y%m%d")
+        if open_days is not None:
+            if ds in open_days:
+                return ds
+        else:
+            # 캘린더 못 받으면 주말만 건너뜀 (월=0..금=4)
+            if d.weekday() < 5:
+                return ds
+    return d.strftime("%Y%m%d")
+
+
+def get_ex_dividend_dates(symbol: str, years_back: int = 2) -> Optional[dict]:
+    """
+    종목의 배당락일들 — 배당기준일(record_date)의 1거래일 전.
+    ksdinfo_dividend 의 record_date 에서 계산. 배당 0원(미지급) 제외.
+    반환: {
+      "symbol",
+      "ex_dates": [{record_date, ex_date, amount, year}, ...] 최근→과거,
+    }  데이터 없으면 None.
+    ※ 과거 배당 기준. 미래 배당락일은 공시 전까지 알 수 없음(작년 패턴 참고용).
+    """
+    try:
+        from ksdinfo_dividend import ksdinfo_dividend
+    except Exception:
+        return None
+    from datetime import date, timedelta
+    today = date.today()
+    f_dt = (today - timedelta(days=365 * years_back + 30)).strftime("%Y%m%d")
+    t_dt = today.strftime("%Y%m%d")
+    try:
+        df = ksdinfo_dividend(cts="", gb1="0", f_dt=f_dt, t_dt=t_dt,
+                              sht_cd=symbol, high_gb="")
+    except Exception:
+        return None
+    if df is None or df.empty:
+        return None
+
+    # 배당락일 계산: 각 기준일마다 _prev_trading_day 가 그 기준일 근처
+    # 캘린더를 받음(get_calendar 캐시가 받쳐줌). 한 캘린더로 2년치 커버하면
+    # 504일 범위를 벗어나는 최근 기준일이 누락되므로, 기준일별 조회가 정확.
+    ex_dates = []
+    for _, r in df.iterrows():
+        rec = str(r.get("record_date", "")).strip()
+        if len(rec) != 8:
+            continue
+        amt = _to_float(r.get("per_sto_divi_amt"), 0.0) or 0.0
+        if amt <= 0:
+            continue   # 배당 0원(미지급)은 배당락 없음
+        ex = _prev_trading_day(rec)
+        ex_dates.append({
+            "record_date": rec,
+            "ex_date": ex,
+            "amount": amt,
+            "year": rec[:4],
+        })
+    if not ex_dates:
+        return None
+    return {"symbol": symbol, "ex_dates": ex_dates}
+
+
 if __name__ == "__main__":
     # 간단 확인 (실전 인증 필요)
     from mytrading.common import init
