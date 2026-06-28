@@ -13,31 +13,33 @@
 # ※ 자동매매에 쓰려면 각 종목/전략을 반드시 백테스트로 검증한 뒤 추가하세요.
 
 aggressive:
-  - { code: "005930", name: "삼성전자",   style: "momentum" }
-  - { code: "000660", name: "SK하이닉스", style: "momentum" }
-
-moderate:
-  - { code: "049720", name: "고려신용정보", style: "value_range" }
-  - { code: "009680", name: "모토닉",       style: "value_range" }
+  - { code: "005930", name: "삼성전자",   style: "momentum" , added_by: "Owner", confirm: "Approval",  added_date: "2026-06-28", note: "기술주 반도체"}
+  - { code: "000660", name: "SK하이닉스", style: "momentum" , added_by: "Owner", confirm: "Approval",  added_date: "2026-06-28", note: "기술주 반도체"}
 
 safe:
-  - { code: "379800", name: "KODEX 미국S&P500", style: "accumulate", note: "미국 대표지수" }
-  - { code: "114260", name: "KODEX 국고채3년", style: "accumulate", note: "수수료 0.150%, 거래량 대장(삼성)" }
-  - { code: "481430", name: "RISE 국고채10년액티브", style: "accumulate", note: "수수료 0.050%, 금리 하락기 유리" }
+  - { code: "379800", name: "KODEX 미국S&P500", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", note: "미국 대표지수" }
+  - { code: "114260", name: "KODEX 국고채3년", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", note: "수수료 0.150%, 거래량 대장(삼성)" }
+  - { code: "481430", name: "RISE 국고채10년액티브", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", note: "수수료 0.050%, 금리 하락기 유리" }
 
   # 후보 (거래량 부족으로 제외):
   #   438560 SOL 국고채3년 (수수료 0.020% 최저지만 거래량 32주)
   #   438570 SOL 국고채10년 (수수료 0.050%, 거래량 149주)
   #   114100 RISE 국고채3년 (수수료 0.115%, 거래량 5,850)
+  # 검토 중
+  #0192S0  | SOL 코스피200채권혼합50
+  #183700  | RISE 200채권혼합50
+  #214980  | KODEX 단기채권PLUS
+  #153130  | KODEX 단기채권
+  #272580  | TIGER 단기채권액티브
+  #440640  | ACE 단기채권알파액티브
+  #0052S0  | 1Q 미국S&P500미국채혼합50액티브
+  #0057H0  | PLUS 미국S&P500미국채혼합50액티브
+  #0080X0  | SOL 미국S&P500미국채혼합50
+  #0089B0  | PLUS 미국나스닥100미국채혼합50
+  #0111P0  | 1Q 미국나스닥100미국채혼합50액티브
 
-    #0192S0  | SOL 코스피200채권혼합50
-    #183700  | RISE 200채권혼합50
-    #214980  | KODEX 단기채권PLUS
-    #153130  | KODEX 단기채권
-    #272580  | TIGER 단기채권액티브
-    #440640  | ACE 단기채권알파액티브
-    #0052S0  | 1Q 미국S&P500미국채혼합50액티브
-    #0057H0  | PLUS 미국S&P500미국채혼합50액티브
-    #0080X0  | SOL 미국S&P500미국채혼합50
-    #0089B0  | PLUS 미국나스닥100미국채혼합50
-    #0111P0  | 1Q 미국나스닥100미국채혼합50액티브
+# 종목 상태 : 승인(Approval) 시 매수 또는 매도, 멈춤 (Paused) 매수 매도 중단
+# AI 추천 종목 : 승인 대기(Waiting) 시 매수 또는 매도 아무것도 하지 않음. 거절 (Rejected) 시 승인 되지 않음, 앞으로 추천하지 않아도 됩니다.  
+moderate:
+  - { code: "049720", name: "고려신용정보", style: "value_range" , added_by: "Owner", confirm: "Paused", added_date: "2026-06-28", note: "배당주 채권추심"}
+  - { code: "009680", name: "모토닉",      style: "value_range" , added_by: "Owner", confirm: "Approval",  added_date: "2026-06-28", note: "배당주 자동차부품"}

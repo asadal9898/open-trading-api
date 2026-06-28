@@ -74,6 +74,27 @@ class Portfolio:
         """분류별 종목 [{code, name}] 리스트."""
         return self.universe.get(category, [])
 
+    def tradable_symbols(self, category: str = None) -> List[str]:
+        """confirm == "Approval" 인 종목 코드만 (실제 매매 대상).
+        confirm 없으면 "Waiting" 취급 → 제외 (안전: 명시적 승인만 매매)."""
+        cats = [category] if category else _CATEGORIES
+        out = []
+        for cat in cats:
+            for s in self.universe.get(cat, []):
+                if s.get("confirm", "Waiting") == "Approval":
+                    out.append(s["code"])
+        return out
+
+    def paused_symbols(self, category: str = None) -> List[str]:
+        """confirm == "Paused" 인 종목 코드 (보유 유지, 신규매매 중단)."""
+        cats = [category] if category else _CATEGORIES
+        out = []
+        for cat in cats:
+            for s in self.universe.get(cat, []):
+                if s.get("confirm") == "Paused":
+                    out.append(s["code"])
+        return out
+
 
 def _load_yaml(path: Path) -> dict:
     if not path.exists():
@@ -128,15 +149,15 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
             if isinstance(it, dict) and str(it.get("code", "")).strip():
                 entry = {"code": str(it["code"]).strip(),
                          "name": str(it.get("name", "")).strip()}
-                # 선택 필드 보존 (style/note/cadence/slice — 1-b 국면별 매매용)
-                for k in ("style", "note", "cadence", "slice"):
+                # 선택 필드 보존 (style/note/cadence/slice — 1-b, confirm/added_by — 종목 상태)
+                for k in ("style", "note", "cadence", "slice",
+                          "added_by", "confirm", "added_date"):
                     if it.get(k) is not None:
                         entry[k] = it[k]
                 clean.append(entry)
         universe[cat] = clean
 
     return Portfolio(allocations=allocations, universe=universe, warnings=warnings)
-
 
 def get_watch_symbols(config: dict = None) -> list:
     """
