@@ -69,13 +69,17 @@ def _is_normal_stock(code: str, name: str = "") -> bool:
 
 
 def _recent_volume(dp, code: str) -> int:
-    """최근 거래량(주). 1차 압축용. 실패 시 0."""
+    """최근 거래일 평균 거래량(주). 1차 압축용. 실패 시 0.
+    휴장(거래량 0)은 제외하고 실제 거래일만 평균 → 주말·하루변동에 안흔들림."""
     try:
         end = date.today()
-        start = end - timedelta(days=10)
+        start = end - timedelta(days=14)
         bars = dp.get_history(code, start, end)
         if bars:
-            return int(getattr(bars[-1], "volume", 0) or 0)
+            vols = [int(getattr(b, "volume", 0) or 0) for b in bars]
+            vols = [v for v in vols if v > 0]
+            if vols:
+                return sum(vols) // len(vols)
     except Exception:
         pass
     return 0
