@@ -101,7 +101,7 @@ def build_holiday_section(config: dict = None) -> str:
                     lines.append(f"  중국장 {md} ({h['weekday']}) 휴장")
             else:
                 lines.append("  중국장: 휴장 없음")
-                
+
     return "\n".join(lines)
 
 
@@ -148,6 +148,14 @@ def build_trades_section(mode: str = None) -> str:
                          f"{t.get('quantity')}주 {side_kr} @ {px_str}")
     return "\n".join(lines)
 
+def build_fx_section() -> str:
+    """환율 섹션 — 3년 평균보다 낮은 날 있을 때만 (없으면 빈 문자열)."""
+    try:
+        from mytrading.fx_alert import build_fx_alert
+        return build_fx_alert()
+    except Exception:
+        return ""
+
 
 def build_message(brokerage=None, config: dict = None) -> str:
     """주간 알림 전체 메시지 생성."""
@@ -165,8 +173,11 @@ def build_message(brokerage=None, config: dict = None) -> str:
         parts.append(build_account_section(brokerage))
         parts.append("")
     parts.append(build_trades_section())
+    fx = build_fx_section()
+    if fx:
+        parts.append("")
+        parts.append(fx)
     return "\n".join(parts)
-
 
 # ---------- 사용자별 발송 (2-b 기반) ----------
 
