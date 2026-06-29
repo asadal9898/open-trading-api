@@ -13,13 +13,13 @@
 # ※ 자동매매에 쓰려면 각 종목/전략을 반드시 백테스트로 검증한 뒤 추가하세요.
 
 aggressive:
-  - { code: "005930", name: "삼성전자",   style: "momentum" , added_by: "Owner", confirm: "Approval",  added_date: "2026-06-28", note: "기술주 반도체"}
-  - { code: "000660", name: "SK하이닉스", style: "momentum" , added_by: "Owner", confirm: "Approval",  added_date: "2026-06-28", note: "기술주 반도체"}
+  - { code: "005930", name: "삼성전자",   style: "momentum" , added_by: "Owner", confirm: "Approval",  added_date: "2026-06-28", dividend: 4, sector: "전기·전자", note: "기술주 반도체"}
+  - { code: "000660", name: "SK하이닉스", style: "momentum" , added_by: "Owner", confirm: "Approval",  added_date: "2026-06-28", dividend: 1, sector: "전기·전자", note: "기술주 반도체"}
 
 safe:
-  - { code: "379800", name: "KODEX 미국S&P500", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", note: "미국 대표지수" }
-  - { code: "114260", name: "KODEX 국고채3년", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", note: "수수료 0.150%, 거래량 대장(삼성)" }
-  - { code: "481430", name: "RISE 국고채10년액티브", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", note: "수수료 0.050%, 금리 하락기 유리" }
+  - { code: "379800", name: "KODEX 미국S&P500", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 0, sector: "ETF", note: "미국 대표지수" }
+  - { code: "114260", name: "KODEX 국고채3년", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 0, sector: "ETF", note: "수수료 0.150%, 거래량 대장(삼성)" }
+  - { code: "481430", name: "RISE 국고채10년액티브", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 0, sector: "ETF", note: "수수료 0.050%, 금리 하락기 유리" }
 
   # 후보 (거래량 부족으로 제외):
   #   438560 SOL 국고채3년 (수수료 0.020% 최저지만 거래량 32주)
@@ -41,8 +41,11 @@ safe:
 # ETF 리츠 펀드 ETN은 보수적 투자에 넣지 않습니다.
 # 종목 상태 : 승인(Approval) 시 매수 또는 매도, 멈춤 (Paused) 매수 매도 중단
 # AI 추천 종목 : 승인 대기(Waiting) 시 매수 또는 매도 아무것도 하지 않음. 거절 (Rejected) 시 승인 되지 않음, 앞으로 추천하지 않아도 됩니다.
-# dividend : 연배당 1, 반기 배당 2, 분기배당 4  
+# dividend : 연배당 1, 반기 배당 2, 분기배당 4
+
 moderate:
-  - { code: "049720", name: "고려신용정보", style: "value_range" , added_by: "Owner", confirm: "Paused",  added_date: "2026-06-28", dividend: 2, note: "배당주 채권추심"}
-  - { code: "009680", name: "모토닉",      style: "value_range" , added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 1, note: "배당주 자동차부품"}
-  - { code: "002100", name: "경농", style: "value_range", added_by: "AI", confirm: "Waiting", added_date: "2026-06-29", dividend: 2, note: "배당 7.6% 부채 77% (필터통과)" }
+  - { code: "049720", name: "고려신용정보", style: "value_range" , added_by: "Owner", confirm: "Paused",  added_date: "2026-06-28", dividend: 2, sector: "일반서비스", note: "배당주 채권추심"}
+  - { code: "009680", name: "모토닉",      style: "value_range" , added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 1, sector: "운송장비·부품", note: "배당주 자동차부품"}
+  - { code: "002100", name: "경농", style: "value_range", added_by: "AI", confirm: "Waiting", added_date: "2026-06-29", dividend: 2, sector: "화학",note: "배당 7.6% 부채 77% (필터통과)" }
+  - { code: "035250", name: "강원랜드", style: "value_range", added_by: "AI", confirm: "Waiting", added_date: "2026-06-29", dividend: 1, sector: "오락·문화", note: "배당 6.5% 부채 23% (필터통과)" }
+  - { code: "001230", name: "동국홀딩스", style: "value_range", added_by: "AI", confirm: "Waiting", added_date: "2026-06-29", dividend: 1, sector: "금융", note: "배당 5.7% 부채 41% (필터통과)" }

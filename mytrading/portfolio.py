@@ -151,7 +151,7 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
                          "name": str(it.get("name", "")).strip()}
                 # 선택 필드 보존 (style/note/cadence/slice — 1-b, confirm/added_by — 종목 상태)
                 for k in ("style", "note", "cadence", "slice",
-                          "added_by", "confirm", "added_date", "dividend"):
+                          "added_by", "confirm", "added_date", "dividend", "sector"):
                     if it.get(k) is not None:
                         entry[k] = it[k]
                 clean.append(entry)

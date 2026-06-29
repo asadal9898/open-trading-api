@@ -89,6 +89,23 @@ def _current_price(symbol: str) -> float:
     return 0.0
 
 
+def _stock_sector(symbol: str) -> str:
+    """종목 업종명(bstp_kor_isnm). inquire_price 에서 추출. 실패 시 ''."""
+    try:
+        ip_dir = _REPO_ROOT / "examples_llm" / "domestic_stock" / "inquire_price"
+        if str(ip_dir) not in sys.path:
+            sys.path.insert(0, str(ip_dir))
+        import inquire_price as _ip
+        df = _ip.inquire_price(env_dv="real", fid_cond_mrkt_div_code="J",
+                               fid_input_iscd=symbol)
+        if df is not None and not df.empty:
+            s = df.iloc[0].get("bstp_kor_isnm", "")
+            return str(s).strip() if s else ""
+    except Exception:
+        pass
+    return ""
+
+
 def screen(symbol: str, cfg: dict) -> dict:
     """한 종목 배당주 판정. 반환: {symbol, pass, dividend, debt, op_ok, reasons, ...}
 
@@ -204,9 +221,11 @@ def add_to_universe(results: list, uni_path: Path = None) -> int:
         note = f"배당 {r['dividend']:.1f}% 부채 {debt_s} (필터통과)"
         div_cnt = r.get("div_count", 0) or 0   # 배당 주기: 연1·반기2·분기4 (0이면 생략)
         div_field = f'dividend: {div_cnt}, ' if div_cnt > 0 else ''
+        sector = _stock_sector(code)
+        sec_field = f'sector: "{sector}", ' if sector else ''
         line = (f'  - {{ code: "{code}", name: "{name}", style: "value_range", '
                 f'added_by: "AI", confirm: "Waiting", added_date: "{today}", '
-                f'{div_field}note: "{note}" }}\n')
+                f'{div_field}{sec_field}note: "{note}" }}\n')
         to_add.append((code, name, line))
 
     if to_add:
