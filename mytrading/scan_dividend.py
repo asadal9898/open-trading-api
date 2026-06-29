@@ -190,6 +190,42 @@ def _notify(result: dict):
         send_message(f"💰 <b>배당주 스캔 — {mk}</b> ({today})\n조건 통과 종목 없음.")
 
 
+# ── 주당 1회 마커 (KIS 점검으로 토요일 막히면 일요일 보충, 중복 방지) ──
+from pathlib import Path as _Path
+from datetime import date as _date
+
+_MARKER = _Path.home() / "KIS" / "cache" / "scan_marker.txt"
+
+def _week_key(market: str) -> str:
+    """올해-ISO주차-시장 (토·일은 같은 주차로 묶임). 예: 2026-W27-kospi"""
+    y, w, _ = _date.today().isocalendar()
+    return f"{y}-W{w:02d}-{market}"
+
+def _already_scanned(market: str) -> bool:
+    """이번 주 이 시장을 이미 스캔했는지."""
+    if not _MARKER.exists():
+        return False
+    try:
+        done = _MARKER.read_text(encoding="utf-8").split()
+        return _week_key(market) in done
+    except Exception:
+        return False
+
+def _mark_scanned(market: str):
+    """이번 주 이 시장 스캔 완료 기록. 최근 8주만 유지."""
+    try:
+        _MARKER.parent.mkdir(parents=True, exist_ok=True)
+        done = []
+        if _MARKER.exists():
+            done = _MARKER.read_text(encoding="utf-8").split()
+        key = _week_key(market)
+        if key not in done:
+            done.append(key)
+        done = done[-16:]
+        _MARKER.write_text(" ".join(done), encoding="utf-8")
+    except Exception:
+        pass
+
 def main():
     args = sys.argv[1:]
     market = "kospi"
@@ -209,11 +245,19 @@ def main():
         print("사용: scan_dividend.py --market kospi|kosdaq [--limit N] [--dry-run] [--no-notify]")
         return
 
+# 주당 1회 — 이번 주 이미 스캔했으면 건너뜀 (dry_run 제외)
+    if not dry_run and _already_scanned(market):
+        print(f"[{market}] 이번 주 이미 스캔 완료 — 건너뜀 ({_week_key(market)})")
+        return
+
     result = scan(market, limit=limit, dry_run=dry_run)
+
+    # 스캔 정상 완료 → 마커 기록 (dry_run 제외)
+    if not dry_run:
+        _mark_scanned(market)
 
     if not no_notify and not dry_run:
         _notify(result)
-
 
 if __name__ == "__main__":
     main()
