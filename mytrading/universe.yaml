@@ -13,13 +13,22 @@
 # ※ 자동매매에 쓰려면 각 종목/전략을 반드시 백테스트로 검증한 뒤 추가하세요.
 
 aggressive:
-  - { code: "005930", name: "삼성전자",   style: "momentum" , added_by: "Owner", confirm: "Approval",  added_date: "2026-06-28", dividend: 4, sector: "전기·전자", note: "기술주 반도체"}
-  - { code: "000660", name: "SK하이닉스", style: "momentum" , added_by: "Owner", confirm: "Approval",  added_date: "2026-06-28", dividend: 1, sector: "전기·전자", note: "기술주 반도체"}
+  - { code: "005930", name: "삼성전자",   style: "momentum" , added_by: "Owner", confirm: "Approval",  added_date: "2026-06-28", dividend: 4, sector: "전기·전자", industry: "통신 및 방송 장비 제조업" ,note: "기술주 반도체"}
+  - { code: "000660", name: "SK하이닉스", style: "momentum" , added_by: "Owner", confirm: "Approval",  added_date: "2026-06-28", dividend: 1, sector: "전기·전자", industry: "반도체 제조업" ,note: "기술주 반도체"}
+  - { code: "329180", name: "HD현대중공업", style: "momentum", added_by: "Owner", confirm: "Waiting", added_date: "2026-06-30", dividend: 1, sector: "운송장비·부품", industry: "선박 및 보트 건조업" ,note: "조선주 (모멘텀 매도 부적합 — 백테스트 검증)" }
+  - { code: "042660", name: "한화오션", style: "momentum", added_by: "Owner", confirm: "Waiting", added_date: "2026-06-30", dividend: 0, sector: "운송장비·부품", industry: "선박 및 보트 건조업" ,note: "조선주 고변동 (매도규칙 손해 — 백테스트)" }
+  - { code: "010140", name: "삼성중공업", style: "momentum", added_by: "Owner", confirm: "Waiting", added_date: "2026-06-30", dividend: 0, sector: "운송장비·부품", industry: "선박 및 보트 건조업" ,note: "조선주 (매도규칙 부적합 — 백테스트)" }
+  - { code: "257720", name: "실리콘투", style: "momentum", added_by: "Owner", confirm: "Waiting", added_date: "2026-06-30", dividend: 0, sector: "유통업", industry: "상품 종합 도매업" ,note: "화장품 유통 고변동 (백테스트 검토)" }
+  - { code: "278470", name: "에이피알", style: "momentum", added_by: "Owner", confirm: "Waiting", added_date: "2026-06-30", dividend: 0, sector: "화학", industry: "기타 화학제품 제조업" ,note: "화장품 (하락장 매도방어 가능 — 추세적, 백테스트)" }
+  - { code: "192820", name: "코스맥스", style: "momentum", added_by: "Owner", confirm: "Waiting", added_date: "2026-06-30", dividend: 1, sector: "화학", industry: "기타 화학제품 제조업" ,note: "화장품 ODM (하락장 매도방어 ✅ +25%p — 백테스트)" }
+  - { code: "241710", name: "코스메카코리아", style: "momentum", added_by: "Owner", confirm: "Waiting", added_date: "2026-06-30", dividend: 1, sector: "화학", industry: "기타 화학제품 제조업" ,note: "화장품 ODM (하락장 매도방어 ✅ +35%p — 백테스트)" }
+  - { code: "466920", name: "SOL 조선TOP3플러스", style: "momentum", added_by: "Owner", confirm: "Waiting", added_date: "2026-06-30", dividend: 0, sector: "ETF", industry: "ETF" ,note: "조선 테마ETF (강세장 Buy&Hold 유리 — 백테스트)" }
+  - { code: "0008T0", name: "SOL 화장품TOP3플러스", style: "momentum", added_by: "Owner", confirm: "Waiting", added_date: "2026-06-30", dividend: 0, sector: "ETF", industry: "ETF" ,note: "화장품 테마ETF (2025 상장, 데이터 짧음)" }
 
 safe:
-  - { code: "379800", name: "KODEX 미국S&P500", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 0, sector: "ETF", note: "미국 대표지수" }
-  - { code: "114260", name: "KODEX 국고채3년", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 0, sector: "ETF", note: "수수료 0.150%, 거래량 대장(삼성)" }
-  - { code: "481430", name: "RISE 국고채10년액티브", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 0, sector: "ETF", note: "수수료 0.050%, 금리 하락기 유리" }
+  - { code: "379800", name: "KODEX 미국S&P500", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 0, sector: "ETF", industry: "ETF" ,note: "미국 대표지수" }
+  - { code: "114260", name: "KODEX 국고채3년", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 0, sector: "ETF", industry: "ETF" ,note: "수수료 0.150%, 거래량 대장(삼성)" }
+  - { code: "481430", name: "RISE 국고채10년액티브", style: "accumulate", added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 0, sector: "ETF", industry: "ETF" ,note: "수수료 0.050%, 금리 하락기 유리" }
 
   # 후보 (거래량 부족으로 제외):
   #   438560 SOL 국고채3년 (수수료 0.020% 최저지만 거래량 32주)
@@ -44,8 +53,8 @@ safe:
 # dividend : 연배당 1, 반기 배당 2, 분기배당 4
 
 moderate:
-  - { code: "049720", name: "고려신용정보", style: "value_range" , added_by: "Owner", confirm: "Paused",  added_date: "2026-06-28", dividend: 2, sector: "일반서비스", note: "배당주 채권추심"}
-  - { code: "009680", name: "모토닉",      style: "value_range" , added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 1, sector: "운송장비·부품", note: "배당주 자동차부품"}
-  - { code: "002100", name: "경농", style: "value_range", added_by: "AI", confirm: "Waiting", added_date: "2026-06-29", dividend: 2, sector: "화학",note: "배당 7.6% 부채 77% (필터통과)" }
-  - { code: "035250", name: "강원랜드", style: "value_range", added_by: "AI", confirm: "Waiting", added_date: "2026-06-29", dividend: 1, sector: "오락·문화", note: "배당 6.5% 부채 23% (필터통과)" }
-  - { code: "001230", name: "동국홀딩스", style: "value_range", added_by: "AI", confirm: "Waiting", added_date: "2026-06-29", dividend: 1, sector: "금융", note: "배당 5.7% 부채 41% (필터통과)" }
+  - { code: "049720", name: "고려신용정보", style: "value_range" , added_by: "Owner", confirm: "Paused",  added_date: "2026-06-28", dividend: 2, sector: "일반서비스", industry: "기타 사업지원 서비스업" ,note: "배당주 채권추심"}
+  - { code: "009680", name: "모토닉",      style: "value_range" , added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", dividend: 1, sector: "운송장비·부품", industry: "자동차 부품 제조업" ,note: "배당주 자동차부품"}
+  - { code: "002100", name: "경농", style: "value_range", added_by: "AI", confirm: "Waiting", added_date: "2026-06-29", dividend: 2, sector: "화학", industry: "합성고무 및 플라스틱 물질 제조업" ,note: "배당 7.6% 부채 77% (필터통과)" }
+  - { code: "035250", name: "강원랜드", style: "value_range", added_by: "AI", confirm: "Waiting", added_date: "2026-06-29", dividend: 1, sector: "오락·문화", industry: "유원지 및 기타 오락관련 서비스업" ,note: "배당 6.5% 부채 23% (필터통과)" }
+  - { code: "001230", name: "동국홀딩스", style: "value_range", added_by: "AI", confirm: "Waiting", added_date: "2026-06-29", dividend: 1, sector: "금융", industry: "기타 금융업" ,note: "배당 5.7% 부채 41% (필터통과)" }
