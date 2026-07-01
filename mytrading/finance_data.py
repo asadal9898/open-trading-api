@@ -20,13 +20,36 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+p = "mytrading/finance_data.py"
+s = open(p, encoding="utf-8").read()
+
+def _load_debt_lenient():
+    """mytrading_config.yaml의 debt_lenient_industry 로드.
+    없으면 기본값. 차영석이 yaml만 수정하면 업종 추가 가능.
+    """
+    default = ("선박", "은행", "보험", "여신", "금융")
+    try:
+        import yaml
+        cfg_path = _REPO_ROOT / "mytrading" / "mytrading_config.yaml"
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        vals = cfg.get("debt_lenient_industry")
+        if vals and isinstance(vals, list):
+            return tuple(vals)
+    except Exception:
+        pass
+    return default
+
+_DEBT_LENIENT_INDUSTRY = _load_debt_lenient()
+
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 # 재무 API 예제 경로 추가
 _EX = _REPO_ROOT / "examples_llm" / "domestic_stock"
-for sub in ("finance_financial_ratio", "ksdinfo_dividend", "finance_income_statement"):
+for sub in ("finance_financial_ratio", "ksdinfo_dividend", "finance_income_statement", "finance_growth_ratio"):
     p = _EX / sub
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
@@ -164,6 +187,80 @@ def get_dividend_yield(symbol: str, price: float,
         "yield_pct": round(yld, 2),
         "count": cnt,
         "year": latest_year,
+    }
+
+
+def get_growth(symbol: str) -> Optional[dict]:
+    """성장성 비율 (finance_growth_ratio).
+    반환: {
+      "revenue_growth": 매출액 증가율(%),
+      "op_profit_growth": 영업이익 증가율(%),
+      "equity_growth": 자기자본 증가율(%),
+    }
+    ※ 영업이익증가율은 이 API(growth_ratio)에 있음.
+      financial_ratio 에는 없어서 get_financials 에선 None 나옴.
+    """
+    try:
+        from finance_growth_ratio import finance_growth_ratio
+    except Exception:
+        return None
+    try:
+        df = finance_growth_ratio(
+            fid_input_iscd=symbol,
+            fid_div_cls_code="0",           # 0=년
+            fid_cond_mrkt_div_code="J",
+        )
+    except Exception:
+        return None
+    if df is None or df.empty:
+        return None
+    r = df.iloc[0]
+    return {
+        "symbol": symbol,
+        "revenue_growth": _to_float(r.get("grs")),           # 매출액 증가율
+        "op_profit_growth": _to_float(r.get("bsop_prfi_inrt")),  # 영업이익 증가율
+        "equity_growth": _to_float(r.get("equt_inrt")),      # 자기자본 증가율
+    }
+
+
+def _debt_note(debt_ratio, industry=None):
+    """부채비율 해석 (업종 고려). 차영석 통찰: 업종별로 다르게.
+    관대업종(조선·은행·보험 등)은 부채 높아도 정상.
+    """
+    if debt_ratio is None:
+        return "부채비율 없음"
+    lenient = industry and any(k in industry for k in _DEBT_LENIENT_INDUSTRY)
+    if lenient:
+        return f"{debt_ratio:.0f}% (업종특성상 부채 해석 주의: {industry})"
+    if debt_ratio < 100:
+        return f"{debt_ratio:.0f}% (양호)"
+    if debt_ratio < 200:
+        return f"{debt_ratio:.0f}% (보통)"
+    return f"{debt_ratio:.0f}% (높음 — 주의)"
+
+
+def get_financial_summary(symbol: str, industry: str = None) -> Optional[dict]:
+    """재무 종합 — 개별 함수들을 한 번에 묶어서 반환.
+    industry(표준산업분류) 주면 부채비율을 업종별로 해석.
+    반환: {symbol, debt_ratio, debt_note, roe, op_positive,
+           revenue_growth, op_profit_growth}
+    ※ 재무 API 여러 개 호출 → 레이트리밋 주의 (스캔 시 남발 금지)
+    """
+    fin = get_financials(symbol)
+    growth = get_growth(symbol)
+    op = get_operating_profit(symbol, exclude_years=["2008", "2020"])
+    if not fin and not growth:
+        return None
+    debt = fin.get("debt_ratio") if fin else None
+    return {
+        "symbol": symbol,
+        "debt_ratio": debt,
+        "debt_note": _debt_note(debt, industry),
+        "roe": fin.get("roe") if fin else None,
+        "op_positive": (f"{op['positive_years']}/{op['checked_years']}년"
+                        if op else None),
+        "revenue_growth": growth.get("revenue_growth") if growth else None,
+        "op_profit_growth": growth.get("op_profit_growth") if growth else None,
     }
 
 
