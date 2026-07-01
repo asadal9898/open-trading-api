@@ -15,30 +15,21 @@
 users:
   Owner:
     accounts:
-      일반증권1:
-        cash: 20
-        aggressive: 30
-        moderate: 20
-        safe: 20
-        free: 10           # 자유 투자 10% (합 100)
-        free_symbols:       # Owner 의 자유 종목 (개인별)
-          - { code: "000660", name: "SK하이닉스" }
-      # 일반증권2:
-      #   cash: 30
-      #   aggressive: 20
-      #   moderate: 20
-      #   safe: 20
-      #   free: 10
-      #   free_symbols:
-      #     - { code: "", name: "" }
+      일반증권1: { cash: 20, aggressive: 30, moderate: 20, safe: 20, free: 10 } # 자유 투자 10% (합 100)
+      # ISA: { cash: 20, aggressive: 30, moderate: 20, safe: 20, free: 10 } # 자유 투자 10% (합 100)
+      # IRP: { cash: 0, aggressive: 0, moderate: 0, safe: 0, free: 0 }   # 조회 전용 (합 0)
 
   # brother:
   #   accounts:
-  #     일반증권1:
-  #       cash: 40
-  #       aggressive: 20
-  #       moderate: 15
-  #       safe: 15
-  #       free: 10
-  #       free_symbols:      # 동생의 자유 종목 (Owner 와 다름)
-  #         - { code: "", name: "" }
+      # 일반증권1: { cash: 20, aggressive: 30, moderate: 20, safe: 20, free: 10 } # 자유 투자 10% (합 100)
+      # ISA: { cash: 20, aggressive: 30, moderate: 20, safe: 20, free: 10 } # 자유 투자 10% (합 100)
+      # IRP: { cash: 0, aggressive: 0, moderate: 0, safe: 0, free: 0 }   # 조회 전용 (합 0)
+
+free_holdings:
+  Owner:
+    일반증권1:
+      - { code: "000660", name: "SK하이닉스", style: "free" , added_by: "telegram", confirm: "Waiting",  added_date: "2026-06-28", dividend: 1, sector: "전기·전자", industry: "반도체 제조업" ,note: "자유투자"}
+
+#  brother:
+#    일반증권1:
+#      - { code: "000660", name: "SK하이닉스", style: "free" , added_by: "telegram", confirm: "Waiting",  added_date: "2026-06-28", dividend: 1, sector: "전기·전자", industry: "반도체 제조업" ,note: "자유투자"}
