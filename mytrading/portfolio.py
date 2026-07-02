@@ -111,17 +111,34 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
     # --- 비중 ---
     araw = _load_yaml(alloc_path)
     allocations: Dict[str, Dict[str, Allocation]] = {}
+    # free_holdings 섹션 (사용자>계좌>종목) — 오늘 구조. 전체 필드 보존.
+    _fh_raw = araw.get("free_holdings", {}) or {}
+    def _fh_for(ukey, acc_name):
+        items = ((_fh_raw.get(ukey) or {}).get(acc_name)) or []
+        out = []
+        for it in items:
+            if isinstance(it, dict) and str(it.get("code", "")).strip():
+                entry = {"code": str(it["code"]).strip(),
+                         "name": str(it.get("name", "")).strip()}
+                for k in ("style", "note", "added_by", "confirm",
+                          "added_date", "dividend", "sector", "industry"):
+                    if it.get(k) is not None:
+                        entry[k] = it[k]
+                out.append(entry)
+        return out
+
     for ukey, ublock in (araw.get("users", {}) or {}).items():
         accts = (ublock or {}).get("accounts", {}) or {}
         for acc_name, vals in accts.items():
             if not isinstance(vals, dict):
                 continue
-            # free_symbols(개인별 자유 종목) 파싱
-            free_syms = []
-            for it in (vals.get("free_symbols") or []):
-                if isinstance(it, dict) and str(it.get("code", "")).strip():
-                    free_syms.append({"code": str(it["code"]).strip(),
-                                      "name": str(it.get("name", "")).strip()})
+            # 자유 종목: free_holdings 우선, 없으면 free_symbols 폴백
+            free_syms = _fh_for(ukey, acc_name)
+            if not free_syms:
+                for it in (vals.get("free_symbols") or []):
+                    if isinstance(it, dict) and str(it.get("code", "")).strip():
+                        free_syms.append({"code": str(it["code"]).strip(),
+                                          "name": str(it.get("name", "")).strip()})
             al = Allocation(
                 cash=float(vals.get("cash", 0) or 0),
                 aggressive=float(vals.get("aggressive", 0) or 0),
