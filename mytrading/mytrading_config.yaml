@@ -102,3 +102,8 @@ logging:
 rate_limit:
   vps_sleep: 1.0
   prod_sleep: 0.1
+
+storage:
+  reports_dir: "mytrading/reports"    # 보고서 저장 (용량 큼)
+  # 디스크 추가 시 여기만 수정:
+  # reports_dir: "/mnt/disk2/reports"
