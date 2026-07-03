@@ -1,3 +1,32 @@
+import yaml as _yaml_qs
+
+class _QStr(str):
+    """YAML 덤프 시 항상 따옴표로 감싸지는 문자열 (종목코드 앞자리 0 보존)."""
+    pass
+
+def _q_repr(dumper, data):
+    return dumper.represent_scalar("tag:yaml.org,2002:str", str(data), style="'")
+
+_yaml_qs.SafeDumper.add_representer(_QStr, _q_repr)
+
+# --- allocations.yaml 주석 보존용 (ruamel 라운드트립) ---
+from ruamel.yaml import YAML as _YAML
+from ruamel.yaml.scalarstring import SingleQuotedScalarString as _SQStr
+_RT = _YAML()
+_RT.preserve_quotes = True
+_RT.indent(mapping=2, sequence=4, offset=2)
+_RT.allow_unicode = True
+
+def _rt_load(path):
+    from pathlib import Path as _PP
+    with open(path, encoding="utf-8") as _f:
+        return _RT.load(_f) or {}
+
+def _rt_dump(data, path):
+    with open(path, "w", encoding="utf-8") as _f:
+        _RT.dump(data, _f)
+
+
 """텔레그램 봇 — 명령 수신 (requests 폴링, getUpdates).
 
 notify.py(보내기)와 짝. 이건 받기(명령).
@@ -168,6 +197,9 @@ def _set_pending(ukey: str, candidates):
 
 def _cmd_add(user: dict, query: str) -> str:
     """종목명 -> 코드 검색. 하나면 분석, 여러개면 후보 선택."""
+    # 새 흐름 시작 - 이전 미완료 대기 모두 정리 (add/approve 흐름 섞임 방지)
+    for _k in ("approve:", "approve_plan:", "add:", ""):
+        _set_pending(_k + user["key"], None)
     import sys as _sys
     from pathlib import Path as _P
     _repo = _P(__file__).resolve().parents[1]
@@ -214,6 +246,7 @@ def _analyze(code: str, name: str, ukey: str = None) -> str:
         init(require_confirm=False)
         from mytrading.finance_data import get_financial_summary
         industry = None
+        sector = None
         try:
             import sys as _s
             from pathlib import Path as _P
@@ -225,6 +258,21 @@ def _analyze(code: str, name: str, ukey: str = None) -> str:
             df = search_stock_info(prdt_type_cd="300", pdno=code)
             if df is not None and not df.empty:
                 industry = df.iloc[0].get("std_idst_clsf_cd_name")
+        except Exception:
+            pass
+        # sector: 현재가 조회(inquire_price)의 bstp_kor_isnm(업종 한글명).
+        #   search_stock_info의 idx_bztp_*는 지수소속이라 부정확
+        #   (카카오=KOGI지배구조지수, 하이브=빈값). bstp_kor_isnm은 전종목 안정적.
+        try:
+            ip = _repo / "examples_llm" / "domestic_stock" / "inquire_price"
+            if str(ip) not in _s.path:
+                _s.path.insert(0, str(ip))
+            from inquire_price import inquire_price
+            pdf = inquire_price("real", "J", code)
+            if pdf is not None and not pdf.empty:
+                bs = pdf.iloc[0].get("bstp_kor_isnm")
+                if bs:
+                    sector = bs
         except Exception:
             pass
         summ = get_financial_summary(code, industry=industry)
@@ -242,10 +290,10 @@ def _analyze(code: str, name: str, ukey: str = None) -> str:
         f"매출증가율: {summ.get('revenue_growth','?')}%",
         f"영업이익증가율: {summ.get('op_profit_growth','?')}%",
         "─────────",
-        "이 종목을 추가할까요?  예 / 아니요",
+        "이 종목을 추가할까요?  예 / 아니요\x00YESNO",
     ]
     if ukey:
-        _set_pending("add:" + ukey, [[code, name, industry or ""]])
+        _set_pending("add:" + ukey, [[code, name, industry or "", sector or ""]])
     return "\n".join(lines)
 
 
@@ -259,13 +307,13 @@ def _cmd_confirm_add(user: dict) -> str:
     row = pend[0]
     code, name = row[0], row[1]
     industry = row[2] if len(row) > 2 else ""
+    sector = row[3] if len(row) > 3 else ""
     _set_pending("add:" + user["key"], None)
 
     _repo = _P(__file__).resolve().parents[1]
     alloc_path = _repo / "mytrading" / "allocations.yaml"
     try:
-        with open(alloc_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+        data = _rt_load(alloc_path)
     except Exception as e:
         return f"저장 실패(로드): {e}"
 
@@ -289,16 +337,15 @@ def _cmd_confirm_add(user: dict) -> str:
 
     from datetime import date
     lst.append({
-        "code": str(code), "name": name, "style": "free",
+        "code": _SQStr(str(code).zfill(6)), "name": name, "style": "free",
         "added_by": "telegram", "confirm": "Waiting",
         "added_date": date.today().isoformat(),
-        "sector": "",
+        "sector": sector or "",
         "industry": industry or "",
         "note": "자유투자",
     })
     try:
-        with open(alloc_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+        _rt_dump(data, alloc_path)
     except Exception as e:
         return f"저장 실패(쓰기): {e}"
 
@@ -308,6 +355,9 @@ def _cmd_confirm_add(user: dict) -> str:
 
 def _cmd_approve(user: dict, query: str) -> str:
     """종목명 -> free_holdings에서 찾기 -> 매수방식 입력 안내."""
+    # 새 흐름 시작 - 이전 미완료 대기 모두 정리 (add/approve 흐름 섞임 방지)
+    for _k in ("approve:", "approve_plan:", "add:", ""):
+        _set_pending(_k + user["key"], None)
     import sys as _sys
     from pathlib import Path as _P
     _repo = _P(__file__).resolve().parents[1]
@@ -424,7 +474,7 @@ def _approve_parse(user: dict, text: str) -> str:
                 "weekly_2x": "주2회", "biweekly": "격주"}.get(sp["every"], sp["every"])
         parts.append(f"{freq} {sp['qty']}주씩")
     return (f"{name} 매수 계획:\n  " + "\n  ".join(parts) +
-            "\n맞나요?  예 / 아니요")
+            "\n맞나요?  예 / 아니요\x00YESNO")
 
 
 def _save_buy_plan(user: dict, code: str, name: str, plan: dict) -> str:
@@ -434,8 +484,7 @@ def _save_buy_plan(user: dict, code: str, name: str, plan: dict) -> str:
     _repo = _P(__file__).resolve().parents[1]
     alloc_path = _repo / "mytrading" / "allocations.yaml"
     try:
-        with open(alloc_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+        data = _rt_load(alloc_path)
     except Exception as e:
         return f"저장 실패(로드): {e}"
 
@@ -452,11 +501,31 @@ def _save_buy_plan(user: dict, code: str, name: str, plan: dict) -> str:
     if not updated:
         return f"{name} 종목을 못 찾았어요."
     try:
-        with open(alloc_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+        _rt_dump(data, alloc_path)
     except Exception as e:
         return f"저장 실패(쓰기): {e}"
     return f"✅ {name}({code}) 매수 승인 완료 (Approval)\n다음 매매 시점부터 반영됩니다."
+
+
+# --- 인라인 버튼 지원 ---
+_YESNO_KEYBOARD = {"inline_keyboard": [[
+    {"text": "✅ 예", "callback_data": "yes"},
+    {"text": "❌ 아니요", "callback_data": "no"},
+]]}
+
+def _split_marker(reply: str):
+    """응답 문자열에서 버튼 마커를 분리. (텍스트, reply_markup) 반환."""
+    if reply and "\x00YESNO" in reply:
+        return reply.replace("\x00YESNO", ""), _YESNO_KEYBOARD
+    return reply, None
+
+def _answer_callback(cb_id: str):
+    """버튼 탭 응답(로딩 표시 제거)."""
+    try:
+        requests.get(f"{_API}/answerCallbackQuery",
+                     params={"callback_query_id": cb_id}, timeout=5)
+    except Exception:
+        pass
 
 
 def poll_once():
@@ -468,6 +537,26 @@ def poll_once():
     updates = get_updates()
     for up in updates:
         _save_offset(up["update_id"])
+
+        # --- 버튼 탭(callback_query) 처리 ---
+        cb = up.get("callback_query")
+        if cb:
+            cb_msg = cb.get("message") or {}
+            chat_id = str((cb_msg.get("chat") or {}).get("id", "")).strip()
+            data = cb.get("data", "")
+            _answer_callback(cb.get("id", ""))
+            if chat_id not in users:
+                continue
+            user = users[chat_id]
+            # 버튼 data("yes"/"no")를 기존 "예"/"아니요" 로직으로 재사용
+            text = {"yes": "예", "no": "아니요"}.get(data, data)
+            print(f"[bot] {user['name']}({user['role']}) [버튼]: {text}")
+            reply = handle_command(user, text)
+            body, markup = _split_marker(reply)
+            notify._send_raw(chat_id, body, reply_markup=markup)
+            continue
+
+        # --- 일반 메시지 처리 ---
         msg = up.get("message") or {}
         chat_id = str((msg.get("chat") or {}).get("id", "")).strip()
         text = msg.get("text", "")
@@ -481,7 +570,8 @@ def poll_once():
         user = users[chat_id]
         print(f"[bot] {user['name']}({user['role']}): {text}")
         reply = handle_command(user, text)
-        notify._send_raw(chat_id, reply)
+        body, markup = _split_marker(reply)
+        notify._send_raw(chat_id, body, reply_markup=markup)
 
 
 def run_loop(interval: int = 2):

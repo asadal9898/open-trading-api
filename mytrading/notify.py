@@ -54,7 +54,7 @@ def _load_config() -> dict:
 
 
 def _send_raw(chat_id: str, text: str, silent: bool = False,
-              html_mode: bool = True) -> bool:
+              html_mode: bool = True, reply_markup=None) -> bool:
     """지정한 chat_id 로 직접 전송 (내부용). token 은 전역 설정에서."""
     cfg = _load_config()
 
@@ -75,6 +75,9 @@ def _send_raw(chat_id: str, text: str, silent: bool = False,
         "text": text,
         "disable_notification": silent,
     }
+    if reply_markup is not None:
+        import json as _json
+        payload["reply_markup"] = _json.dumps(reply_markup, ensure_ascii=False)
     if html_mode:
         payload["parse_mode"] = "HTML"
     data = urllib.parse.urlencode(payload).encode("utf-8")

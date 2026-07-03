@@ -185,3 +185,14 @@ mytrading/**/__pycache__/
 .claude/
 .mcp.json
 AGENTS.md
+
+# 패치 백업 파일
+*.bak
+*.bak[0-9]
+*.bak_*
+
+# VS Code 워크스페이스
+*.code-workspace
+
+# 다운로드된 보고서 PDF (download_reports.py 산출물)
+mytrading/reports/
