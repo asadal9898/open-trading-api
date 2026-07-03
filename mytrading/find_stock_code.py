@@ -149,6 +149,28 @@ def show_volume(codes: list, days: int = 10):
         print("  시가총액(순자산 규모)도 클수록 안정. 수수료(총보수)는 증권사 ETF 정보서 별도 확인.")
 
 
+def find_by_name(query: str, exact_first: bool = True) -> list:
+    """종목명으로 코드 검색. 코스피+코스닥.
+    반환: [(code6, name, market)] — 정확일치 우선, 없으면 부분일치.
+    봇 /add 에서 이름->코드 변환용.
+    """
+    query = query.strip()
+    results = []
+    for mkt in ("kospi", "kosdaq"):
+        try:
+            for code6, _std, name in parse_master(download_master(mkt)):
+                results.append((code6, name, mkt))
+        except Exception:
+            pass
+    # 정확 일치 우선
+    exact = [(c, n, m) for c, n, m in results if n == query]
+    if exact and exact_first:
+        return exact
+    # 부분 일치
+    partial = [(c, n, m) for c, n, m in results if query in n]
+    return exact + [x for x in partial if x not in exact]
+
+
 def main():
     args = sys.argv[1:]
 
