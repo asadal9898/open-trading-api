@@ -95,6 +95,18 @@ def handle_command(user: dict, text: str) -> str:
     # 숫자만 왔는데 대기중이면 후보 선택으로 처리
     if cmd.isdigit() and _get_pending(user["key"]):
         return _pick_candidate(user, int(cmd))
+    if cmd == "/approve":
+        if not args:
+            return "사용법: /승인 종목명  (예: /승인 카카오)"
+        return _cmd_approve(user, " ".join(args))
+    if _get_pending("approve:" + user["key"]):
+        return _approve_parse(user, text.strip())
+    if cmd == "/approve":
+        if not args:
+            return "사용법: /승인 종목명  (예: /승인 카카오)"
+        return _cmd_approve(user, " ".join(args))
+    if _get_pending("approve:" + user["key"]):
+        return _approve_parse(user, text.strip())
     if text.strip() in ("예", "yes", "y", "네"):
         return _cmd_confirm_add(user)
     if text.strip() in ("아니요", "no", "n", "아니오"):
@@ -174,7 +186,7 @@ def _cmd_add(user: dict, query: str) -> str:
     if len(matches) == 1:
         _set_pending(user["key"], None)
         code, name, _mkt = matches[0]
-        return _analyze(code, name)
+        return _analyze(code, name, user["key"])
     cands = [[c, n] for c, n, _m in matches[:8]]
     _set_pending(user["key"], cands)
     lines = [f"'{query}' 여러 종목이 있어요. 번호로 선택:"]
@@ -277,7 +289,7 @@ def _cmd_confirm_add(user: dict) -> str:
 
     from datetime import date
     lst.append({
-        "code": code, "name": name, "style": "free",
+        "code": str(code), "name": name, "style": "free",
         "added_by": "telegram", "confirm": "Waiting",
         "added_date": date.today().isoformat(),
         "sector": "",
@@ -291,7 +303,141 @@ def _cmd_confirm_add(user: dict) -> str:
         return f"저장 실패(쓰기): {e}"
 
     return (f"✅ {name}({code}) 추가됨 (관찰중/Waiting)\n"
-            f"매수하려면 /approve {name} (비중·속도 지정) — 다음 구현")
+            f"매수하려면 /승인 {name} (수량 지정)")
+
+
+def _cmd_approve(user: dict, query: str) -> str:
+    """종목명 -> free_holdings에서 찾기 -> 매수방식 입력 안내."""
+    import sys as _sys
+    from pathlib import Path as _P
+    _repo = _P(__file__).resolve().parents[1]
+    fdir = _repo / "mytrading"
+    if str(fdir) not in _sys.path:
+        _sys.path.insert(0, str(fdir))
+    from find_stock_code import find_by_name
+
+    # 이름 -> 코드
+    if query.strip().isdigit():
+        code = query.strip()
+        name = query.strip()
+    else:
+        matches = find_by_name(query)
+        if not matches:
+            return f"'{query}' 종목을 못 찾았어요."
+        code, name, _m = matches[0]
+
+    # free_holdings에 있는지 확인
+    from mytrading.portfolio import load_portfolio
+    pf = load_portfolio()
+    found = False
+    for _acc, al in (pf.allocations.get(user["key"], {}) or {}).items():
+        for sym in al.free_symbols:
+            if str(sym.get("code")) == str(code):
+                found = True
+                name = sym.get("name", name)
+    if not found:
+        return f"{name}은 자유 종목에 없어요. 먼저 /추가 하세요."
+
+    # approve 대기 저장
+    _set_pending("approve:" + user["key"], [[str(code), name]])
+    return (f"{name}({code}) 매수 방식을 입력하세요 (수량):\n"
+            f"  · 일시 10주\n"
+            f"  · 분할 주1회 1주\n"
+            f"  · 분할 매일 1주\n"
+            f"  · 일시 5주 + 분할 주1회 1주  (동시)")
+
+
+def _parse_buy_plan(text: str) -> dict:
+    """매수방식 텍스트 파싱 -> buy_plan. 규칙 기반.
+    반환: {onetime, split:{every,qty}} 또는 None(파싱 실패).
+    """
+    import re
+    plan = {}
+    # 일시 N주
+    m = re.search(r"일시\s*([0-9]+)\s*주", text)
+    if m:
+        plan["onetime"] = int(m.group(1))
+    # 분할 (매일|주1회|주2회) N주
+    m = re.search(r"분할\s*(매일|주1회|주2회|매주)\s*([0-9]+)\s*주", text)
+    if m:
+        freq_map = {"매일": "daily", "주1회": "weekly",
+                    "매주": "weekly", "주2회": "weekly_2x"}
+        plan["split"] = {"every": freq_map.get(m.group(1), "weekly"),
+                         "qty": int(m.group(2))}
+    return plan if plan else None
+
+
+def _approve_parse(user: dict, text: str) -> str:
+    """approve 대기 중 텍스트 처리. 재확인 or buy_plan 저장."""
+    pend = _get_pending("approve:" + user["key"])
+    if not pend:
+        return "승인 대기중인 종목이 없어요."
+    code, name = pend[0][0], pend[0][1]
+
+    # 재확인 응답 (예/아니요)
+    if text in ("예", "yes", "y", "네"):
+        saved = _get_pending("approve_plan:" + user["key"])
+        if not saved:
+            return "매수 방식을 먼저 입력하세요."
+        plan = saved[0]
+        result = _save_buy_plan(user, code, name, plan)
+        _set_pending("approve:" + user["key"], None)
+        _set_pending("approve_plan:" + user["key"], None)
+        return result
+    if text in ("아니요", "no", "n", "아니오"):
+        _set_pending("approve:" + user["key"], None)
+        _set_pending("approve_plan:" + user["key"], None)
+        return "취소했어요."
+
+    # 매수방식 파싱
+    plan = _parse_buy_plan(text)
+    if not plan:
+        return ("못 알아들었어요. 예시대로 입력해주세요:\n"
+                "  일시 10주 / 분할 주1회 1주 / 일시 5주 + 분할 주1회 1주")
+    # 파싱 결과 재확인
+    _set_pending("approve_plan:" + user["key"], [plan])
+    parts = []
+    if plan.get("onetime"):
+        parts.append(f"일시매수 {plan['onetime']}주")
+    if plan.get("split"):
+        sp = plan["split"]
+        freq = {"daily": "매일", "weekly": "매주",
+                "weekly_2x": "주2회"}.get(sp["every"], sp["every"])
+        parts.append(f"{freq} {sp['qty']}주씩")
+    return (f"{name} 매수 계획:\n  " + "\n  ".join(parts) +
+            "\n맞나요?  예 / 아니요")
+
+
+def _save_buy_plan(user: dict, code: str, name: str, plan: dict) -> str:
+    """buy_plan 저장 + confirm: Approval. allocations.yaml."""
+    import yaml
+    from pathlib import Path as _P
+    _repo = _P(__file__).resolve().parents[1]
+    alloc_path = _repo / "mytrading" / "allocations.yaml"
+    try:
+        with open(alloc_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception as e:
+        return f"저장 실패(로드): {e}"
+
+    fh = (data.get("free_holdings") or {}).get(user["key"], {})
+    updated = False
+    for _acc, lst in fh.items():
+        if not isinstance(lst, list):
+            continue
+        for it in lst:
+            if isinstance(it, dict) and str(it.get("code")) == str(code):
+                it["confirm"] = "Approval"
+                it["buy_plan"] = plan
+                updated = True
+    if not updated:
+        return f"{name} 종목을 못 찾았어요."
+    try:
+        with open(alloc_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+    except Exception as e:
+        return f"저장 실패(쓰기): {e}"
+    return f"✅ {name}({code}) 매수 승인 완료 (Approval)\n다음 매매 시점부터 반영됩니다."
 
 
 def poll_once():
