@@ -349,24 +349,43 @@ def _cmd_approve(user: dict, query: str) -> str:
 
 def _parse_buy_plan(text: str) -> dict:
     """매수방식 텍스트 파싱 -> buy_plan. 규칙 기반.
-    반환: {onetime, split:{every,qty}} 또는 None(파싱 실패).
+    반환: {onetime, split:{every, qty}} 또는 None(파싱 실패).
+    split.every: daily | weekly | weekly_2x | biweekly
     """
     import re
     plan = {}
-    # 일시 N주
-    m = re.search(r"일시\s*([0-9]+)\s*주", text)
+    t = text
+
+    # 1) 일시매수 추출 후 원문에서 제거 (분할 수량과 혼동 방지)
+    onetime_pat = r"(?:일시매수|일시|한\s*번에|한번에|1회에)\s*([0-9]+)\s*주"
+    m = re.search(onetime_pat, t)
     if m:
         plan["onetime"] = int(m.group(1))
-    # 분할 (매일|주1회|주2회) N주
-    m = re.search(r"분할\s*(매일|주1회|주2회|매주)\s*([0-9]+)\s*주", text)
-    if m:
-        freq_map = {"매일": "daily", "주1회": "weekly",
-                    "매주": "weekly", "주2회": "weekly_2x"}
-        plan["split"] = {"every": freq_map.get(m.group(1), "weekly"),
-                         "qty": int(m.group(2))}
+        t = t[:m.start()] + " " + t[m.end():]
+
+    # 2) 분할 빈도 판정 (우선순위: 격주 > 주2회 > 주1회 > 매일)
+    #    매칭된 빈도 표현은 t에서 제거 -> 수량 숫자와 안 겹치게
+    freq_pats = [
+        ("biweekly",  r"격주|보름\s*마다?|2\s*주\s*(?:마다|에\s*(?:1\s*회|한\s*번)|1\s*회)"),
+        ("weekly_2x", r"주\s*2\s*회|주에\s*2\s*회|일주일에\s*2\s*회"),
+        ("weekly",    r"매주|주\s*1\s*회|주에\s*1\s*회|일주일에\s*1\s*회|주마다"),
+        ("daily",     r"매일|하루\s*(?:마다|에)|데일리"),
+    ]
+    every = None
+    for _name, _pat in freq_pats:
+        mm = re.search(_pat, t)
+        if mm:
+            every = _name
+            t = t[:mm.start()] + " " + t[mm.end():]
+            break
+
+    # 3) 남은 텍스트에서 분할 수량 (N주씩 우선, 없으면 N주)
+    if every:
+        qm = re.search(r"([0-9]+)\s*주\s*씩", t) or re.search(r"([0-9]+)\s*주", t)
+        if qm:
+            plan["split"] = {"every": every, "qty": int(qm.group(1))}
+
     return plan if plan else None
-
-
 def _approve_parse(user: dict, text: str) -> str:
     """approve 대기 중 텍스트 처리. 재확인 or buy_plan 저장."""
     pend = _get_pending("approve:" + user["key"])
@@ -402,7 +421,7 @@ def _approve_parse(user: dict, text: str) -> str:
     if plan.get("split"):
         sp = plan["split"]
         freq = {"daily": "매일", "weekly": "매주",
-                "weekly_2x": "주2회"}.get(sp["every"], sp["every"])
+                "weekly_2x": "주2회", "biweekly": "격주"}.get(sp["every"], sp["every"])
         parts.append(f"{freq} {sp['qty']}주씩")
     return (f"{name} 매수 계획:\n  " + "\n  ".join(parts) +
             "\n맞나요?  예 / 아니요")
