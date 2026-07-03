@@ -233,7 +233,7 @@ def _analyze(code: str, name: str, ukey: str = None) -> str:
         "이 종목을 추가할까요?  예 / 아니요",
     ]
     if ukey:
-        _set_pending("add:" + ukey, [[code, name]])
+        _set_pending("add:" + ukey, [[code, name, industry or ""]])
     return "\n".join(lines)
 
 
@@ -244,7 +244,9 @@ def _cmd_confirm_add(user: dict) -> str:
     pend = _get_pending("add:" + user["key"])
     if not pend:
         return "추가할 종목이 없어요. /add 부터."
-    code, name = pend[0]
+    row = pend[0]
+    code, name = row[0], row[1]
+    industry = row[2] if len(row) > 2 else ""
     _set_pending("add:" + user["key"], None)
 
     _repo = _P(__file__).resolve().parents[1]
@@ -278,6 +280,8 @@ def _cmd_confirm_add(user: dict) -> str:
         "code": code, "name": name, "style": "free",
         "added_by": "telegram", "confirm": "Waiting",
         "added_date": date.today().isoformat(),
+        "sector": "",
+        "industry": industry or "",
         "note": "자유투자",
     })
     try:
