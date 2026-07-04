@@ -7,6 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pandas>=2.3.1",
     "pandas-market-calendars>=5.4.0",
+    "pdfplumber>=0.11.10",
     "pycryptodome>=3.23.0",
     "pyqt6>=6.9.1",
     "pyside6>=6.9.1",
