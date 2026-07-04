@@ -95,6 +95,21 @@ def _send_raw(chat_id: str, text: str, silent: bool = False,
             detail = e.read().decode()
         except Exception:
             detail = str(e)
+        # HTML 파싱 실패(<...> 포함 메시지)면 평문으로 재전송
+        if e.code == 400 and "parse entities" in detail and html_mode:
+            print(f"[notify] HTML 파싱 실패 -> 평문 재전송 (chat={chat_id})")
+            payload.pop("parse_mode", None)
+            data2 = urllib.parse.urlencode(payload).encode("utf-8")
+            try:
+                req2 = urllib.request.Request(url, data=data2, method="POST")
+                with urllib.request.urlopen(req2, timeout=10) as resp2:
+                    result2 = json.loads(resp2.read().decode("utf-8"))
+                if result2.get("ok"):
+                    return True
+                print(f"[notify] 평문 재전송도 실패(chat={chat_id}): {result2.get('description', result2)}")
+            except Exception as e2:
+                print(f"[notify] 평문 재전송 오류(chat={chat_id}): {e2}")
+            return False
         print(f"[notify] HTTP {e.code} (chat={chat_id}): {detail}")
         return False
     except Exception as e:

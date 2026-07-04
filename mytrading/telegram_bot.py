@@ -350,7 +350,7 @@ def _cmd_confirm_add(user: dict) -> str:
         return f"저장 실패(쓰기): {e}"
 
     return (f"✅ {name}({code}) 추가됨 (관찰중/Waiting)\n"
-            f"매수하려면 /승인 {name} (수량 지정)")
+            f"매수하려면 아래 버튼을 누르세요.\x00ADDDONE:{code}:{name}")
 
 
 def _cmd_approve(user: dict, query: str) -> str:
@@ -507,6 +507,54 @@ def _save_buy_plan(user: dict, code: str, name: str, plan: dict) -> str:
     return f"✅ {name}({code}) 매수 승인 완료 (Approval)\n다음 매매 시점부터 반영됩니다."
 
 
+# --- add 버튼 헬퍼 ---
+def _name_by_code(user: dict, code: str):
+    from pathlib import Path as _P
+    _repo = _P(__file__).resolve().parents[1]
+    alloc_path = _repo / "mytrading" / "allocations.yaml"
+    try:
+        data = _rt_load(alloc_path)
+    except Exception:
+        return None
+    fh = (data.get("free_holdings") or {}).get(user["key"], {})
+    for _acc, lst in fh.items():
+        if not isinstance(lst, list):
+            continue
+        for it in lst:
+            if isinstance(it, dict) and str(it.get("code")) == str(code):
+                return it.get("name")
+    return None
+
+
+def _delete_holding(user: dict, code: str) -> str:
+    from pathlib import Path as _P
+    _repo = _P(__file__).resolve().parents[1]
+    alloc_path = _repo / "mytrading" / "allocations.yaml"
+    try:
+        data = _rt_load(alloc_path)
+    except Exception as e:
+        return f"삭제 실패(로드): {e}"
+    fh = (data.get("free_holdings") or {}).get(user["key"], {})
+    removed = None
+    for _acc, lst in fh.items():
+        if not isinstance(lst, list):
+            continue
+        for i, it in enumerate(lst):
+            if isinstance(it, dict) and str(it.get("code")) == str(code):
+                removed = it.get("name", code)
+                del lst[i]
+                break
+        if removed:
+            break
+    if not removed:
+        return f"{code} 종목을 목록에서 못 찾았어요."
+    try:
+        _rt_dump(data, alloc_path)
+    except Exception as e:
+        return f"삭제 실패(쓰기): {e}"
+    return f"🗑 {removed}({code}) 목록에서 삭제했어요."
+
+
 # --- 인라인 버튼 지원 ---
 _YESNO_KEYBOARD = {"inline_keyboard": [[
     {"text": "✅ 예", "callback_data": "yes"},
@@ -515,7 +563,17 @@ _YESNO_KEYBOARD = {"inline_keyboard": [[
 
 def _split_marker(reply: str):
     """응답 문자열에서 버튼 마커를 분리. (텍스트, reply_markup) 반환."""
-    if reply and "\x00YESNO" in reply:
+    if not reply:
+        return reply, None
+    if "\x00ADDDONE:" in reply:
+        head, _, rest = reply.partition("\x00ADDDONE:")
+        code = rest.split(":", 1)[0]
+        kb = {"inline_keyboard": [[
+            {"text": "💰 승인", "callback_data": f"approve:{code}"},
+            {"text": "🗑 취소", "callback_data": f"reject:{code}"},
+        ]]}
+        return head, kb
+    if "\x00YESNO" in reply:
         return reply.replace("\x00YESNO", ""), _YESNO_KEYBOARD
     return reply, None
 
@@ -548,7 +606,20 @@ def poll_once():
             if chat_id not in users:
                 continue
             user = users[chat_id]
-            # 버튼 data("yes"/"no")를 기존 "예"/"아니요" 로직으로 재사용
+            if data.startswith("approve:"):
+                code = data.split(":", 1)[1]
+                nm = _name_by_code(user, code) or code
+                print(f"[bot] {user['name']}({user['role']}) [버튼] 승인: {nm}")
+                reply = _cmd_approve(user, nm)
+                body, markup = _split_marker(reply)
+                notify._send_raw(chat_id, body, reply_markup=markup)
+                continue
+            if data.startswith("reject:"):
+                code = data.split(":", 1)[1]
+                print(f"[bot] {user['name']}({user['role']}) [버튼] 취소(삭제): {code}")
+                reply = _delete_holding(user, code)
+                notify._send_raw(chat_id, reply)
+                continue
             text = {"yes": "예", "no": "아니요"}.get(data, data)
             print(f"[bot] {user['name']}({user['role']}) [버튼]: {text}")
             reply = handle_command(user, text)
