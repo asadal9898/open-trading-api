@@ -112,6 +112,10 @@ def handle_command(user: dict, text: str) -> str:
     }
     cmd = _KO.get(cmd, cmd)
 
+    if _get_pending("reboot:" + user["key"]):
+        return _reboot_check_pw(user, text)
+    if cmd == "/reboot":
+        return _cmd_reboot(user)
     if cmd == "/start" or cmd == "/help":
         return ("자유투자 봇 (한글 명령도 됨)\n"
                 "/add(/추가) 종목명 - 종목 추가\n"
@@ -193,6 +197,54 @@ def _set_pending(ukey: str, candidates):
     else:
         d.pop(ukey, None)
     _save_pending(d)
+
+
+def _is_trading_hours() -> bool:
+    """개장일 AND 09:00~15:30 이면 True. 판정 실패시 안전측(True)."""
+    from datetime import datetime, time as _t
+    try:
+        from mytrading.market_calendar import is_market_open
+        if not is_market_open():
+            return False
+    except Exception:
+        pass
+    now = datetime.now().time()
+    return _t(9, 0) <= now <= _t(15, 30)
+
+
+def _do_reboot() -> str:
+    """실제 재부팅 실행. sudo /usr/sbin/reboot (NOPASSWD)."""
+    import subprocess, threading
+    def _delayed():
+        import time as _tm
+        _tm.sleep(2)  # 응답 메시지 전송 완료 대기
+        try:
+            subprocess.run(["sudo", "/usr/sbin/reboot"], timeout=10)
+        except Exception as _e:
+            print(f"[bot] 재부팅 실행 오류: {_e}")
+    threading.Thread(target=_delayed, daemon=True).start()
+    return "재부팅합니다. 잠시 후 봇이 다시 올라옵니다."
+
+
+def _cmd_reboot(user: dict) -> str:
+    """재부팅. owner만. 매매시간이면 비번, 장외면 확인 버튼."""
+    if user.get("role") != "owner":
+        return "재부팅은 owner만 가능해요."
+    if _is_trading_hours():
+        _set_pending("reboot:" + user["key"], [["await_pw"]])
+        return "매매시간입니다. 재부팅하려면 비밀번호를 입력하세요."
+    return "재부팅할까요?\x00REBOOT_CONFIRM"
+
+
+def _reboot_check_pw(user: dict, text: str) -> str:
+    """reboot 대기 중 비번 대조 (kis_devlp.yaml reboot_password)."""
+    _set_pending("reboot:" + user["key"], None)
+    pw = str(_cfg.get("reboot_password", "")).strip()
+    if not pw:
+        return "reboot_password가 설정 안 됐어요 (kis_devlp.yaml)."
+    if text.strip() == pw:
+        return _do_reboot()
+    return "비밀번호가 틀렸어요. 재부팅 취소."
 
 
 def _cmd_add(user: dict, query: str) -> str:
@@ -573,6 +625,12 @@ def _split_marker(reply: str):
             {"text": "🗑 취소", "callback_data": f"reject:{code}"},
         ]]}
         return head, kb
+    if "\x00REBOOT_CONFIRM" in reply:
+        kb = {"inline_keyboard": [[
+            {"text": "🔄 재부팅", "callback_data": "reboot_yes"},
+            {"text": "❌ 취소", "callback_data": "reboot_no"},
+        ]]}
+        return reply.replace("\x00REBOOT_CONFIRM", ""), kb
     if "\x00YESNO" in reply:
         return reply.replace("\x00YESNO", ""), _YESNO_KEYBOARD
     return reply, None
@@ -613,6 +671,16 @@ def poll_once():
                 reply = _cmd_approve(user, nm)
                 body, markup = _split_marker(reply)
                 notify._send_raw(chat_id, body, reply_markup=markup)
+                continue
+            if data == "reboot_yes":
+                if user.get("role") != "owner":
+                    notify._send_raw(chat_id, "재부팅은 owner만 가능해요.")
+                    continue
+                print(f"[bot] {user['name']} [버튼] 재부팅")
+                notify._send_raw(chat_id, _do_reboot())
+                continue
+            if data == "reboot_no":
+                notify._send_raw(chat_id, "재부팅 취소했어요.")
                 continue
             if data.startswith("reject:"):
                 code = data.split(":", 1)[1]
