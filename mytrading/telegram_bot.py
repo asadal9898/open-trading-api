@@ -646,67 +646,71 @@ def poll_once():
     users = _load_users()
     updates = get_updates()
     for up in updates:
-        _save_offset(up["update_id"])
-
-        # --- 버튼 탭(callback_query) 처리 ---
-        cb = up.get("callback_query")
-        if cb:
-            cb_msg = cb.get("message") or {}
-            chat_id = str((cb_msg.get("chat") or {}).get("id", "")).strip()
-            data = cb.get("data", "")
-            _answer_callback(cb.get("id", ""))
-            if chat_id not in users:
-                continue
-            user = users[chat_id]
-            if data.startswith("approve:"):
-                code = data.split(":", 1)[1]
-                nm = _name_by_code(user, code) or code
-                print(f"[bot] {user['name']}({user['role']}) [버튼] 승인: {nm}")
-                reply = _cmd_approve(user, nm)
+        try:
+            _save_offset(up["update_id"])
+    
+            # --- 버튼 탭(callback_query) 처리 ---
+            cb = up.get("callback_query")
+            if cb:
+                cb_msg = cb.get("message") or {}
+                chat_id = str((cb_msg.get("chat") or {}).get("id", "")).strip()
+                data = cb.get("data", "")
+                _answer_callback(cb.get("id", ""))
+                if chat_id not in users:
+                    continue
+                user = users[chat_id]
+                if data.startswith("approve:"):
+                    code = data.split(":", 1)[1]
+                    nm = _name_by_code(user, code) or code
+                    print(f"[bot] {user['name']}({user['role']}) [버튼] 승인: {nm}")
+                    reply = _cmd_approve(user, nm)
+                    body, markup = _split_marker(reply)
+                    notify._send_raw(chat_id, body, reply_markup=markup)
+                    continue
+                if data == "reboot_yes":
+                    if user.get("role") != "owner":
+                        notify._send_raw(chat_id, "재부팅은 owner만 가능해요.")
+                        continue
+                    print(f"[bot] {user['name']} [버튼] 재부팅")
+                    notify._send_raw(chat_id, _do_reboot())
+                    continue
+                if data == "reboot_no":
+                    notify._send_raw(chat_id, "재부팅 취소했어요.")
+                    continue
+                if data.startswith("reject:"):
+                    code = data.split(":", 1)[1]
+                    print(f"[bot] {user['name']}({user['role']}) [버튼] 취소(삭제): {code}")
+                    reply = _delete_holding(user, code)
+                    notify._send_raw(chat_id, reply)
+                    continue
+                text = {"yes": "예", "no": "아니요"}.get(data, data)
+                print(f"[bot] {user['name']}({user['role']}) [버튼]: {text}")
+                reply = handle_command(user, text)
                 body, markup = _split_marker(reply)
                 notify._send_raw(chat_id, body, reply_markup=markup)
                 continue
-            if data == "reboot_yes":
-                if user.get("role") != "owner":
-                    notify._send_raw(chat_id, "재부팅은 owner만 가능해요.")
-                    continue
-                print(f"[bot] {user['name']} [버튼] 재부팅")
-                notify._send_raw(chat_id, _do_reboot())
+    
+            # --- 일반 메시지 처리 ---
+            msg = up.get("message") or {}
+            chat_id = str((msg.get("chat") or {}).get("id", "")).strip()
+            text = msg.get("text", "")
+            if not chat_id or not text:
                 continue
-            if data == "reboot_no":
-                notify._send_raw(chat_id, "재부팅 취소했어요.")
+            # 화이트리스트 확인
+            if chat_id not in users:
+                print(f"[bot] 미등록 chat_id={chat_id} 거부")
+                notify._send_raw(chat_id, "등록되지 않은 사용자입니다.")
                 continue
-            if data.startswith("reject:"):
-                code = data.split(":", 1)[1]
-                print(f"[bot] {user['name']}({user['role']}) [버튼] 취소(삭제): {code}")
-                reply = _delete_holding(user, code)
-                notify._send_raw(chat_id, reply)
-                continue
-            text = {"yes": "예", "no": "아니요"}.get(data, data)
-            print(f"[bot] {user['name']}({user['role']}) [버튼]: {text}")
+            user = users[chat_id]
+            print(f"[bot] {user['name']}({user['role']}): {text}")
             reply = handle_command(user, text)
             body, markup = _split_marker(reply)
             notify._send_raw(chat_id, body, reply_markup=markup)
-            continue
-
-        # --- 일반 메시지 처리 ---
-        msg = up.get("message") or {}
-        chat_id = str((msg.get("chat") or {}).get("id", "")).strip()
-        text = msg.get("text", "")
-        if not chat_id or not text:
-            continue
-        # 화이트리스트 확인
-        if chat_id not in users:
-            print(f"[bot] 미등록 chat_id={chat_id} 거부")
-            notify._send_raw(chat_id, "등록되지 않은 사용자입니다.")
-            continue
-        user = users[chat_id]
-        print(f"[bot] {user['name']}({user['role']}): {text}")
-        reply = handle_command(user, text)
-        body, markup = _split_marker(reply)
-        notify._send_raw(chat_id, body, reply_markup=markup)
-
-
+    
+    
+        except Exception as _e:
+            print(f"[bot] update 처리 오류(무시하고 계속): {_e}")
+            import traceback; traceback.print_exc()
 def run_loop(interval: int = 2):
     """계속 폴링 (봇처럼 실시간). Ctrl+C로 종료."""
     print("[bot] 폴링 시작 (Ctrl+C 종료)")
