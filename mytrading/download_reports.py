@@ -31,10 +31,25 @@ REPORTS = {
         "menuNo": "200068",
         "depth2": "200699",
         "depth3": "200068",
+        "bbs_id": "P0000593",
+        "pdf_style": "fileDown",
     },
-    # 경제전망·통화신용정책은 menuNo 확인 후 추가
-    # "경제전망": {"name": "경제전망보고서", "menuNo": "?", ...},
-    # "통화신용정책": {"name": "통화신용정책보고서", "menuNo": "?", ...},
+    "통화신용정책": {
+        "name": "통화신용정책보고서",
+        "menuNo": "201150",
+        "depth2": "200699",
+        "depth3": "200067",
+        "bbs_id": "B0000156",
+        "pdf_style": "fileSrc",
+    },
+    "경제전망": {
+        "name": "경제전망보고서",
+        "menuNo": "201150",
+        "depth2": "200699",
+        "depth3": "200066",
+        "bbs_id": "P0002359",
+        "pdf_style": "fileSrc",
+    },
 }
 
 _UA = {"User-Agent": "Mozilla/5.0 (report-downloader)"}
@@ -84,16 +99,24 @@ def get_latest(report: dict) -> dict:
     return {"nttId": ntt, "year": year, "month": month}
 
 
-def get_pdf_url(nttId: str, menuNo: str) -> str:
-    """상세 페이지에서 개관(fileSn=1) PDF 다운로드 URL. 없으면 None."""
-    url = f"https://www.bok.or.kr/portal/bbs/P0000593/view.do?nttId={nttId}&menuNo={menuNo}"
+def get_pdf_url(nttId: str, report: dict) -> str:
+    """상세 페이지에서 PDF 다운로드 URL. 스타일별 분기 (fileDown/fileSrc). 없으면 None."""
+    bbs = report["bbs_id"]
+    url = f"https://www.bok.or.kr/portal/bbs/{bbs}/view.do?nttId={nttId}&menuNo={report['menuNo']}"
     html = _fetch(url)
-    # fileDown.do?atchFileId=XXX&fileSn=1
-    m = re.search(r"fileDown\.do\?atchFileId=([a-f0-9]+)&(?:amp;)?fileSn=1", html)
-    if not m:
-        return None
-    atch = m.group(1)
-    return f"https://www.bok.or.kr/portal/cmmn/file/fileDown.do?atchFileId={atch}&fileSn=1"
+    style = report.get("pdf_style", "fileDown")
+    if style == "fileDown":
+        m = re.search(r"fileDown\.do\?atchFileId=([a-f0-9]+)&(?:amp;)?fileSn=1", html)
+        if not m:
+            return None
+        return f"https://www.bok.or.kr/portal/cmmn/file/fileDown.do?atchFileId={m.group(1)}&fileSn=1"
+    if style == "fileSrc":
+        m = re.search(r'/fileSrc/portal/([a-f0-9]{32})/1/([^"]+?\.pdf)', html)
+        if not m:
+            return None
+        return f"https://www.bok.or.kr{m.group(0)}"
+    return None
+
 
 
 def download_one(key: str, report: dict, base_dir: Path) -> str:
@@ -113,7 +136,7 @@ def download_one(key: str, report: dict, base_dir: Path) -> str:
         return (f"[{key}] 이미 최신 ({latest['year']}-{latest['month']}), "
                 f"skip")
 
-    pdf_url = get_pdf_url(latest["nttId"], report["menuNo"])
+    pdf_url = get_pdf_url(latest["nttId"], report)
     if not pdf_url:
         return f"[{key}] PDF 링크 못 찾음 (nttId={latest['nttId']})"
 
