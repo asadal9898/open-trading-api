@@ -255,3 +255,47 @@ if __name__ == "__main__":
         print(f"[notify] 전송 시도: {msg}")
         ok = send_message(msg)
         print("[notify] 결과:", "성공 ✅ (폰을 확인하세요)" if ok else "실패 ❌")
+
+def download_telegram_file(file_id: str, save_path: str) -> bool:
+    """텔레그램 봇이 받은 파일을 다운로드해서 save_path 에 저장.
+    
+    흐름: getFile API 로 파일 경로 조회 → 그 경로에서 실제 파일 다운로드.
+    반환: 성공 True, 실패 False.
+    """
+    cfg = _load_config()
+    token = str(cfg.get("bot_token", "")).strip()
+    if not token:
+        print("[notify] bot_token 미설정 - 파일 다운로드 불가")
+        return False
+
+    # 1. file_id → file_path 조회
+    try:
+        url = f"https://api.telegram.org/bot{token}/getFile"
+        data = json.dumps({"file_id": file_id}).encode("utf-8")
+        req = urllib.request.Request(url, data=data,
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+        if not result.get("ok"):
+            print(f"[notify] getFile 실패: {result}")
+            return False
+        file_path = result["result"]["file_path"]
+    except Exception as e:
+        print(f"[notify] getFile 오류: {e}")
+        return False
+
+    # 2. 실제 파일 다운로드
+    try:
+        download_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+        req = urllib.request.Request(download_url)
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = resp.read()
+        import os
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        with open(save_path, "wb") as f:
+            f.write(data)
+        print(f"[notify] 파일 저장 완료: {save_path} ({len(data)} bytes)")
+        return True
+    except Exception as e:
+        print(f"[notify] 파일 다운로드 오류: {e}")
+        return False

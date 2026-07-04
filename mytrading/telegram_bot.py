@@ -638,6 +638,55 @@ def _answer_callback(cb_id: str):
         pass
 
 
+
+
+def _classify_document(file_name: str):
+    """파일명에서 저장 폴더 결정. 반환: (폴더, 카테고리 라벨)."""
+    fn = file_name.lower()
+    # KCIF 카테고리 (내용 키워드 우선)
+    if "리스크" in file_name and "워치" in file_name:
+        return ("mytrading/reports/kcif/risk_watch", "KCIF 리스크워치")
+    if "원자재" in file_name or "글로벌 리스크" in file_name and "원자재" in file_name:
+        return ("mytrading/reports/kcif/materials", "KCIF 원자재")
+    if "국제금융" in file_name or "insight" in fn or "인사이트" in file_name:
+        return ("mytrading/reports/kcif/insight", "KCIF INSIGHT")
+    # 한국은행 3종 (기존 폴더 재활용)
+    if "금융안정" in file_name:
+        return ("mytrading/reports/금융안정보고서", "금융안정보고서")
+    if "통화신용정책" in file_name or "통화신용" in file_name:
+        return ("mytrading/reports/통화신용정책보고서", "통화신용정책보고서")
+    if "경제전망" in file_name:
+        return ("mytrading/reports/경제전망보고서", "경제전망보고서")
+    # 나머지
+    return ("mytrading/reports/inbox", "미분류")
+
+
+def _safe_filename(name: str) -> str:
+    """파일명에서 위험 문자 제거."""
+    import re
+    # 경로 구분자, 상위 이동, 제어문자 제거
+    name = name.replace("/", "_").replace("\\", "_")
+    name = name.replace("..", "_")
+    name = re.sub(r"[\x00-\x1f]", "", name)
+    return name.strip() or "unnamed"
+
+
+def _save_document(user: dict, file_name: str, file_id: str, chat_id: str):
+    """받은 파일을 분류해서 저장. 결과 답장."""
+    if not file_name:
+        notify._send_raw(chat_id, "파일명이 비어있어요.")
+        return
+    safe_name = _safe_filename(file_name)
+    folder, label = _classify_document(safe_name)
+    save_path = f"{folder}/{safe_name}"
+    print(f"[bot] {user['name']} → 파일 수신: {safe_name} → {label}")
+    ok = notify.download_telegram_file(file_id, save_path)
+    if ok:
+        notify._send_raw(chat_id,
+            f"📁 저장 완료\n분류: {label}\n파일: {safe_name}")
+    else:
+        notify._send_raw(chat_id,
+            f"❌ 저장 실패\n파일: {safe_name}\n로그를 확인하세요.")
 def poll_once():
     """한 번 폴링해서 새 명령 처리."""
     if not _TOKEN or _TOKEN.startswith("여기에"):
@@ -694,7 +743,8 @@ def poll_once():
             msg = up.get("message") or {}
             chat_id = str((msg.get("chat") or {}).get("id", "")).strip()
             text = msg.get("text", "")
-            if not chat_id or not text:
+            doc = msg.get("document")
+            if not chat_id:
                 continue
             # 화이트리스트 확인
             if chat_id not in users:
@@ -702,6 +752,13 @@ def poll_once():
                 notify._send_raw(chat_id, "등록되지 않은 사용자입니다.")
                 continue
             user = users[chat_id]
+            # 파일 첨부 처리 (분류 → 저장)
+            if doc:
+                _save_document(user, doc.get("file_name", ""), doc.get("file_id", ""), chat_id)
+                continue
+            # 텍스트 없으면 스킵
+            if not text:
+                continue
             print(f"[bot] {user['name']}({user['role']}): {text}")
             reply = handle_command(user, text)
             body, markup = _split_marker(reply)
