@@ -115,7 +115,7 @@ info "backtester 를 editable(-e) 로 설치..."
 uv pip install -e ./backtester
 
 info "루트 프로젝트 의존성 설치 (pandas-market-calendars, ruamel.yaml 등)..."
-uv pip install pandas-market-calendars ruamel.yaml
+uv pip install pandas-market-calendars ruamel.yaml pdfplumber
 
 info "kis_backtest import 테스트..."
 if uv run python -c "from kis_backtest import LeanClient, RuleBuilder, SMA, RSI; print('kis_backtest import 성공')"; then
