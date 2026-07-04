@@ -134,12 +134,6 @@ def handle_command(user: dict, text: str) -> str:
         return _cmd_approve(user, " ".join(args))
     if _get_pending("approve:" + user["key"]):
         return _approve_parse(user, text.strip())
-    if cmd == "/approve":
-        if not args:
-            return "사용법: /승인 종목명  (예: /승인 카카오)"
-        return _cmd_approve(user, " ".join(args))
-    if _get_pending("approve:" + user["key"]):
-        return _approve_parse(user, text.strip())
     if text.strip() in ("예", "yes", "y", "네"):
         return _cmd_confirm_add(user)
     if text.strip() in ("아니요", "no", "n", "아니오"):
