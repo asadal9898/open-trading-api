@@ -109,6 +109,7 @@ def handle_command(user: dict, text: str) -> str:
     _KO = {
         "/추가": "/add", "/목록": "/list", "/승인": "/approve",
         "/재부팅": "/reboot", "/도움": "/help", "/시작": "/start",
+        "/상태": "/status",
     }
     cmd = _KO.get(cmd, cmd)
 
@@ -119,8 +120,10 @@ def handle_command(user: dict, text: str) -> str:
     if cmd == "/start" or cmd == "/help":
         return ("자유투자 봇 (한글 명령도 됨)\n"
                 "/add(/추가) 종목명 - 종목 추가\n"
+                "/approve(/승인) 종목명 - 매수 승인\n"
                 "/list(/목록) - 내 종목\n"
-                "(구현 예정: /approve(/승인) /reboot(/재부팅))")
+                "/status(/상태) - 모드·계좌·예산\n"
+                "/reboot(/재부팅) - 재부팅 (owner)")
     if cmd == "/add":
         if not args:
             return "사용법: /add 종목명  (예: /add SK하이닉스)"
@@ -141,7 +144,58 @@ def handle_command(user: dict, text: str) -> str:
         return "취소했어요."
     if cmd == "/list":
         return _cmd_list(user)
+    if cmd == "/status":
+        return _cmd_status(user)
     return f"모르는 명령: {cmd}"
+
+
+def _cmd_status(user: dict) -> str:
+    """현재 모드·계좌·자유예산·종목수 조회 (전환 없음, 안전)."""
+    # 모드
+    paper = _is_paper()
+    mode_line = "✅ 모의투자 (vps)" if paper else "🚨 실전투자 (prod)"
+
+    # 계좌·평가금액
+    acct_line = "계좌: (조회 실패)"
+    equity_line = ""
+    try:
+        from mytrading.common import get_brokerage
+        from mytrading.account_snapshot import get_snapshot
+        snap = get_snapshot(get_brokerage())
+        equity_line = f"총평가금액: {snap.total_equity:,.0f}원\n"
+        equity_line += f"주문가능현금: {snap.available_cash:,.0f}원\n"
+        equity_line += f"보유종목: {len(snap.holdings)}개\n"
+    except Exception as e:
+        equity_line = f"평가금액 조회 실패: {e}\n"
+
+    # 자유예산
+    budget, acc_name, free_pct = _free_budget(user)
+    if budget > 0:
+        acct_line = f"계좌: {acc_name}"
+        budget_line = f"자유예산: {budget:,.0f}원 (free {free_pct:.0f}%)\n"
+    else:
+        budget_line = "자유예산: (계산 불가 — free 비중 확인)\n"
+
+    # 등록 종목 수
+    n_stocks = 0
+    try:
+        from pathlib import Path as _P
+        _repo = _P(__file__).resolve().parents[1]
+        data = _rt_load(_repo / "mytrading" / "allocations.yaml")
+        fh = (data.get("free_holdings") or {}).get(user["key"], {})
+        for _acc, lst in fh.items():
+            if isinstance(lst, list):
+                n_stocks += len(lst)
+    except Exception:
+        pass
+
+    return (f"📊 시스템 상태\n"
+            f"────────\n"
+            f"모드: {mode_line}\n"
+            f"{acct_line}\n"
+            f"{equity_line}"
+            f"{budget_line}"
+            f"자유 등록종목: {n_stocks}개")
 
 
 def _cmd_list(user: dict) -> str:
