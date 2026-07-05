@@ -285,8 +285,60 @@ def _pick_candidate(user: dict, idx: int) -> str:
     return _analyze(code, name, user["key"])
 
 
+def _sector_now(code: str) -> str:
+    """업종명 조회. find_dividend_stocks._stock_sector 재사용."""
+    import sys as _sys
+    from pathlib import Path as _P
+    fdir = _P(__file__).resolve().parents[1] / "mytrading"
+    if str(fdir) not in _sys.path:
+        _sys.path.insert(0, str(fdir))
+    try:
+        from find_dividend_stocks import _stock_sector
+        return _stock_sector(str(code)) or ""
+    except Exception:
+        return ""
+
+
+def _analyze_paper(code: str, name: str, ukey: str = None) -> str:
+    """모의투자(vps): 재무분석 없이 현재가·예산 기반 매수 UI 생성."""
+    price = _price_now(code)
+    sector = _sector_now(code)
+    budget, acc_name, free_pct = _free_budget(ukey and {"key": ukey} or {"key": ""})
+    if price <= 0:
+        return f"{name}({code}) 현재가 조회 실패. 잠시 후 다시 시도하세요."
+    if budget <= 0:
+        return (f"{name}({code}) 자유투자 예산을 계산할 수 없어요.\n"
+                f"allocations.yaml에 free 비중이 설정됐는지 확인하세요.")
+
+    full = int(budget // price)
+    half = full // 2
+
+    # add 대기 저장 (industry는 '모의추가' 마커, 나중에 prod에서 채움)
+    if ukey:
+        _set_pending("add:" + ukey, [[code, name, "모의추가", sector or ""]])
+        # 매수 UI 컨텍스트 저장 (콜백 재그리기·확정에 필요)
+        _set_pending("pbuy_ctx:" + ukey,
+                     [{"code": code, "name": name, "half": half,
+                       "full": full, "price": int(price), "sel": 0}])
+
+    header = (f"✅ {name}({code}) 모의 투자\n"
+              f"💼 자유 투자 예산: {budget:,.0f}원 (총자산의 {free_pct:.0f}%)\n"
+              f"📈 현재가: {price:,.0f}원\n")
+    if full < 1:
+        header += (f"📊 예산으로 1주도 부족해요.\n"
+                   f"그래도 등록만 하려면 [취소 (등록만)]을 누르세요."
+                   f"\x00BUYUI:{code}:0:0:{int(price)}")
+        return header
+    header += (f"📊 최대 매수: {full}주 ({full*int(price):,}원)"
+               f"\x00BUYUI:{code}:{half}:{full}:{int(price)}")
+    return header
+
+
 def _analyze(code: str, name: str, ukey: str = None) -> str:
     """종목 재무 분석 표시 (get_financial_summary)."""
+    # 모의투자(vps): 재무분석 API 미지원 → 매수 UI로 바로
+    if _is_paper():
+        return _analyze_paper(code, name, ukey)
     try:
         from mytrading.common import init
         init(require_confirm=False)
@@ -436,11 +488,82 @@ def _cmd_approve(user: dict, query: str) -> str:
 
     # approve 대기 저장
     _set_pending("approve:" + user["key"], [[str(code), name]])
-    return (f"{name}({code}) 매수 방식을 입력하세요 (수량):\n"
-            f"  · 일시 10주\n"
-            f"  · 분할 주1회 1주\n"
-            f"  · 분할 매일 1주\n"
-            f"  · 일시 5주 + 분할 주1회 1주  (동시)")
+
+    # 예산·현재가 조회 → 수량 버튼. 실패 시 텍스트 폴백.
+    budget, acc_name, free_pct = _free_budget(user)
+    price = _price_now(code)
+    _text_fallback = (f"{name}({code}) 매수 방식을 입력하세요 (수량):\n"
+                      f"  · 일시 10주\n"
+                      f"  · 분할 주1회 1주\n"
+                      f"  · 분할 매일 1주\n"
+                      f"  · 일시 5주 + 분할 주1회 1주  (동시)")
+    if budget <= 0 or price <= 0:
+        return _text_fallback
+
+    full = int(budget // price)          # 전액 매수 가능 주수
+    half = full // 2                     # 반
+    if full < 1:
+        return (f"{name}({code}) 현재가 {price:,.0f}원\n"
+                f"자유투자 예산 {budget:,.0f}원으로는 1주도 부족해요.\n"
+                f"그래도 등록하려면 수량을 직접 입력하세요 (예: 일시 1주).")
+
+    return (f"{name}({code})\n"
+            f"  현재가 {price:,.0f}원\n"
+            f"  자유예산 {budget:,.0f}원 ({acc_name} free {free_pct:.0f}%)\n"
+            f"  전액매수 시 최대 {full}주\n"
+            f"매수 수량을 고르세요 (일시매수 기준):"
+            f"\x00QTY:{code}:{half}:{full}")
+
+
+def _is_paper() -> bool:
+    """현재 모의투자(vps) 모드인가. common.resolve_mode 재사용."""
+    try:
+        from mytrading.common import resolve_mode
+        return resolve_mode() == "vps"
+    except Exception:
+        import os as _os
+        return _os.environ.get("KIS_MODE", "vps") != "prod"
+
+
+def _price_now(code: str) -> float:
+    """현재가 조회. find_dividend_stocks._current_price 재사용."""
+    import sys as _sys
+    from pathlib import Path as _P
+    fdir = _P(__file__).resolve().parents[1] / "mytrading"
+    if str(fdir) not in _sys.path:
+        _sys.path.insert(0, str(fdir))
+    try:
+        from find_dividend_stocks import _current_price
+        return float(_current_price(str(code)) or 0.0)
+    except Exception:
+        return 0.0
+
+
+def _free_budget(user: dict):
+    """사용자 첫 계좌의 자유투자 예산.
+    반환: (budget, account_name, free_pct) 또는 (0, None, 0) 실패 시.
+    예산 = total_equity x (free% / 100).
+    """
+    try:
+        from mytrading.portfolio import load_portfolio
+        pf = load_portfolio()
+        accts = pf.allocations.get(user["key"], {}) or {}
+        # free 비중 > 0 인 첫 계좌
+        acc_name, alloc = None, None
+        for _an, _al in accts.items():
+            if getattr(_al, "free", 0) and _al.free > 0:
+                acc_name, alloc = _an, _al
+                break
+        if alloc is None:
+            return (0.0, None, 0.0)
+        from mytrading.common import get_brokerage
+        from mytrading.account_snapshot import get_snapshot
+        snap = get_snapshot(get_brokerage())
+        budget = float(snap.total_equity) * (float(alloc.free) / 100.0)
+        return (budget, acc_name, float(alloc.free))
+    except Exception as e:
+        print(f"[bot] _free_budget 실패: {e}")
+        return (0.0, None, 0.0)
 
 
 def _parse_buy_plan(text: str) -> dict:
@@ -607,6 +730,98 @@ _YESNO_KEYBOARD = {"inline_keyboard": [[
     {"text": "❌ 아니요", "callback_data": "no"},
 ]]}
 
+def _stepper_keyboard(code, cur, full, price, half=0):
+    """수량 스테퍼 키보드 (전환 없이 단독 사용).
+    cur=현재수량(0 허용=매수안함), full=상한(전액), half=반."""
+    cur = max(0, int(cur or 0))
+    amt = cur * price
+    rows = [
+        [{"text": (f"수량: {cur}주 ({amt:,}원)" if cur >= 1 else "수량: 0주 (일시매수 안 함)"), "callback_data": "noop"}],
+        [
+            {"text": "-10", "callback_data": f"pstep:{code}:-10"},
+            {"text": "-5", "callback_data": f"pstep:{code}:-5"},
+            {"text": "-1", "callback_data": f"pstep:{code}:-1"},
+            {"text": "+1", "callback_data": f"pstep:{code}:1"},
+            {"text": "+5", "callback_data": f"pstep:{code}:5"},
+            {"text": "+10", "callback_data": f"pstep:{code}:10"},
+        ],
+    ]
+    big = []
+    if full and full >= 1000:
+        big.append({"text": "-1000", "callback_data": f"pstep:{code}:-1000"})
+    if full and full >= 100:
+        big.append({"text": "-100", "callback_data": f"pstep:{code}:-100"})
+        big.append({"text": "+100", "callback_data": f"pstep:{code}:100"})
+    if full and full >= 1000:
+        big.append({"text": "+1000", "callback_data": f"pstep:{code}:1000"})
+    if big:
+        rows.append(big)
+    preset = []
+    if half and half >= 1:
+        preset.append({"text": f"반 {half}주", "callback_data": f"pset:{code}:{half}"})
+    if full and full >= 1:
+        preset.append({"text": f"전액 {full}주", "callback_data": f"pset:{code}:{full}"})
+    if preset:
+        rows.append(preset)
+    rows.append([
+        {"text": "\u2705 매수 (분할매수 설정)", "callback_data": f"pbuy_go:{code}"},
+        {"text": "\u274c 취소 (등록만)", "callback_data": f"pbuy_cancel:{code}"},
+    ])
+    return {"inline_keyboard": rows}
+
+def _split_keyboard(code, qty, onetime, every="daily"):
+    """분할매수 설정 키보드. qty=주기당수량, onetime=확정된일시매수, every=주기."""
+    qty = max(1, int(qty or 1))
+    freq_labels = [("daily", "매일"), ("weekly", "매주"),
+                   ("biweekly", "격주"), ("monthly", "매월")]
+    rows = [
+        [{"text": f"분할 수량: {qty}주 (주기당)", "callback_data": "noop"}],
+        [
+            {"text": "-10", "callback_data": f"sstep:{code}:-10"},
+            {"text": "-5", "callback_data": f"sstep:{code}:-5"},
+            {"text": "-1", "callback_data": f"sstep:{code}:-1"},
+            {"text": "+1", "callback_data": f"sstep:{code}:1"},
+            {"text": "+5", "callback_data": f"sstep:{code}:5"},
+            {"text": "+10", "callback_data": f"sstep:{code}:10"},
+        ],
+    ]
+    freq_row = []
+    for key, label in freq_labels:
+        chk = "\u2705 " if key == every else ""
+        freq_row.append({"text": f"{chk}{label}",
+                         "callback_data": f"sfreq:{code}:{key}"})
+    rows.append(freq_row)
+    rows.append([
+        {"text": "\u2705 분할매수 저장", "callback_data": f"ssave:{code}"},
+        {"text": "\u274c 취소 (분할 안 함)", "callback_data": f"snone:{code}"},
+    ])
+    return {"inline_keyboard": rows}
+
+
+def _buyui_keyboard(code, half, full, price, sel=0):
+    """모의투자 매수 UI 라디오 키보드. sel=선택수량(0=미선택)."""
+    def _mark(qty, label):
+        chk = "\u2705 " if (sel and sel == qty) else ""
+        return {"text": f"{chk}{label}",
+                "callback_data": f"pbuy:{code}:{qty}"}
+
+    rows = []
+    # 순서: 전액 → 반 → 기타(스테퍼, 기본 1주)
+    if full and full >= 1:
+        rows.append([_mark(full, f"전액 {full}주 ({full*price:,}원)")])
+    if half and half >= 1 and half != full:
+        rows.append([_mark(half, f"반 {half}주 ({half*price:,}원)")])
+    rows.append([{"text": "기타 수량 (스테퍼)",
+                  "callback_data": f"pbuy_manual:{code}"}])
+    rows.append([
+        {"text": "\u2705 매수 (분할매수 설정)",
+         "callback_data": f"pbuy_go:{code}"},
+        {"text": "\u274c 취소 (등록만)",
+         "callback_data": f"pbuy_cancel:{code}"},
+    ])
+    return {"inline_keyboard": rows}
+
+
 def _split_marker(reply: str):
     """응답 문자열에서 버튼 마커를 분리. (텍스트, reply_markup) 반환."""
     if not reply:
@@ -625,9 +840,49 @@ def _split_marker(reply: str):
             {"text": "❌ 취소", "callback_data": "reboot_no"},
         ]]}
         return reply.replace("\x00REBOOT_CONFIRM", ""), kb
+    if "\x00BUYUI:" in reply:
+        head, _, rest = reply.partition("\x00BUYUI:")
+        parts = rest.split(":")
+        code = parts[0] if len(parts) > 0 else ""
+        half = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        full = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+        price = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
+        kb = _stepper_keyboard(code, 0, full, price, half=half)
+        return head, kb
+    if "\x00QTY:" in reply:
+        head, _, rest = reply.partition("\x00QTY:")
+        parts = rest.split(":")
+        code = parts[0] if len(parts) > 0 else ""
+        half = parts[1] if len(parts) > 1 else "0"
+        full = parts[2] if len(parts) > 2 else "0"
+        row1 = [{"text": "1주", "callback_data": f"qty:{code}:1"}]
+        if half not in ("0", ""):
+            row1.append({"text": f"반 {half}주",
+                         "callback_data": f"qty:{code}:{half}"})
+        if full not in ("0", "") and full != half:
+            row1.append({"text": f"전액 {full}주",
+                         "callback_data": f"qty:{code}:{full}"})
+        row2 = [{"text": "기타 수량 입력",
+                 "callback_data": f"qty_manual:{code}"},
+                {"text": "취소", "callback_data": f"qty_cancel:{code}"}]
+        kb = {"inline_keyboard": [row1, row2]}
+        return head, kb
     if "\x00YESNO" in reply:
         return reply.replace("\x00YESNO", ""), _YESNO_KEYBOARD
     return reply, None
+
+def _edit_markup(chat_id, message_id, reply_markup):
+    """기존 메시지의 인라인 키보드만 교체 (라디오 체크 표시용)."""
+    import json as _json
+    try:
+        requests.post(f"{_API}/editMessageReplyMarkup", json={
+            "chat_id": str(chat_id),
+            "message_id": message_id,
+            "reply_markup": reply_markup,
+        }, timeout=5)
+    except Exception as e:
+        print(f"[bot] _edit_markup 실패: {e}")
+
 
 def _answer_callback(cb_id: str):
     """버튼 탭 응답(로딩 표시 제거)."""
@@ -715,6 +970,230 @@ def poll_once():
                     reply = _cmd_approve(user, nm)
                     body, markup = _split_marker(reply)
                     notify._send_raw(chat_id, body, reply_markup=markup)
+                    continue
+                if data.startswith("qty:"):
+                    _p = data.split(":")
+                    code = _p[1] if len(_p) > 1 else ""
+                    qty = int(_p[2]) if len(_p) > 2 and _p[2].isdigit() else 0
+                    nm = _name_by_code(user, code) or code
+                    pend = _get_pending("approve:" + user["key"])
+                    if not pend:
+                        notify._send_raw(chat_id, "승인 대기중인 종목이 없어요. 다시 /승인 하세요.")
+                        continue
+                    if qty < 1:
+                        notify._send_raw(chat_id, "수량이 올바르지 않아요.")
+                        continue
+                    print(f"[bot] {user['name']}({user['role']}) [버튼] 수량: {nm} {qty}주")
+                    plan = {"onetime": qty}
+                    _set_pending("approve_plan:" + user["key"], [plan])
+                    reply = (f"{nm}({code}) 매수 계획:\n  일시매수 {qty}주"
+                             f"\n맞나요?  예 / 아니요\x00YESNO")
+                    body, markup = _split_marker(reply)
+                    notify._send_raw(chat_id, body, reply_markup=markup)
+                    continue
+                if data.startswith("qty_manual:"):
+                    code = data.split(":", 1)[1]
+                    nm = _name_by_code(user, code) or code
+                    print(f"[bot] {user['name']}({user['role']}) [버튼] 수량 직접입력: {nm}")
+                    notify._send_raw(chat_id,
+                        f"{nm} 매수 방식을 입력하세요 (수량):\n"
+                        f"  · 일시 10주\n"
+                        f"  · 분할 주1회 1주\n"
+                        f"  · 일시 5주 + 분할 주1회 1주  (동시)")
+                    continue
+                if data.startswith("qty_cancel:"):
+                    _set_pending("approve:" + user["key"], None)
+                    _set_pending("approve_plan:" + user["key"], None)
+                    print(f"[bot] {user['name']}({user['role']}) [버튼] 승인 취소(등록만)")
+                    notify._send_raw(chat_id, "등록만 하고 매수는 취소했어요.")
+                    continue
+                if data.startswith("pbuy:"):
+                    _p = data.split(":")
+                    qty = int(_p[2]) if len(_p) > 2 and _p[2].isdigit() else 0
+                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
+                    if not ctxp:
+                        notify._send_raw(chat_id, "매수 대기가 만료됐어요. 다시 /추가 하세요.")
+                        continue
+                    ctx = ctxp[0]
+                    ctx["sel"] = qty
+                    _set_pending("pbuy_ctx:" + user["key"], [ctx])
+                    mid = cb_msg.get("message_id")
+                    kb = _buyui_keyboard(ctx["code"], ctx["half"], ctx["full"],
+                                         ctx["price"], sel=qty)
+                    if mid:
+                        _edit_markup(chat_id, mid, kb)
+                    print(f"[bot] {user['name']} [버튼] 수량선택: {qty}주")
+                    continue
+                if data.startswith("pbuy_manual:"):
+                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
+                    if not ctxp:
+                        notify._send_raw(chat_id, "매수 대기가 만료됐어요. 다시 /추가 하세요.")
+                        continue
+                    ctx = ctxp[0]
+                    cur = ctx.get("sel") or 1
+                    if cur < 1:
+                        cur = 1
+                    ctx["sel"] = cur
+                    _set_pending("pbuy_ctx:" + user["key"], [ctx])
+                    mid = cb_msg.get("message_id")
+                    kb = _stepper_keyboard(ctx["code"], cur, ctx["full"], ctx["price"])
+                    if mid:
+                        _edit_markup(chat_id, mid, kb)
+                    continue
+                if data.startswith("pstep:"):
+                    _p = data.split(":")
+                    delta = int(_p[2]) if len(_p) > 2 and _p[2].lstrip("-").isdigit() else 0
+                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
+                    if not ctxp:
+                        notify._send_raw(chat_id, "매수 대기가 만료됐어요. 다시 /추가 하세요.")
+                        continue
+                    ctx = ctxp[0]
+                    cur = (ctx.get("sel") or 0) + delta
+                    hi = ctx["full"] if ctx.get("full", 0) >= 1 else cur
+                    cur = max(0, min(cur, hi))
+                    ctx["sel"] = cur
+                    _set_pending("pbuy_ctx:" + user["key"], [ctx])
+                    mid = cb_msg.get("message_id")
+                    kb = _stepper_keyboard(ctx["code"], cur, ctx["full"], ctx["price"])
+                    if mid:
+                        _edit_markup(chat_id, mid, kb)
+                    print(f"[bot] {user['name']} [스테퍼] {cur}주")
+                    continue
+                if data.startswith("pset:"):
+                    _p = data.split(":")
+                    val = int(_p[2]) if len(_p) > 2 and _p[2].isdigit() else 0
+                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
+                    if not ctxp or val < 1:
+                        continue
+                    ctx = ctxp[0]
+                    hi = ctx["full"] if ctx.get("full", 0) >= 1 else val
+                    val = max(1, min(val, hi))
+                    ctx["sel"] = val
+                    _set_pending("pbuy_ctx:" + user["key"], [ctx])
+                    mid = cb_msg.get("message_id")
+                    kb = _stepper_keyboard(ctx["code"], val, ctx["full"],
+                                           ctx["price"], half=ctx.get("half", 0))
+                    if mid:
+                        _edit_markup(chat_id, mid, kb)
+                    print(f"[bot] {user['name']} [프리셋] {val}주")
+                    continue
+                if data.startswith("pback:"):
+                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
+                    if not ctxp:
+                        continue
+                    ctx = ctxp[0]
+                    mid = cb_msg.get("message_id")
+                    kb = _buyui_keyboard(ctx["code"], ctx["half"], ctx["full"],
+                                         ctx["price"], sel=ctx.get("sel", 0))
+                    if mid:
+                        _edit_markup(chat_id, mid, kb)
+                    continue
+                if data == "noop":
+                    continue
+                if data.startswith("pbuy_go:"):
+                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
+                    if not ctxp:
+                        notify._send_raw(chat_id, "매수 대기가 만료됐어요. 다시 /추가 하세요.")
+                        continue
+                    ctx = ctxp[0]
+                    sel = max(0, int(ctx.get("sel", 0) or 0))
+                    amt = sel * ctx["price"]
+                    if sel >= 1:
+                        print(f"[bot] {user['name']} [버튼] 일시매수 확정: {ctx['name']} {sel}주")
+                    else:
+                        print(f"[bot] {user['name']} [버튼] 일시매수 0주(안함) → 분할설정")
+                    # 일시매수 확정 저장, 분할 설정 초기화 (같은 ctx 재사용)
+                    ctx["onetime"] = sel
+                    ctx["split_qty"] = 1
+                    ctx["every"] = "daily"
+                    _set_pending("pbuy_ctx:" + user["key"], [ctx])
+                    _onetime_line = (f"일시매수 {sel}주 ({amt:,}원) 확정.\n"
+                                     if sel >= 1 else "일시매수 없음 (분할만).\n")
+                    body = (f"✅ (모의) {ctx['name']}({ctx['code']}) "
+                            + _onetime_line +
+                            f"────────\n"
+                            f"📊 분할매수 설정\n"
+                            f"주기당 살 수량과 주기를 고르세요.")
+                    kb = _split_keyboard(ctx["code"], 1, sel, every="daily")
+                    notify._send_raw(chat_id, body, reply_markup=kb)
+                    continue
+                if data.startswith("sstep:"):
+                    _p = data.split(":")
+                    delta = int(_p[2]) if len(_p) > 2 and _p[2].lstrip("-").isdigit() else 0
+                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
+                    if not ctxp:
+                        continue
+                    ctx = ctxp[0]
+                    q = max(1, (ctx.get("split_qty", 1)) + delta)
+                    ctx["split_qty"] = q
+                    _set_pending("pbuy_ctx:" + user["key"], [ctx])
+                    mid = cb_msg.get("message_id")
+                    kb = _split_keyboard(ctx["code"], q, ctx.get("onetime", 0),
+                                         every=ctx.get("every", "daily"))
+                    if mid:
+                        _edit_markup(chat_id, mid, kb)
+                    continue
+                if data.startswith("sfreq:"):
+                    _p = data.split(":")
+                    every = _p[2] if len(_p) > 2 else "daily"
+                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
+                    if not ctxp:
+                        continue
+                    ctx = ctxp[0]
+                    ctx["every"] = every
+                    _set_pending("pbuy_ctx:" + user["key"], [ctx])
+                    mid = cb_msg.get("message_id")
+                    kb = _split_keyboard(ctx["code"], ctx.get("split_qty", 1),
+                                         ctx.get("onetime", 0), every=every)
+                    if mid:
+                        _edit_markup(chat_id, mid, kb)
+                    print(f"[bot] {user['name']} [분할주기] {every}")
+                    continue
+                if data.startswith("ssave:"):
+                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
+                    if not ctxp:
+                        continue
+                    ctx = ctxp[0]
+                    plan = {"onetime": ctx.get("onetime", 0),
+                            "split": {"every": ctx.get("every", "daily"),
+                                      "qty": ctx.get("split_qty", 1)}}
+                    freq_ko = {"daily": "매일", "weekly": "매주",
+                               "biweekly": "격주", "monthly": "매월"}.get(
+                        plan["split"]["every"], plan["split"]["every"])
+                    # 종목이 아직 free_holdings에 없으면 먼저 등록 (모의 흐름)
+                    if _name_by_code(user, ctx["code"]) is None:
+                        _cmd_confirm_add(user)
+                    result = _save_buy_plan(user, ctx["code"], ctx["name"], plan)
+                    _set_pending("pbuy_ctx:" + user["key"], None)
+                    _set_pending("add:" + user["key"], None)
+                    print(f"[bot] {user['name']} [분할매수 저장] {ctx['name']} "
+                          f"일시{plan['onetime']} +{freq_ko}{plan['split']['qty']}주")
+                    notify._send_raw(chat_id,
+                        f"✅ (모의) {ctx['name']} 매수계획 저장\n"
+                        f"  일시매수 {plan['onetime']}주\n"
+                        f"  분할매수 {freq_ko} {plan['split']['qty']}주씩\n" + result)
+                    continue
+                if data.startswith("snone:"):
+                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
+                    if not ctxp:
+                        continue
+                    ctx = ctxp[0]
+                    plan = {"onetime": ctx.get("onetime", 0)}
+                    if _name_by_code(user, ctx["code"]) is None:
+                        _cmd_confirm_add(user)
+                    result = _save_buy_plan(user, ctx["code"], ctx["name"], plan)
+                    _set_pending("pbuy_ctx:" + user["key"], None)
+                    _set_pending("add:" + user["key"], None)
+                    print(f"[bot] {user['name']} [분할 안함] {ctx['name']} 일시{plan['onetime']}주")
+                    notify._send_raw(chat_id,
+                        f"✅ (모의) {ctx['name']} 일시매수 {plan['onetime']}주만 저장 "
+                        f"(분할 안 함)\n" + result)
+                    continue
+                if data.startswith("pbuy_cancel:"):
+                    reply = _cmd_confirm_add(user)
+                    _set_pending("pbuy_ctx:" + user["key"], None)
+                    print(f"[bot] {user['name']} [버튼] 등록만(매수취소)")
+                    notify._send_raw(chat_id, "등록만 했어요 (매수 안 함).\n" + reply)
                     continue
                 if data == "reboot_yes":
                     if user.get("role") != "owner":
