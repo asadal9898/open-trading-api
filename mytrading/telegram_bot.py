@@ -556,17 +556,24 @@ def _cmd_approve(user: dict, query: str) -> str:
 
     full = int(budget // price)          # 전액 매수 가능 주수
     half = full // 2                     # 반
-    if full < 1:
-        return (f"{name}({code}) 현재가 {price:,.0f}원\n"
-                f"자유투자 예산 {budget:,.0f}원으로는 1주도 부족해요.\n"
-                f"그래도 등록하려면 수량을 직접 입력하세요 (예: 일시 1주).")
 
-    return (f"{name}({code})\n"
-            f"  현재가 {price:,.0f}원\n"
-            f"  자유예산 {budget:,.0f}원 ({acc_name} free {free_pct:.0f}%)\n"
-            f"  전액매수 시 최대 {full}주\n"
-            f"매수 수량을 고르세요 (일시매수 기준):"
-            f"\x00QTY:{code}:{half}:{full}")
+    # 매수 UI 컨텍스트 저장 (스테퍼 콜백이 읽음)
+    _set_pending("pbuy_ctx:" + user["key"],
+                 [{"code": str(code), "name": name, "half": half,
+                   "full": full, "price": int(price), "sel": 0}])
+
+    _mode_txt = "모의 투자" if _is_paper() else "실전 투자"
+    header = (f"✅ {name}({code}) {_mode_txt}\n"
+              f"💼 자유 투자 예산: {budget:,.0f}원 ({acc_name} free {free_pct:.0f}%)\n"
+              f"📈 현재가: {price:,.0f}원\n")
+    if full < 1:
+        header += (f"📊 예산으로 1주도 부족해요.\n"
+                   f"그래도 등록만 하려면 [취소 (등록만)]을 누르세요."
+                   f"\x00BUYUI:{code}:0:0:{int(price)}")
+        return header
+    header += (f"📊 최대 매수: {full}주 ({full*int(price):,}원)"
+               f"\x00BUYUI:{code}:{half}:{full}:{int(price)}")
+    return header
 
 
 def _is_paper() -> bool:
