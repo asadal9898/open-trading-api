@@ -859,30 +859,6 @@ def _split_keyboard(code, qty, onetime, every="daily"):
     return {"inline_keyboard": rows}
 
 
-def _buyui_keyboard(code, half, full, price, sel=0):
-    """모의투자 매수 UI 라디오 키보드. sel=선택수량(0=미선택)."""
-    def _mark(qty, label):
-        chk = "\u2705 " if (sel and sel == qty) else ""
-        return {"text": f"{chk}{label}",
-                "callback_data": f"pbuy:{code}:{qty}"}
-
-    rows = []
-    # 순서: 전액 → 반 → 기타(스테퍼, 기본 1주)
-    if full and full >= 1:
-        rows.append([_mark(full, f"전액 {full}주 ({full*price:,}원)")])
-    if half and half >= 1 and half != full:
-        rows.append([_mark(half, f"반 {half}주 ({half*price:,}원)")])
-    rows.append([{"text": "기타 수량 (스테퍼)",
-                  "callback_data": f"pbuy_manual:{code}"}])
-    rows.append([
-        {"text": "\u2705 매수 (분할매수 설정)",
-         "callback_data": f"pbuy_go:{code}"},
-        {"text": "\u274c 취소 (등록만)",
-         "callback_data": f"pbuy_cancel:{code}"},
-    ])
-    return {"inline_keyboard": rows}
-
-
 def _split_marker(reply: str):
     """응답 문자열에서 버튼 마커를 분리. (텍스트, reply_markup) 반환."""
     if not reply:
@@ -910,24 +886,6 @@ def _split_marker(reply: str):
         price = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
         kb = _stepper_keyboard(code, 0, full, price, half=half)
         return head, kb
-    if "\x00QTY:" in reply:
-        head, _, rest = reply.partition("\x00QTY:")
-        parts = rest.split(":")
-        code = parts[0] if len(parts) > 0 else ""
-        half = parts[1] if len(parts) > 1 else "0"
-        full = parts[2] if len(parts) > 2 else "0"
-        row1 = [{"text": "1주", "callback_data": f"qty:{code}:1"}]
-        if half not in ("0", ""):
-            row1.append({"text": f"반 {half}주",
-                         "callback_data": f"qty:{code}:{half}"})
-        if full not in ("0", "") and full != half:
-            row1.append({"text": f"전액 {full}주",
-                         "callback_data": f"qty:{code}:{full}"})
-        row2 = [{"text": "기타 수량 입력",
-                 "callback_data": f"qty_manual:{code}"},
-                {"text": "취소", "callback_data": f"qty_cancel:{code}"}]
-        kb = {"inline_keyboard": [row1, row2]}
-        return head, kb
     if "\x00YESNO" in reply:
         return reply.replace("\x00YESNO", ""), _YESNO_KEYBOARD
     return reply, None
@@ -952,8 +910,6 @@ def _answer_callback(cb_id: str):
                      params={"callback_query_id": cb_id}, timeout=5)
     except Exception:
         pass
-
-
 
 
 def _classify_document(file_name: str):
@@ -1032,75 +988,6 @@ def poll_once():
                     body, markup = _split_marker(reply)
                     notify._send_raw(chat_id, body, reply_markup=markup)
                     continue
-                if data.startswith("qty:"):
-                    _p = data.split(":")
-                    code = _p[1] if len(_p) > 1 else ""
-                    qty = int(_p[2]) if len(_p) > 2 and _p[2].isdigit() else 0
-                    nm = _name_by_code(user, code) or code
-                    pend = _get_pending("approve:" + user["key"])
-                    if not pend:
-                        notify._send_raw(chat_id, "승인 대기중인 종목이 없어요. 다시 /승인 하세요.")
-                        continue
-                    if qty < 1:
-                        notify._send_raw(chat_id, "수량이 올바르지 않아요.")
-                        continue
-                    print(f"[bot] {user['name']}({user['role']}) [버튼] 수량: {nm} {qty}주")
-                    plan = {"onetime": qty}
-                    _set_pending("approve_plan:" + user["key"], [plan])
-                    reply = (f"{nm}({code}) 매수 계획:\n  일시매수 {qty}주"
-                             f"\n맞나요?  예 / 아니요\x00YESNO")
-                    body, markup = _split_marker(reply)
-                    notify._send_raw(chat_id, body, reply_markup=markup)
-                    continue
-                if data.startswith("qty_manual:"):
-                    code = data.split(":", 1)[1]
-                    nm = _name_by_code(user, code) or code
-                    print(f"[bot] {user['name']}({user['role']}) [버튼] 수량 직접입력: {nm}")
-                    notify._send_raw(chat_id,
-                        f"{nm} 매수 방식을 입력하세요 (수량):\n"
-                        f"  · 일시 10주\n"
-                        f"  · 분할 주1회 1주\n"
-                        f"  · 일시 5주 + 분할 주1회 1주  (동시)")
-                    continue
-                if data.startswith("qty_cancel:"):
-                    _set_pending("approve:" + user["key"], None)
-                    _set_pending("approve_plan:" + user["key"], None)
-                    print(f"[bot] {user['name']}({user['role']}) [버튼] 승인 취소(등록만)")
-                    notify._send_raw(chat_id, "등록만 하고 매수는 취소했어요.")
-                    continue
-                if data.startswith("pbuy:"):
-                    _p = data.split(":")
-                    qty = int(_p[2]) if len(_p) > 2 and _p[2].isdigit() else 0
-                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
-                    if not ctxp:
-                        notify._send_raw(chat_id, "매수 대기가 만료됐어요. 다시 /추가 하세요.")
-                        continue
-                    ctx = ctxp[0]
-                    ctx["sel"] = qty
-                    _set_pending("pbuy_ctx:" + user["key"], [ctx])
-                    mid = cb_msg.get("message_id")
-                    kb = _buyui_keyboard(ctx["code"], ctx["half"], ctx["full"],
-                                         ctx["price"], sel=qty)
-                    if mid:
-                        _edit_markup(chat_id, mid, kb)
-                    print(f"[bot] {user['name']} [버튼] 수량선택: {qty}주")
-                    continue
-                if data.startswith("pbuy_manual:"):
-                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
-                    if not ctxp:
-                        notify._send_raw(chat_id, "매수 대기가 만료됐어요. 다시 /추가 하세요.")
-                        continue
-                    ctx = ctxp[0]
-                    cur = ctx.get("sel") or 1
-                    if cur < 1:
-                        cur = 1
-                    ctx["sel"] = cur
-                    _set_pending("pbuy_ctx:" + user["key"], [ctx])
-                    mid = cb_msg.get("message_id")
-                    kb = _stepper_keyboard(ctx["code"], cur, ctx["full"], ctx["price"])
-                    if mid:
-                        _edit_markup(chat_id, mid, kb)
-                    continue
                 if data.startswith("pstep:"):
                     _p = data.split(":")
                     delta = int(_p[2]) if len(_p) > 2 and _p[2].lstrip("-").isdigit() else 0
@@ -1137,17 +1024,6 @@ def poll_once():
                     if mid:
                         _edit_markup(chat_id, mid, kb)
                     print(f"[bot] {user['name']} [프리셋] {val}주")
-                    continue
-                if data.startswith("pback:"):
-                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
-                    if not ctxp:
-                        continue
-                    ctx = ctxp[0]
-                    mid = cb_msg.get("message_id")
-                    kb = _buyui_keyboard(ctx["code"], ctx["half"], ctx["full"],
-                                         ctx["price"], sel=ctx.get("sel", 0))
-                    if mid:
-                        _edit_markup(chat_id, mid, kb)
                     continue
                 if data == "noop":
                     continue
