@@ -94,10 +94,11 @@ Wants=network-online.target
 Type=simple
 User=$USER
 WorkingDirectory=$PROJECT_DIR
-Environment=KIS_MODE=prod
+Environment=KIS_MODE=vps      # 기본: 모의투자. 실전은 prod로 변경 (아래 가이드 참고)
 Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONUNBUFFERED=1
 ExecStart=$UV_BIN run python -m mytrading.telegram_bot
+SuccessExitStatus=143 SIGTERM
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -143,3 +144,22 @@ echo "  로그:     journalctl -u $SERVICE_NAME -f"
 echo
 warn "코드를 수정하면 반드시 'restart' 해야 반영됩니다."
 warn "수동으로 'uv run ...' 로 봇을 또 켜면 systemd 봇과 충돌하니 주의하세요."
+
+echo
+info "====================================="
+info " 실전 <-> 모의 전환 가이드"
+info "====================================="
+echo "  이 봇은 기본 '모의투자(vps)' 로 실행됩니다 (실제 주문 없음)."
+echo
+echo "  [실전투자(prod)로 전환]"
+echo "    1) sudo nano $SERVICE_FILE"
+echo "    2) Environment=KIS_MODE=vps  ->  KIS_MODE=prod 로 수정"
+echo "    3) sudo systemctl daemon-reload"
+echo "    4) sudo systemctl restart $SERVICE_NAME"
+echo "    5) 텔레그램에서 /상태 -> '실전 투자' 확인"
+echo
+echo "  [모의투자(vps)로 복귀]"
+echo "    위에서 KIS_MODE=prod -> vps 로 바꾸고 3~5 반복"
+echo
+warn "  실전 전환 시 실제 돈으로 주문이 나갑니다. /상태 로 모드를 꼭 확인하세요."
+warn "  모의/실전 봇을 동시에 켜지 마세요 (같은 토큰 충돌)."
