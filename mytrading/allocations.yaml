@@ -25,20 +25,6 @@ users:
       # ISA: { cash: 20, aggressive: 30, moderate: 20, safe: 20, free: 10 } # 자유 투자 10% (합 100)
       # IRP: { cash: 0, aggressive: 0, moderate: 0, safe: 0, free: 0 }   # 조회 전용 (합 0)
 
-free_holdings:
-  Owner:
-    일반증권1:
-    - code: '000660'
-      name: SK하이닉스
-      style: free
-      added_by: telegram
-      confirm: Waiting
-      added_date: '2026-06-28'
-      dividend: 1
-      sector: 전기·전자
-      industry: 반도체 제조업
-      note: 자유투자
-
 # ────────────────────────────────────────────────────────────
 # [예제] free_holdings 종목의 전체 필드 구조 (주석 — 실제 아님)
 #
@@ -54,7 +40,7 @@ free_holdings:
 #         added_date: '2026-07-01'
 #         dividend: 1               # 배당 있음(1) / 없음(0)
 #         sector: 전기·전자          # 업종전망→종목 주의알림용
-#         industry: 통신 및 방송 장비 제조업   # 표준산업분류 (부채해석·전망)
+#         industry: 통신 및 방송 장비 제조업   # 표준산업분류 (부채해석·전망). 모의추가 시 '모의추가' 마커 → prod에서 보완
 #         note: 자유투자
 #
 # /approve 로 매수 승인 시 (confirm: Approval, buy_plan 추가):
@@ -69,12 +55,26 @@ free_holdings:
 #         industry: 통신 및 방송 장비 제조업
 #         note: 자유투자
 #         buy_plan:                 # 매수 계획 (approve 때 지정)
-#           onetime: 5              # 일시매수 5주 (0=안함)
+#           onetime: 5              # 일시매수 5주 (0=일시매수 없이 분할만)
 #           split:                  # 분할매수
-#             every: weekly         # daily(매일) / weekly(주1회)
+#             every: weekly         # daily(매일) / weekly(주1회) / biweekly(격주) / monthly(매월)
 #             qty: 1                # 매 회 1주씩
 #
 #  brother:
 #    일반증권1:
 #         ....
 # ────────────────────────────────────────────────────────────
+
+free_holdings:
+  Owner:
+    일반증권1:
+    - code: '000660'
+      name: SK하이닉스
+      style: free
+      added_by: telegram
+      confirm: Waiting
+      added_date: '2026-06-28'
+      dividend: 1
+      sector: 전기·전자
+      industry: 반도체 제조업
+      note: 자유투자
