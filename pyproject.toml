@@ -5,6 +5,7 @@ description = "korea investment open api sample codes"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "opendartreader>=0.2.3",
     "pandas>=2.3.1",
     "pandas-market-calendars>=5.4.0",
     "pdfplumber>=0.11.10",
