@@ -1115,7 +1115,20 @@ def poll_once():
                     if not ctxp:
                         continue
                     ctx = ctxp[0]
-                    plan = {"onetime": ctx.get("onetime", 0)}
+                    _onetime = int(ctx.get("onetime", 0) or 0)
+                    # 방어: 일시매수 0주 + 분할 안 함 = 빈 계획 → 저장 안 하고 등록만
+                    if _onetime < 1:
+                        if _name_by_code(user, ctx["code"]) is None:
+                            _cmd_confirm_add(user)
+                        _set_pending("pbuy_ctx:" + user["key"], None)
+                        _set_pending("add:" + user["key"], None)
+                        print(f"[bot] {user['name']} [빈 계획 방어] {ctx['name']} 등록만")
+                        notify._send_raw(chat_id,
+                            f"⚠️ {ctx['name']}: 일시매수 0주 + 분할 안 함이라 "
+                            f"매수 계획이 없어요.\n종목은 등록만 했어요 "
+                            f"(나중에 /승인 으로 매수 계획을 넣을 수 있어요).")
+                        continue
+                    plan = {"onetime": _onetime}
                     if _name_by_code(user, ctx["code"]) is None:
                         _cmd_confirm_add(user)
                     result = _save_buy_plan(user, ctx["code"], ctx["name"], plan)
