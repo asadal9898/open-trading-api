@@ -141,6 +141,24 @@ else
     fi
 fi
 
+# ----- 5.5 DART API 키 확인 (선택 — 재무 교차검증·업종 조회용) -----
+# OpenDartReader 패키지는 pyproject.toml 로 자동 설치됨. 여기선 인증키만 확인.
+DART_CFG="$HOME/KIS/config/kis_devlp.yaml"
+if [ -f "$DART_CFG" ] && grep -q "my_DART_APIkey" "$DART_CFG" 2>/dev/null; then
+    _dart_key=$(grep "my_DART_APIkey" "$DART_CFG" | head -1 | sed "s/.*://; s/[[:space:]]//g")
+    if [ -n "$_dart_key" ] && [ "$_dart_key" != "\"\"" ]; then
+        ok "DART 인증키 확인됨 → 재무 교차검증·업종 조회 사용 가능"
+    else
+        warn "my_DART_APIkey 항목은 있으나 값이 비어있음."
+        warn "  DART(전자공시)를 쓰려면 https://opendart.fss.or.kr 에서 무료 발급 후 입력하세요."
+    fi
+else
+    warn "DART 인증키(my_DART_APIkey) 미설정 — 선택 기능이라 없어도 봇은 동작합니다."
+    warn "  재무 교차검증·업종 자동조회를 쓰려면:"
+    warn "    1) https://opendart.fss.or.kr 에서 무료 발급 (개인회원 즉시)"
+    warn "    2) ~/KIS/config/kis_devlp.yaml 에 'my_DART_APIkey: 발급키' 추가"
+fi
+
 # ----- 6. Lean 데이터 초기화 + csv 중복 키 제거 -----
 LEAN_CSV="./backtester/.lean-workspace/data/symbol-properties/symbol-properties-database.csv"
 if [ "$DOCKER_READY" = "1" ]; then
@@ -214,3 +232,5 @@ echo "       uv run python mytrading/runners/run_backtest.py"
 echo "  4) Claude Code 실행:"
 echo "       claude"
 echo "  5) (선택) 봇을 서비스로 등록해 상시 실행: bash setup_bot_service.sh"
+echo "  6) (선택) DART 재무 교차검증: kis_devlp.yaml 에 my_DART_APIkey 추가"
+echo "       https://opendart.fss.or.kr (개인회원 무료·즉시 발급)"
