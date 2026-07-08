@@ -353,6 +353,18 @@ def _sector_now(code: str) -> str:
         return ""
 
 
+def _industry_now(code: str) -> str:
+    """DART로 표준산업분류(업종명) 조회. 실패 시 '모의추가' 폴백.
+    모의(vps)에서 KIS 재무 API가 막힐 때 DART로 업종을 채운다."""
+    try:
+        from mytrading.dart_data import get_industry
+        ind = get_industry(str(code))
+        return ind if ind else "모의추가"
+    except Exception as e:
+        print(f"[bot] _industry_now({code}) 실패 → 모의추가 폴백: {e}")
+        return "모의추가"
+
+
 def _analyze_paper(code: str, name: str, ukey: str = None) -> str:
     """모의투자(vps): 재무분석 없이 현재가·예산 기반 매수 UI 생성."""
     price = _price_now(code)
@@ -367,9 +379,10 @@ def _analyze_paper(code: str, name: str, ukey: str = None) -> str:
     full = int(budget // price)
     half = full // 2
 
-    # add 대기 저장 (industry는 '모의추가' 마커, 나중에 prod에서 채움)
+    # add 대기 저장 (industry는 DART로 조회, 실패 시 '모의추가' 폴백)
     if ukey:
-        _set_pending("add:" + ukey, [[code, name, "모의추가", sector or ""]])
+        industry = _industry_now(code)  # DART 업종 조회 (실패 시 모의추가 폴백)
+        _set_pending("add:" + ukey, [[code, name, industry, sector or ""]])
         # 매수 UI 컨텍스트 저장 (콜백 재그리기·확정에 필요)
         _set_pending("pbuy_ctx:" + ukey,
                      [{"code": code, "name": name, "half": half,
