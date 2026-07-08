@@ -99,6 +99,68 @@ def get_financials(code: str, year: int, reprt: str = "11011"):
         return None
 
 
+
+
+# 계정명 → dict 키 매핑 (BS: 재무상태표, IS: 손익계산서)
+_ACCOUNTS = {
+    "자산총계": "assets", "부채총계": "liabilities", "자본총계": "equity",
+    "유동자산": "current_assets", "유동부채": "current_liabilities",
+    "이익잉여금": "retained_earnings",
+    "매출액": "revenue", "영업이익": "operating_profit",
+    "당기순이익(손실)": "net_income",
+}
+
+
+def _pick_amount(df, account_nm, fs_div):
+    """특정 계정의 당기금액을 float으로. 없으면 None."""
+    m = df[(df["account_nm"] == account_nm) & (df["fs_div"] == fs_div)]
+    if len(m) == 0:
+        return None
+    v = str(m.iloc[0]["thstrm_amount"]).replace(",", "").strip()
+    try:
+        return float(v)
+    except ValueError:
+        return None
+
+
+def get_financials_full(code: str, year: int, fs: str = "CFS",
+                        reprt: str = "11011") -> Optional[dict]:
+    """형식2: 재무제표 원천값 전체 + 주요 비율 계산.
+    fs: CFS(연결, 기본) / OFS(별도).
+    반환: {symbol, year, fs_type, raw:{계정→금액}, debt_ratio, roe,
+           op_margin, net_margin}. 실패 시 None.
+    KIS get_financials 와 교차검증·결측보완 목적."""
+    df = get_financials(code, year, reprt)
+    if df is None or len(df) == 0:
+        return None
+    # fs_div 값 확인 (해당 구분 없으면 있는 것으로 폴백)
+    have = set(df["fs_div"].unique()) if "fs_div" in df.columns else set()
+    if fs not in have:
+        fs = "CFS" if "CFS" in have else ("OFS" if "OFS" in have else fs)
+
+    raw = {}
+    for acc_nm, key in _ACCOUNTS.items():
+        val = _pick_amount(df, acc_nm, fs)
+        if val is not None:
+            raw[key] = val
+
+    def _ratio(num, den):
+        if raw.get(num) is not None and raw.get(den):
+            return round(raw[num] / raw[den] * 100, 2)
+        return None
+
+    return {
+        "symbol": str(code),
+        "year": year,
+        "fs_type": fs,
+        "raw": raw,
+        "debt_ratio": _ratio("liabilities", "equity"),
+        "roe": _ratio("net_income", "equity"),
+        "op_margin": _ratio("operating_profit", "revenue"),
+        "net_margin": _ratio("net_income", "revenue"),
+    }
+
+
 if __name__ == "__main__":
     print("업종:", get_industry("005930"))
     c = get_company("005930")
