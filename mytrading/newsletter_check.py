@@ -122,6 +122,130 @@ def check_kcif() -> bool:
     return True
 
 
+def _seen_file():
+    """이미 알린 점검공지 기록 파일 경로."""
+    from pathlib import Path
+    return Path.home() / "KIS" / "cache" / "kis_maint_seen.json"
+
+
+def _load_seen() -> set:
+    import json
+    f = _seen_file()
+    if f.exists():
+        try:
+            return set(json.loads(f.read_text(encoding="utf-8")))
+        except Exception:
+            return set()
+    return set()
+
+
+def _save_seen(seen: set):
+    import json
+    f = _seen_file()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(sorted(seen), ensure_ascii=False), encoding="utf-8")
+
+
+def _extract_maint_schedule(text: str) -> str:
+    """OCR 텍스트에서 점검 일시 추출. 예: '7월 4일 08:00 ~ 7월 5일 12:00'."""
+    import re
+    pat = (r"(\d{1,2})월\s*(\d{1,2})일.*?(\d{1,2}):(\d{2})\s*~\s*"
+           r"(\d{1,2})월\s*(\d{1,2})일.*?(\d{1,2}):(\d{2})")
+    m = re.search(pat, text)
+    if not m:
+        return ""
+    g = m.groups()
+    return f"{g[0]}월 {g[1]}일 {g[2]}:{g[3]} ~ {g[4]}월 {g[5]}일 {g[6]}:{g[7]}"
+
+
+def check_kis_maintenance() -> bool:
+    """한국투자증권 서버점검 공지 감시.
+    라벨 메일의 이미지를 OCR 해 점검 일시 추출 → 새 공지면 텔레그램 알림.
+    새 알림을 보냈으면 True."""
+    import re
+    import yaml
+    cfg_all = yaml.safe_load(open(
+        _REPO_ROOT / "mytrading" / "mytrading_config.yaml", encoding="utf-8")) or {}
+    cfg = cfg_all.get("kis_maintenance_watch", {}) or {}
+    if not cfg:
+        return False
+
+    label = cfg.get("label", "경제/한국투자증권")
+    kw = cfg.get("subject_keyword", "중단 안내")
+    img_host = cfg.get("img_host", "securities.koreainvestment.com")
+
+    # 라벨 메일 읽기 (본문 원본 HTML 필요 → gmail_client 저수준 재사용)
+    import imaplib, email
+    from mytrading.gmail_client import _creds, _utf7_encode, _dec_header
+    try:
+        addr, pw = _creds()
+        M = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+        M.login(addr, pw)
+        M.select('"' + _utf7_encode(label) + '"', readonly=True)
+        typ, data = M.search(None, "ALL")
+        ids = data[0].split() if data[0] else []
+    except Exception as e:
+        print(f"[maint] 라벨 읽기 실패: {e}")
+        return False
+
+    seen = _load_seen()
+    new_alert = False
+
+    for i in reversed(ids[-10:]):  # 최근 10개
+        typ, msg = M.fetch(i, "(RFC822)")
+        mail = email.message_from_bytes(msg[0][1])
+        subj = _dec_header(mail.get("Subject", ""))
+        if kw not in subj:
+            continue
+        # HTML에서 점검 이미지 URL 추출
+        img_url = None
+        for part in mail.walk():
+            if part.get_content_type() == "text/html":
+                h = part.get_payload(decode=True).decode("utf-8", errors="replace")
+                for src in re.findall(r'<img[^>]+src="([^"]+)"', h):
+                    if img_host in src:
+                        img_url = src
+                        break
+        if not img_url or img_url in seen:
+            continue
+
+        # 이미지 다운로드 → OCR → 일시 추출
+        schedule = ""
+        try:
+            import requests, pytesseract, io
+            from PIL import Image
+            r = requests.get(img_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code == 200 and "image" in r.headers.get("Content-Type", ""):
+                img = Image.open(io.BytesIO(r.content))
+                ocr = pytesseract.image_to_string(img, lang="kor")
+                schedule = _extract_maint_schedule(ocr)
+        except Exception as e:
+            print(f"[maint] OCR 실패: {e}")
+
+        # 텔레그램 알림
+        lines = ["🔧 <b>한국투자증권 서버점검 공지</b>", ""]
+        lines.append(f"제목: {subj[:55]}")
+        if schedule:
+            lines.append(f"⏰ 점검 일시: <b>{schedule}</b>")
+        else:
+            lines.append("⚠️ 일시 자동추출 실패 — 메일 이미지를 직접 확인하세요.")
+        lines.append("")
+        lines.append("점검 중엔 KIS API가 막혀요. 봇 운영·주문에 주의하세요.")
+        ok = notify.send_message("\n".join(lines))
+        print(f"[maint] 점검공지 알림 {'성공' if ok else '실패'} — {schedule or '일시추출실패'}")
+
+        seen.add(img_url)
+        new_alert = True
+
+    M.logout()
+    if new_alert:
+        _save_seen(seen)
+    else:
+        print("[maint] 새 점검공지 없음")
+    return new_alert
+
+
+
 def main():
     days = 35
     if "--days" in sys.argv:
@@ -150,6 +274,8 @@ def main():
 
     # KCIF 리스크워치 미수신 체크 (마지막 주 일요일에만 동작)
     check_kcif()
+    # 한국투자증권 서버점검 공지 감시
+    check_kis_maintenance()
 
 
 if __name__ == "__main__":

@@ -107,6 +107,22 @@ else
     fi
 fi
 
+# ----- 3.5 Tesseract OCR (한국투자증권 점검 이미지 OCR용, 선택) -----
+info "Tesseract OCR 설치 확인..."
+if command -v tesseract >/dev/null 2>&1; then
+    ok "Tesseract 이미 설치됨 ($(tesseract --version 2>&1 | head -1))"
+else
+    warn "Tesseract 미설치 → 설치 진행 (점검 메일 이미지 OCR 에 필요)"
+    sudo apt install -y tesseract-ocr tesseract-ocr-kor
+fi
+# 한글팩 확인
+if tesseract --list-langs 2>&1 | grep -q "kor"; then
+    ok "Tesseract 한글팩(kor) 확인됨"
+else
+    warn "Tesseract 한글팩 없음 → 설치 시도"
+    sudo apt install -y tesseract-ocr-kor
+fi
+
 # ----- 4. 가상환경 + kis_backtest editable -----
 info "가상환경 생성 (이미 있으면 재사용)..."
 uv venv
@@ -157,6 +173,27 @@ else
     warn "  재무 교차검증·업종 자동조회를 쓰려면:"
     warn "    1) https://opendart.fss.or.kr 에서 무료 발급 (개인회원 즉시)"
     warn "    2) ~/KIS/config/kis_devlp.yaml 에 'my_DART_APIkey: 발급키' 추가"
+fi
+
+# ----- 5.6 Gmail 연동 확인 (선택 — 뉴스레터·점검공지 감시용) -----
+# IMAP 읽기 + SMTP 발송. 앱 비밀번호 방식.
+GMAIL_CFG="$HOME/KIS/config/kis_devlp.yaml"
+if [ -f "$GMAIL_CFG" ] && grep -q "my_GMAIL_app_password" "$GMAIL_CFG" 2>/dev/null; then
+    _gmail_pw=$(grep "my_GMAIL_app_password" "$GMAIL_CFG" | head -1 | sed "s/.*://; s/[[:space:]]//g")
+    if [ -n "$_gmail_pw" ] && [ "$_gmail_pw" != '""' ]; then
+        ok "Gmail 인증 확인됨 → 뉴스레터·점검공지 감시 사용 가능"
+    else
+        warn "my_GMAIL_app_password 항목은 있으나 값이 비어있음."
+        warn "  Gmail 앱 비밀번호(16자리)를 발급받아 입력하세요."
+    fi
+else
+    warn "Gmail 인증(my_GMAIL_address/app_password) 미설정 — 선택 기능."
+    warn "  뉴스레터 만료·KCIF·한투 점검공지 감시를 쓰려면:"
+    warn "    1) Gmail 2단계인증 켜고 https://myaccount.google.com/apppasswords 에서"
+    warn "       앱 비밀번호(16자리) 발급"
+    warn "    2) ~/KIS/config/kis_devlp.yaml 에 추가:"
+    warn "         my_GMAIL_address: \"you@gmail.com\""
+    warn "         my_GMAIL_app_password: \"앱비밀번호16자리\""
 fi
 
 # ----- 6. Lean 데이터 초기화 + csv 중복 키 제거 -----
@@ -234,3 +271,5 @@ echo "       claude"
 echo "  5) (선택) 봇을 서비스로 등록해 상시 실행: bash setup_bot_service.sh"
 echo "  6) (선택) DART 재무 교차검증: kis_devlp.yaml 에 my_DART_APIkey 추가"
 echo "       https://opendart.fss.or.kr (개인회원 무료·즉시 발급)"
+echo "  7) (선택) Gmail 감시(뉴스레터·점검공지): my_GMAIL_address/app_password 추가"
+echo "       앱 비밀번호: https://myaccount.google.com/apppasswords"

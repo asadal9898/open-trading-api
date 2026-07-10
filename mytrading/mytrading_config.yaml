@@ -142,3 +142,12 @@ kcif_watch:
   label: 경제/국제금융       # 확인할 라벨
   subject_keyword: 리스크 워치  # 이 키워드 + 이번달 태그(예 '26.7월)로 판단
   message: "이번 달 KCIF 글로벌 리스크 워치 뉴스레터가 아직 없어요. PDF를 받아서 처리하세요."
+# ────────────────────────────────────────────────────────────
+# 한국투자증권 서버점검 공지 감시 (newsletter_check.py, 일요일 11시)
+# 점검 안내 메일의 이미지를 OCR 하여 점검 일시를 추출 → 텔레그램 알림.
+# 점검 시간엔 KIS API 가 막히므로 봇 운영 주의 안내.
+# ※ 이미 알린 공지는 ~/KIS/cache/kis_maint_seen.json 에 기록해 중복 방지.
+kis_maintenance_watch:
+  label: 경제/한국투자증권       # 확인할 라벨
+  subject_keyword: 중단 안내      # 점검 공지 제목 키워드
+  img_host: securities.koreainvestment.com  # 점검 이미지가 오는 호스트
