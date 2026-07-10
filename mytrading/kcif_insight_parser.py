@@ -240,6 +240,125 @@ def parse_asia_economic_forecast(pdf_path: Path) -> dict | None:
         "indicators": _ASIA_INDICATORS,
         "countries": countries,
     }
+def _find_key_indicators_page(pdf):
+    """주요 지표 시계열 표 시작 페이지 (0-indexed).
+    '국제금융시장' + 월 헤더 4개 연속 패턴으로 탐지."""
+    pat = re.compile(r"\d{1,2}월\s+\d{1,2}월\s+\d{1,2}월\s+\d{1,2}월")
+    for i, page in enumerate(pdf.pages):
+        t = page.extract_text() or ""
+        if "국제금융시장" in t and pat.search(t):
+            return i
+    return None
+
+
+def _parse_month_header(line):
+    """'국제금융시장 \'25.5월 6월 ... \'26.1월 ... 5월' → 연월 리스트 (13개)."""
+    toks = re.findall(r"[\u2018\u2019\']?(\d{2})?\.?(\d{1,2})월", line)
+    months, cur_yy = [], None
+    for yy, mm in toks:
+        if yy:
+            cur_yy = yy
+        if cur_yy is None:
+            continue
+        months.append(f"'{cur_yy}.{int(mm)}월")
+    return months
+
+
+def _extract_values(s):
+    """'880 (5.5%) 1,383.1 ...' → [880.0, 1383.1, ...].
+    괄호 변동률 제거 + 천단위 콤마 제거."""
+    no_paren = re.sub(r"\([^)]*\)", "", s)
+    # 천단위 콤마 제거: 숫자,숫자 → 숫자숫자 (1,383.1 → 1383.1)
+    no_comma = re.sub(r"(?<=\d),(?=\d)", "", no_paren)
+    out = []
+    for tok in re.findall(r"-?\d+\.?\d*", no_comma):
+        try:
+            out.append(float(tok))
+        except ValueError:
+            pass
+    return out
+
+
+def parse_key_indicators(pdf_path: Path):
+    """INSIGHT PDF 뒷부분 '주요 지표' 과거 시계열 표 파싱 (금융시장 지표).
+    국제/국내 금융시장만. 실물경제(경제성장률·PMI 등)는 제외.
+    계층: categories > 대분류(국제/국내 접두어) > 중분류 > 지표명 > [월별 값]."""
+    # 국내 대분류 판별 데이터 키워드
+    DOMESTIC_KW = ("KOSPI", "KOSDAQ", "VKOSPI", "원/달러", "국고채")
+    INTL_KW = ("MSCI", "달러 인덱스", "WTI", "Eurostoxx")
+    # '~시장' 외에 대분류로 취급할 헤더
+    EXTRA_MAJORS = ("외국인 자금", "외화 유동성")
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            start = _find_key_indicators_page(pdf)
+            if start is None:
+                return None
+            months = []
+            categories = {}
+            cur_major = None
+            cur_minor = None
+            for pi in range(start, min(start + 12, len(pdf.pages))):
+                text = pdf.pages[pi].extract_text() or ""
+                # 페이지 구간 판별
+                is_dom = any(k in text for k in DOMESTIC_KW)
+                is_intl = any(k in text for k in INTL_KW)
+                if not is_dom and not is_intl:
+                    # 실물경제 등 → 금융시장 구간 끝. 이미 데이터 모았으면 중단.
+                    if categories:
+                        break
+                    continue
+                section = "국내" if is_dom else "국제"
+
+                for raw in text.split("\n"):
+                    line = raw.strip()
+                    if not line:
+                        continue
+                    if "국제금융시장" in line and "월" in line:
+                        if not months:
+                            months = _parse_month_header(line)
+                        continue
+                    if "국제 및 국내 금융시장 지표" in line or "주요 지표" in line:
+                        continue
+                    n_exp = len(months) if months else 13
+                    all_vals = _extract_values(line)
+                    # 데이터 행: 값이 월 개수 이상 (지표명 속 숫자 포함해 +2까지 허용)
+                    if n_exp <= len(all_vals) <= n_exp + 2:
+                        vals = all_vals[-n_exp:]  # 끝에서 n_exp개 = 실제 월별 값
+                        # 지표명: 마지막 n_exp개 값 블록이 시작하기 전까지
+                        # 괄호·콤마 정리 후, 끝 n_exp개 숫자 앞부분을 지표명으로
+                        clean = re.sub(r"\([^)]*\)", "", line)
+                        clean = re.sub(r"(?<=\d),(?=\d)", "", clean)
+                        nums = list(re.finditer(r"-?\d+\.?\d*", clean))
+                        if len(nums) >= n_exp:
+                            name = clean[:nums[len(nums) - n_exp].start()].strip()
+                        else:
+                            name = clean.split()[0] if clean.split() else line
+                        if cur_major and cur_minor and name:
+                            categories.setdefault(cur_major, {}).setdefault(
+                                cur_minor, {})[name] = vals
+                        continue
+                    # 헤더 처리
+                    if line.endswith("시장"):
+                        cur_major = f"{section} {line}"
+                        cur_minor = None
+                    elif any(line.startswith(em) for em in EXTRA_MAJORS):
+                        cur_major = f"{section} {re.sub(chr(92)+'s*'+chr(92)+'(.*$', '', line).strip()}"
+                        cur_minor = "_"  # 중분류 없는 대분류
+                    elif len(line) < 30:
+                        cur_minor = re.sub(r"\s*\(.*$", "", line).strip()
+            if not categories:
+                return None
+            return {
+                "source_file": pdf_path.name,
+                "table_page": start + 1,
+                "months": months,
+                "categories": categories,
+            }
+    except Exception as e:
+        print(f"[kcif] parse_key_indicators 실패 ({pdf_path.name}): {e}")
+        return None
+
+
 def _extract_yearmonth(filename: str) -> str | None:
     """파일명에서 년월 추출: '국제금융+인사이트+`26.6월호.pdf' → '2026-06'. 실패 시 None."""
     m = _DATE_PATTERN.search(filename)
@@ -311,6 +430,7 @@ if __name__ == "__main__":
         (parse_ib_us_rates, "kcif_insight_ib_us_rates_history.yaml", "ib_us_rates"),
         (parse_world_economic_forecast, "kcif_insight_world_economic_history.yaml", "world"),
         (parse_asia_economic_forecast, "kcif_insight_asia_economic_history.yaml", "asia"),
+        (parse_key_indicators, "kcif_insight_key_indicators_history.yaml", "key_indicators"),
     ]
 
     for parser_func, yaml_name, label in tasks:
