@@ -359,6 +359,148 @@ def parse_key_indicators(pdf_path: Path):
         return None
 
 
+
+
+def _collect_month_x(page):
+    """페이지에서 월 헤더 (월이름, x0) 리스트. 없으면 []."""
+    words = page.extract_words()
+    out = []
+    for w in words:
+        if not (125 <= w["top"] <= 145):
+            continue
+        m = re.search(r"(?:['\u2018\u2019](\d{2}))?\.?(\d{1,2})월", w["text"])
+        if m and "월" in w["text"]:
+            out.append((w["text"], w["x0"]))
+    # x 순 정렬
+    return sorted(out, key=lambda t: t[1])
+
+
+def _row_to_month_vals(cells, month_x, label_max_x):
+    """한 행 cells=[(x,text)] → (label, {월이름: 값})."""
+    label = "".join(t for x, t in cells if x < label_max_x).strip()
+    mv = {}
+    for x, t in cells:
+        if x < label_max_x:
+            continue
+        tc = t.replace(",", "")
+        if re.fullmatch(r"-?\d+\.?\d*", tc):
+            nearest = min(month_x, key=lambda m: abs(m[1] - x))
+            if abs(nearest[1] - x) < 30:
+                mv[nearest[0]] = float(tc)
+    return label, mv
+
+
+def parse_real_economy(pdf_path: Path):
+    """INSIGHT PDF 실물경제 지표 파싱 (x좌표 기반, 빈칸 처리).
+    계층: categories > 대분류 > 중분류 > 지표명 > {월: 값}.
+    대분류/중분류는 고정 목록으로 판별 (데이터 행의 헤더 오인 방지)."""
+    from collections import defaultdict
+    MAJORS = ("현재경기상황", "미래경기전망", "현재경제상황", "기타")
+    MINORS = ("경제성장률", "소비자물가", "산업생산", "소매판매", "경상수지",
+              "고용", "주택가격", "경기선행지수", "제조업PMI", "서비스업PMI",
+              "단기외채", "단기외채비율", "수출", "실업률", "GDP성장률",
+              "외환보유액", "기업경기실사지수", "제조업PMI", "은행")
+
+    def _match(label, cands):
+        lab = label.replace(" ", "")
+        for c in cands:
+            if lab.startswith(c):
+                return c
+        return None
+
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            categories = {}
+            months_ref = []
+            cur_major = "현재경기상황"  # 기본
+            cur_minor = None
+            for pi in range(len(pdf.pages)):
+                text = pdf.pages[pi].extract_text() or ""
+                if "KOSPI" in text or "MSCI" in text or "달러 인덱스" in text:
+                    continue
+                if not any(k in text for k in ("경제성장률", "제조업 PMI", "소비자물가", "미래 경기전망")):
+                    continue
+                page = pdf.pages[pi]
+                words = page.extract_words()
+                month_x = sorted(
+                    [(w["text"], w["x0"]) for w in words
+                     if 125 <= w["top"] <= 145 and "월" in w["text"]],
+                    key=lambda t: t[1])
+                # 우측 연장 페이지(음수/비정상 좌표) 스킵
+                if len(month_x) < 5 or month_x[0][1] < 50:
+                    continue
+                if not months_ref:
+                    months_ref = [m[0] for m in month_x]
+                label_max_x = month_x[0][1] - 5
+                # 국제/한국 구분: 한국 특유 지표가 있으면 한국 섹션
+                is_kr = any(k in text for k in ("GDP 성장률", "외환보유액", "기업경기실사지수", "단기외채비율"))
+                section = "한국" if is_kr else "국제"
+
+                # y좌표 클러스터링: 3px 이내는 같은 행 (지표명/값 오차 흡수,
+                # 행 간격 15px는 안전하게 분리)
+                rows = defaultdict(list)
+                sorted_words = sorted(words, key=lambda w: w["top"])
+                row_keys = []  # 확정된 행 y좌표들
+                for w in sorted_words:
+                    yv = w["top"]
+                    key = None
+                    for rk in row_keys:
+                        if abs(rk - yv) <= 3:
+                            key = rk
+                            break
+                    if key is None:
+                        key = yv
+                        row_keys.append(key)
+                    rows[key].append((w["x0"], w["text"]))
+
+                for y in sorted(rows):
+                    if y <= 145:
+                        continue
+                    cells = sorted(rows[y])
+                    label = "".join(t for x, t in cells if x < label_max_x).strip()
+                    if not label:
+                        continue
+                    mv = {}
+                    for x, t in cells:
+                        if x < label_max_x:
+                            continue
+                        tc = t.replace(",", "")
+                        if re.fullmatch(r"-?\d+\.?\d*", tc):
+                            nearest = min(month_x, key=lambda m: abs(m[1] - x))
+                            if abs(nearest[1] - x) < 30:
+                                mv[nearest[0]] = float(tc)
+                    # 대분류 판별 (고정 목록)
+                    maj = _match(label, MAJORS)
+                    if maj and not mv:
+                        cur_major = f"{section} {maj}"
+                        cur_minor = None
+                        continue
+                    if section == "한국":
+                        # 한국은 중분류 없음 → 값 있으면 바로 지표 (중분류 "_")
+                        if mv:
+                            categories.setdefault(cur_major, {}).setdefault(
+                                "_", {})[label] = mv
+                        continue
+                    # 국제는 중분류 계층 사용
+                    mino = _match(label, MINORS)
+                    if mino and not mv:
+                        cur_minor = mino
+                        continue
+                    if mv and cur_minor:
+                        categories.setdefault(cur_major, {}).setdefault(
+                            cur_minor, {})[label] = mv
+            if not categories:
+                return None
+            return {
+                "source_file": pdf_path.name,
+                "months": months_ref,
+                "categories": categories,
+            }
+    except Exception as e:
+        print(f"[kcif] parse_real_economy 실패 ({pdf_path.name}): {e}")
+        return None
+
+
 def _extract_yearmonth(filename: str) -> str | None:
     """파일명에서 년월 추출: '국제금융+인사이트+`26.6월호.pdf' → '2026-06'. 실패 시 None."""
     m = _DATE_PATTERN.search(filename)
@@ -431,6 +573,7 @@ if __name__ == "__main__":
         (parse_world_economic_forecast, "kcif_insight_world_economic_history.yaml", "world"),
         (parse_asia_economic_forecast, "kcif_insight_asia_economic_history.yaml", "asia"),
         (parse_key_indicators, "kcif_insight_key_indicators_history.yaml", "key_indicators"),
+        (parse_real_economy, "kcif_insight_real_economy_history.yaml", "real_economy"),
     ]
 
     for parser_func, yaml_name, label in tasks:
