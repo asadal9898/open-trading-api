@@ -74,12 +74,22 @@ dividend_filter:
 # industry에 이 키워드가 포함되면 "부채 높아도 정상"으로 해석
 # 차영석 통찰: 조선=선수금, 은행=예금, 보험=보험부채 (실제 빚 아님)
 # 나중에 항공(리스)·부동산임대 등 추가하려면 여기에 한 줄씩만
-debt_lenient_industry:
-  - "선박"
-  - "은행"
-  - "보험"
-  - "여신"
-  - "금융"
+# 업종별 부채 해석 규칙 (키워드 매칭 + 섹터)
+# KIS industry(표준산업분류 텍스트)에 키워드 포함 시 해당 규칙 적용.
+# debt: none = 부채비율 안 봄(업의 특성상), 숫자 = 부채비율 상한(%).
+# ※ 값은 시작 기준값 — 차영석이 확인 후 조정 예정.
+debt_industry_rules:
+  "은행":  { sector: "금융",   debt: none }
+  "보험":  { sector: "금융",   debt: none }
+  "증권":  { sector: "금융",   debt: none }
+  "여신":  { sector: "금융",   debt: none }
+  "금융":  { sector: "금융",   debt: none }   # 기타 금융업
+  "선박":  { sector: "산업재", debt: 200 }    # 조선 — 선수금이 부채
+  "건설":  { sector: "건설",   debt: 150 }    # PF·선수금
+  "항공":  { sector: "산업재", debt: 200 }    # 리스부채(IFRS16)
+  "도매":  { sector: "유통",   debt: 130 }    # 리스부채
+# 위 키워드 없으면 기본: { sector: "기타", debt: 100 }
+debt_default: { sector: "기타", debt: 100 }
 
 trading:
   symbols: ["005930"]      # 대상 종목 (삼성전자)

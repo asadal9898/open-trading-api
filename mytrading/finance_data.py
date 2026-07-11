@@ -23,24 +23,48 @@ from typing import Optional
 p = "mytrading/finance_data.py"
 s = open(p, encoding="utf-8").read()
 
-def _load_debt_lenient():
-    """mytrading_config.yaml의 debt_lenient_industry 로드.
-    없으면 기본값. 차영석이 yaml만 수정하면 업종 추가 가능.
+def _load_debt_rules():
+    """mytrading_config.yaml의 debt_industry_rules + debt_default 로드.
+    키워드 매칭: KIS industry 텍스트에 키워드 포함 시 규칙 적용.
+    각 규칙 = {sector, debt}. debt=None(yaml none) 이면 부채비율 안 봄.
+    반환: (rules_dict, default_rule)
     """
-    default = ("선박", "은행", "보험", "여신", "금융")
+    default = {"sector": "기타", "debt": 100}
+    rules = {
+        "은행": {"sector": "금융", "debt": None},
+        "보험": {"sector": "금융", "debt": None},
+        "증권": {"sector": "금융", "debt": None},
+        "여신": {"sector": "금융", "debt": None},
+        "금융": {"sector": "금융", "debt": None},
+        "선박": {"sector": "산업재", "debt": 200},
+        "건설": {"sector": "건설", "debt": 150},
+    }
     try:
         import yaml
         cfg_path = _REPO_ROOT / "mytrading" / "mytrading_config.yaml"
         with open(cfg_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
-        vals = cfg.get("debt_lenient_industry")
-        if vals and isinstance(vals, list):
-            return tuple(vals)
+        r = cfg.get("debt_industry_rules")
+        if r and isinstance(r, dict):
+            rules = r
+        d = cfg.get("debt_default")
+        if d and isinstance(d, dict):
+            default = d
     except Exception:
         pass
-    return default
+    return rules, default
 
-_DEBT_LENIENT_INDUSTRY = _load_debt_lenient()
+
+def _match_debt_rule(industry):
+    """industry(KIS 표준산업분류)에 맞는 부채 규칙. 키워드 포함 매칭.
+    없으면 기본. 반환: {sector, debt}."""
+    if industry:
+        for kw, rule in _DEBT_RULES.items():
+            if kw in industry:
+                return rule
+    return _DEBT_DEFAULT
+
+_DEBT_RULES, _DEBT_DEFAULT = _load_debt_rules()
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -224,19 +248,22 @@ def get_growth(symbol: str) -> Optional[dict]:
 
 
 def _debt_note(debt_ratio, industry=None):
-    """부채비율 해석 (업종 고려). 차영석 통찰: 업종별로 다르게.
-    관대업종(조선·은행·보험 등)은 부채 높아도 정상.
+    """부채비율 해석 (업종별 기준). debt_industry_rules 기반.
+    - debt=None 업종(은행·보험·증권 등): 부채비율로 판단 안 함.
+    - 그 외: 업종별 상한 대비 판정.
     """
     if debt_ratio is None:
         return "부채비율 없음"
-    lenient = industry and any(k in industry for k in _DEBT_LENIENT_INDUSTRY)
-    if lenient:
-        return f"{debt_ratio:.0f}% (업종특성상 부채 해석 주의: {industry})"
-    if debt_ratio < 100:
-        return f"{debt_ratio:.0f}% (양호)"
-    if debt_ratio < 200:
-        return f"{debt_ratio:.0f}% (보통)"
-    return f"{debt_ratio:.0f}% (높음 — 주의)"
+    rule = _match_debt_rule(industry)
+    limit = rule.get("debt")
+    sector = rule.get("sector", "기타")
+    if limit is None:
+        return f"{debt_ratio:.0f}% ({sector}: 업 특성상 부채비율 판단 제외)"
+    if debt_ratio < limit:
+        return f"{debt_ratio:.0f}% (양호 · {sector} 기준 {limit:.0f}%)"
+    if debt_ratio < limit * 1.5:
+        return f"{debt_ratio:.0f}% (보통 · {sector} 기준 {limit:.0f}%)"
+    return f"{debt_ratio:.0f}% (높음 — 주의 · {sector} 기준 {limit:.0f}%)"
 
 
 def get_financial_summary(symbol: str, industry: str = None) -> Optional[dict]:
