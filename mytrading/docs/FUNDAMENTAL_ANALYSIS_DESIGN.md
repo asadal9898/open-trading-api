@@ -1,6 +1,6 @@
 # 펀더멘털 분석 + 차트 결합 설계
 
-> 작성: 2026-06-30
+> 작성: 2026-06-30 / 갱신: 2026-07 (구현 상태 반영)
 > 핵심 원칙: **차트(기술적)만으론 부족하다. 재무(기본적)가 받쳐줘야 한다.**
 > "상승장이라고 모든 종목이 오르는 게 아니다" — 업종·종목의 펀더멘털이 본질
 
@@ -20,18 +20,21 @@
 → 삼성전자 "재평가" 가설이 데이터로 증명됨.
    차트 상승을 영업이익 756% 증가가 받쳐줌.
 
-## 2. KIS 재무 API (확인됨)
+## 2. KIS 재무 API (확인·구현됨)
 
 | API | 주요 필드 | 용도 |
 |------|------|------|
-| finance_income_statement | sale_account(매출), thtr_ntin(순이익) | 손익 규모 |
+| finance_income_statement | sale_account(매출), thtr_ntin(순이익), bsop_prti(영업이익) | 손익 규모 |
 | finance_growth_ratio | grs(매출증가율), bsop_prfi_inrt(영업이익증가율) | 성장성 |
 | finance_profit_ratio | 영업이익률 등 | 수익성 |
 | finance_stability_ratio | 부채비율 등 | 안정성 |
+| finance_financial_ratio | lblt_rate(부채), roe_val, bsop_prfi_inrt | 재무비율 종합 (실사용) |
 | finance_balance_sheet | 자산·부채 | 재무상태 |
 
 호출: fid_input_iscd=종목코드, fid_div_cls_code="0", fid_cond_mrkt_div_code="J"
 (prod 전용, 조회만)
+
+→ `mytrading/finance_data.py` 에 래퍼 구현. (`finance_unified.py` 로 DART 폴백 보강)
 
 ## 3. ★중요 — 업종별 재무 해석 (차영석 통찰)
 
@@ -59,29 +62,48 @@
 
 → **industry(표준산업분류)와 연결**:
   - industry "은행" / "선박 건조업" 등이면 부채 해석 규칙 다르게
-  - 오늘 추가한 industry 필드가 재무 해석에도 쓰임
+  - industry 필드가 재무 해석에도 쓰임
 
 ## 4. 차트 + 재무 결합 구상 (계층적 가중치)
 
-차영석 큰 그림의 **종목 신호 레이어**를 입체화:
+차영석 큰 그림의 **종목 신호 레이어**를 입체화. (차트 점수와 재무 점수는
+각각 존재하나 결합은 미구현 — 5장 참고)
 
-## 5. 구현 순서 (TODO)
+## 5. 구현 순서 / 현황
 
-1. [완료] KIS 재무 API 확인, 영업이익·성장률 받기 검증
-2. [완료] industry(표준산업분류) 필드 — 업종 구분
-3. [ ] 재무 점수화 함수 (영업이익·매출·부채)
-4. [ ] 업종별 부채 해석 규칙 (은행·조선·바젤3 반영)
-5. [ ] 차트 점수 + 재무 점수 결합
-6. [ ] 백테스트 검증 (재무 양호 종목이 실제 수익?)
+1. ✅ KIS 재무 API 확인, 영업이익·성장률 받기 검증
+2. ✅ industry(표준산업분류) 필드 — 업종 구분
+3. ✅ **재무 점수화 재료 함수** — `finance_data.py`:
+   - `get_financials(symbol, years)` → 부채비율·ROE·영업이익증가율 추이
+   - `get_growth(symbol)` → 매출·영업이익 증가율
+   - `get_operating_profit(symbol)` → 영업이익 추이 (positive_years)
+   - `get_financial_summary(symbol, industry)` → 위를 묶은 종합 (debt_note 포함)
+   ※ "점수(score)"로 환산은 아직 — 지표를 모아 제공하는 단계. 결합 점수화는 5번.
+4. 🔶 **업종별 부채 해석 (부분 구현)** — `_debt_note(debt_ratio, industry)`:
+   - config `debt_lenient_industry`(선박·은행·보험 등) 키워드 매칭 → 관대업종이면
+     "부채 해석 주의" 문구, 아니면 표준 구간(100/200%) 판정.
+   - ⚠️ 아직 **단순 버전**: "관대업종 주의" 표시까지. 3장의 업종별 세부 규칙
+     (은행→BIS, 조선→긍정신호, 보험→K-ICS, 리스→IFRS16 할인)은 미반영.
+5. ⬜ **차트 점수 + 재무 점수 결합** — 미구현.
+   - 차트 점수: `backtest_weekly_support.py` `trend_score()`(신고가·신저가·이평 상승) 존재.
+   - 재무: get_financial_summary 존재.
+   - 둘을 하나의 종목 신호로 **결합하는 로직은 없음.** (각각 따로)
+6. ⬜ 백테스트 검증 (재무 양호 종목이 실제 수익?) — 미구현.
 
 ## 6. 관련 파일
-- backtest_weekly_support.py — 주봉 추세·지지선 (차트)
-- universe.yaml — industry 필드 (업종 구분)
-- find_dividend_stocks.py — finance_financial_ratio 사용 중 (EPS·배당)
+- `finance_data.py` — 재무 래퍼 (get_financials/growth/operating_profit/summary, _debt_note)
+- `finance_unified.py` — KIS 우선 + DART 폴백 (get_financials_safe)
+- `mytrading_config.yaml` — `debt_lenient_industry` (관대업종 목록)
+- `backtest_weekly_support.py` — 주봉 추세·지지선 trend_score (차트)
+- `universe.yaml` — industry 필드 (업종 구분)
+- `find_dividend_stocks.py` — finance_financial_ratio 사용 (배당·재무)
 
 ---
 
 ## 7. 회계기준 변경 + 금융업 특수 처리 (차영석 통찰, 2026-06-30)
+
+> ⚠️ 이 장은 **설계·통찰 기록**이다. 아래 세부 규칙(보험주 매도압력 플래그,
+> 회계기준 시점 관리 등)은 아직 **코드 미반영**. 향후 4·5번 구현 시 참고.
 
 ### 7-1. 핵심 원칙
 **부채비율 등 재무 지표를 모든 업종에 일률 적용하면 안 된다.**
@@ -114,9 +136,9 @@
 | 항공/유통(리스多) | 리스부채 | - | IFRS 16 감안, 부채비율 할인 |
 | 일반 제조 | 실제 차입 | 부채비율 | 표준 적용 (100% 초과 주의) |
 
-→ 오늘 추가한 industry(표준산업분류)로 분기 처리
+→ 현재 `_debt_note` 는 이 중 "관대업종 여부"만 구분(선박·은행·보험). 위 세부 규칙은 미반영.
 
-### 7-4. ★보험업 특수 — 주식 매도 압력 (중요)
+### 7-4. ★보험업 특수 — 주식 매도 압력 (중요, 미구현)
 
 2023년 IFRS 17 + K-ICS 전면 전환:
 - RBC → K-ICS (지급여력), IFRS 4 → IFRS 17 (회계)
@@ -141,7 +163,15 @@
 - 과거-현재 재무 비교 시 "같은 기준 기간끼리" 비교
 
 ### 7-6. TODO (다음)
-- [ ] industry별 부채 해석 규칙 코드화
+- [ ] `_debt_note` 를 업종별 세부 규칙으로 확장 (은행 BIS·조선 긍정·보험 K-ICS·리스 IFRS16)
 - [ ] 보험주 매도압력 플래그
 - [ ] 회계기준 변경 시점 데이터 관리 (비교 왜곡 방지)
+- [ ] 차트 점수 + 재무 점수 결합 (5번)
 - [ ] 부동산 영향 레이어 (다음 논의 주제 — PF/건설/금리)
+
+---
+
+## 관련 문서
+- 배당주 필터: `mytrading/docs/DIVIDEND_FILTER_DESIGN.md`
+- 매매 전략 전체: `mytrading/docs/TRADING_STRATEGIES.md`
+- 국면별 분할주문: `mytrading/docs/REGIME_SPLIT_ORDER_DESIGN.md`
