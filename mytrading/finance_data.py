@@ -266,6 +266,154 @@ def _debt_note(debt_ratio, industry=None):
     return f"{debt_ratio:.0f}% (높음 — 주의 · {sector} 기준 {limit:.0f}%)"
 
 
+def _quarter_standalone(rows):
+    """누적(YTD) 분기 EPS를 단일 분기 EPS로 차분.
+    KIS는 누적값: Q1=1186, Q2=1920(누적), Q3=3701, 연간=6564
+    → 단일: Q1=1186, Q2=734, Q3=1781, Q4=2863.
+    rows: [{year, eps}, ...] 최근→과거. 반환: [{quarter, eps_cum, eps_q}] 최근→과거.
+    """
+    asc = list(reversed(rows))
+    out = []
+    prev_year = None
+    prev_cum = 0.0
+    for r in asc:
+        ym = str(r.get("year", ""))
+        eps_cum = r.get("eps")
+        if eps_cum is None or len(ym) < 6:
+            continue
+        year, mm = ym[:4], ym[4:6]
+        if mm == "03" or year != prev_year:
+            eps_q = eps_cum
+        else:
+            eps_q = eps_cum - prev_cum
+        out.append({"quarter": ym, "eps_cum": eps_cum, "eps_q": round(eps_q, 1)})
+        prev_year = year
+        prev_cum = eps_cum
+    return list(reversed(out))
+
+
+def get_quarterly_eps(symbol, init_kis=False):
+    """분기별 단일 EPS 추세 (누적 차분).
+    반환: {symbol, quarters:[{quarter, eps_cum, eps_q}] 최근→과거, ttm_eps}."""
+    if init_kis:
+        try:
+            from mytrading.common import init
+            init(require_confirm=False)
+        except Exception:
+            pass
+    try:
+        from finance_financial_ratio import finance_financial_ratio
+    except Exception:
+        return None
+    try:
+        df = finance_financial_ratio(
+            fid_div_cls_code="1",
+            fid_cond_mrkt_div_code="J",
+            fid_input_iscd=symbol,
+        )
+    except Exception:
+        return None
+    if df is None or df.empty:
+        return None
+    rows = [{"year": str(r.get("stac_yymm", "")), "eps": _to_float(r.get("eps"))}
+            for _, r in df.iterrows()]
+    quarters = _quarter_standalone(rows)
+    if not quarters:
+        return None
+    ttm = None
+    q_eps = [q["eps_q"] for q in quarters[:4] if q["eps_q"] is not None]
+    if len(q_eps) == 4:
+        ttm = round(sum(q_eps), 1)
+    return {"symbol": symbol, "quarters": quarters, "ttm_eps": ttm}
+
+
+def _is_prod():
+    """현재 KIS 모드가 실전(prod)인지. 모의(vps)면 KIS 재무 API 불가."""
+    import os
+    return os.environ.get("KIS_MODE", "vps").lower() == "prod"
+
+
+def get_per(symbol, price=None, init_kis=False, year=None):
+    """PER (연간 + TTM). KIS + DART 교차검증.
+
+    - 모의(vps) 모드: KIS 재무 API 불가 → DART 만 사용.
+    - 실전(prod) 모드: KIS + DART 둘 다 조회 → 값 비교(교차검증).
+      두 소스 EPS 차이가 3% 초과면 cross_check 에 경고.
+
+    price 없으면 get_trend 로 조회.
+    반환: {symbol, price, eps_annual, per_annual, eps_ttm, per_ttm,
+           source, kis_eps, dart_eps, cross_check, diff_pct}
+    """
+    from datetime import date
+    if year is None:
+        year = date.today().year - 1        # 직전 결산연도
+
+    if init_kis and _is_prod():
+        try:
+            from mytrading.common import init
+            init(require_confirm=False)
+        except Exception:
+            pass
+
+    # 현재가
+    if price is None:
+        try:
+            from mytrading.data_manager import get_trend
+            t = get_trend(symbol)
+            price = t.get("last") if t else None
+        except Exception:
+            price = None
+    if not price:
+        return None
+
+    kis_eps = kis_ttm = None
+    if _is_prod():
+        fin = get_financials(symbol)
+        kis_eps = fin.get("annual_eps") if fin else None
+        qe = get_quarterly_eps(symbol)
+        kis_ttm = qe.get("ttm_eps") if qe else None
+
+    # DART (모드 무관)
+    dart_eps = None
+    try:
+        from mytrading.dart_data import get_eps as dart_get_eps
+        dart_eps = dart_get_eps(symbol, year, "FY")
+    except Exception:
+        pass
+
+    # 교차검증 (KIS vs DART EPS)
+    _DIFF_LIMIT = 0.03                  # 3% 초과면 "차이 큼"
+    diff_pct = None
+    cross_check = "소스 1개"
+    if kis_eps and dart_eps and dart_eps != 0:
+        diff_pct = round(abs(kis_eps - dart_eps) / abs(dart_eps) * 100, 1)
+        cross_check = ("일치" if diff_pct <= _DIFF_LIMIT * 100
+                       else "차이 큼 — 확인 필요")
+
+    eps_annual = kis_eps or dart_eps
+    source = ("KIS+DART" if (kis_eps and dart_eps)
+              else "KIS" if kis_eps else "DART" if dart_eps else None)
+
+    def _per(eps):
+        if eps and eps > 0:
+            return round(price / eps, 1)
+        return None
+
+    return {
+        "symbol": symbol,
+        "price": price,
+        "eps_annual": eps_annual,
+        "per_annual": _per(eps_annual),
+        "eps_ttm": kis_ttm,
+        "per_ttm": _per(kis_ttm),
+        "source": source,
+        "kis_eps": kis_eps,
+        "dart_eps": dart_eps,
+        "cross_check": cross_check,
+        "diff_pct": diff_pct,
+    }
+
+
 def get_financial_summary(symbol: str, industry: str = None) -> Optional[dict]:
     """재무 종합 — 개별 함수들을 한 번에 묶어서 반환.
     industry(표준산업분류) 주면 부채비율을 업종별로 해석.

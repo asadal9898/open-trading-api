@@ -75,6 +75,67 @@ def get_industry(code: str) -> str:
         return ""
 
 
+# 분기 보고서 코드 (DART reprt_code)
+_REPRT = {
+    "Q1": "11013",   # 1분기보고서
+    "H1": "11012",   # 반기보고서 (= Q2 단독 EPS)
+    "Q3": "11014",   # 3분기보고서
+    "FY": "11011",   # 사업보고서 (연간)
+}
+
+
+def _find_eps(df):
+    """전체재무제표에서 기본주당이익 추출.
+    계정명이 보고서마다 다름: '기본주당이익' / '기본주당이익(손실)'
+    → startswith 로 매칭.
+    """
+    if df is None or getattr(df, "empty", True):
+        return None
+    for _, r in df.iterrows():
+        nm = str(r.get("account_nm", ""))
+        if nm.startswith("기본주당이익"):
+            v = str(r.get("thstrm_amount", "")).replace(",", "").strip()
+            try:
+                return float(v)
+            except Exception:
+                return None
+    return None
+
+
+def get_eps(code: str, year: int, period: str = "FY", fs: str = "CFS"):
+    """DART 주당순이익(EPS).
+    period: FY(연간) / Q1 / H1(=Q2 단독) / Q3.
+    ※ DART 분기 EPS는 '단일 분기' 값 (KIS 는 누적이라 차분 필요 — 다름 주의).
+    반환: float | None
+    """
+    reprt = _REPRT.get(period.upper())
+    if not reprt:
+        return None
+    try:
+        d = _get_dart()
+        df = d.finstate_all(code, year, reprt_code=reprt, fs_div=fs)
+        return _find_eps(df)
+    except Exception as e:
+        print(f"[dart] get_eps({code}, {year}, {period}) 실패: {e}")
+        return None
+
+
+def get_quarterly_eps(code: str, year: int, fs: str = "CFS"):
+    """DART 분기별 EPS (단일 분기 값).
+    반환: {"Q1":.., "Q2":.., "Q3":.., "FY":.., "year":year}
+    ※ Q2 는 반기보고서(H1)의 값 = 2분기 단독.
+    ※ Q4 는 별도 보고서 없음 → FY - (Q1+Q2+Q3) 로 계산.
+    """
+    q1 = get_eps(code, year, "Q1", fs)
+    q2 = get_eps(code, year, "H1", fs)
+    q3 = get_eps(code, year, "Q3", fs)
+    fy = get_eps(code, year, "FY", fs)
+    q4 = None
+    if None not in (q1, q2, q3, fy):
+        q4 = round(fy - (q1 + q2 + q3), 1)
+    return {"year": year, "Q1": q1, "Q2": q2, "Q3": q3, "Q4": q4, "FY": fy}
+
+
 def get_company(code: str) -> dict:
     """종목코드 → 기업개황 dict (대표자·설립일·주소·업종코드 등).
     실패 시 빈 dict."""
