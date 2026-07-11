@@ -137,6 +137,7 @@ def scan(market: str, limit: int = None, dry_run: bool = False) -> dict:
             r = screen(code6, fcfg)
             time.sleep(pause)
             if r["pass"]:
+                r["name"] = name
                 passed.append(r)
                 print(f"  ✅ {code6} {name}: 배당 {r['dividend']:.1f}% "
                       f"부채 {r['debt']:.0f}% (거래량 {vol:,})")
@@ -182,7 +183,7 @@ def _notify(result: dict):
         lines = [f"💰 <b>배당주 발견 — {mk}</b> ({today})",
                  f"통과 {total}개 중 상위 {result['added']}개 추가 (confirm: Waiting)", ""]
         for r in cand[:15]:  # 최대 15개
-            lines.append(f"  {r['symbol']} 배당 {r['dividend']:.1f}% 부채 {r['debt']:.0f}%")
+            lines.append(f"  {r['symbol']} {r.get('name', '')} 배당 {r['dividend']:.1f}% 부채 {r['debt']:.0f}%")
         lines.append("")
         lines.append("→ universe.yaml 에서 확인 후 Approval 로 승인하세요.")
         send_message("\n".join(lines))
