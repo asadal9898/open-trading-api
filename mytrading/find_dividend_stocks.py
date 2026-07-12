@@ -58,6 +58,20 @@ def _filter_cfg(market: str = None) -> dict:
                   "min_volume", "top_n"):
             if k in mk:
                 out[k] = mk[k]
+
+    # 국고채 3년물 연동 (base_rate_source: kcif)
+    #   배당 기준 = 국고채 3년물 + 프리미엄. 금리 오르면 기준도 자동 상승.
+    #   fixed 로 두면 위의 rate_threshold(고정값) 그대로 사용.
+    if cfg.get("base_rate_source", "kcif") == "kcif":
+        try:
+            from mytrading.finance_data import dividend_threshold
+            th = dividend_threshold(market or "kospi")
+            out["rate_threshold"] = th["threshold"]
+            out["base_rate"] = th["base_rate"]
+            out["premium"] = th["premium"]
+        except Exception:
+            pass                      # 실패 시 고정값 유지
+
     return out
 
 
