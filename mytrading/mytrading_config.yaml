@@ -67,8 +67,14 @@ dividend_filter:
   rate_limit_sec: 0.5
   rate_threshold: 3.0
   debt_max: 100.0
-  kospi:   { rate_threshold: 4.0, debt_max: 100.0, min_volume: 30000, top_n: 20 }
-  kosdaq:  { rate_threshold: 4.5, debt_max: 80.0,  min_volume: 20000, top_n: 20 }
+  # 배당률 기준 = 국고채 3년물 + premium (KCIF INSIGHT에서 자동 갱신)
+  #   한국 시장금리 벤치마크는 국고채 3년물 (미국·일본은 10년물).
+  #   금리가 오르면 배당 요구수익률도 자동으로 올라감.
+  #   ※ premium 은 보수적으로 — 너무 높이면 통과 종목이 사라짐.
+  base_rate_source: kcif        # kcif(자동) | fixed(rate_threshold 사용)
+  fallback_rate: 3.5            # KCIF 못 읽을 때 대비 국고채 값
+  kospi:   { premium: 0.5, rate_threshold: 4.0, debt_max: 100.0, min_volume: 30000, top_n: 20 }
+  kosdaq:  { premium: 1.0, rate_threshold: 4.5, debt_max: 80.0,  min_volume: 20000, top_n: 20 }
 
 # 부채비율 관대 해석 업종 (표준산업분류 키워드)
 # industry에 이 키워드가 포함되면 "부채 높아도 정상"으로 해석

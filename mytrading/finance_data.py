@@ -569,6 +569,140 @@ def evaluate_operating_profit(symbol, init_kis=False):
     }
 
 
+def get_base_rate(fallback=3.0):
+    """국고채 3년물 금리 (%) — 배당 매력 판단의 기준(무위험 수익률).
+
+    출처: KCIF INSIGHT 파싱 결과 YAML (월간 갱신).
+      history / {최신호} / categories / 국내 채권시장 / 시장금리 / 국고채 3년
+      → 시계열의 마지막 값(최근월)
+
+    한국은 국고채 3년물이 시장금리 벤치마크 (미국·일본은 10년물).
+    배당주는 중기 보유 자산이라 3년물과 비교하는 게 합리적.
+
+    실패 시 fallback (config 또는 기본 3.0%).
+    반환: float (%) — 예: 3.04
+    """
+    try:
+        import yaml
+        p = (_REPO_ROOT / "mytrading" / "reports" / "investment_checklist"
+             / "kcif_insight_key_indicators_history.yaml")
+        with open(p, encoding="utf-8") as f:
+            d = yaml.safe_load(f) or {}
+        hist = d.get("history") or {}
+        if not hist:
+            return fallback
+        latest = sorted(hist.keys())[-1]              # 최신 호
+        series = (hist[latest].get("categories", {})
+                  .get("국내 채권시장", {})
+                  .get("시장금리", {})
+                  .get("국고채 3년"))
+        if series and isinstance(series, list):
+            vals = [v for v in series if v is not None]
+            if vals:
+                return float(vals[-1])                # 최근월 값
+    except Exception:
+        pass
+    return fallback
+
+
+def _load_div_rules():
+    """config의 dividend_filter 로드 (배당 평가 규칙)."""
+    default = {
+        "base_rate_source": "kcif",
+        "fallback_rate": 3.5,
+        "kospi": {"premium": 0.5, "rate_threshold": 4.0},
+        "kosdaq": {"premium": 1.0, "rate_threshold": 4.5},
+    }
+    try:
+        import yaml
+        cfg_path = _REPO_ROOT / "mytrading" / "mytrading_config.yaml"
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        r = cfg.get("dividend_filter")
+        if r and isinstance(r, dict):
+            return r
+    except Exception:
+        pass
+    return default
+
+
+def dividend_threshold(market="kospi"):
+    """배당률 기준선 (%) — 국고채 3년물 + 프리미엄.
+
+    base_rate_source:
+      kcif  → KCIF INSIGHT의 국고채 3년물 + premium (금리 환경 자동 반영)
+      fixed → config의 rate_threshold 고정값
+
+    반환: {threshold, base_rate, premium, source}
+    """
+    rules = _load_div_rules()
+    mk = rules.get(market, {}) or {}
+    src = rules.get("base_rate_source", "kcif")
+
+    if src == "fixed":
+        th = mk.get("rate_threshold", 4.0)
+        return {"threshold": th, "base_rate": None,
+                "premium": None, "source": "fixed"}
+
+    fb = rules.get("fallback_rate", 3.5)
+    base = get_base_rate(fallback=fb)
+    prem = mk.get("premium", 0.5)
+    return {"threshold": round(base + prem, 2), "base_rate": base,
+            "premium": prem, "source": "국고채3년+프리미엄"}
+
+
+def evaluate_dividend(symbol, price=None, market="kospi", init_kis=False):
+    """배당 평가 (재무 3순위).
+
+    기준: 시가배당률 >= 국고채 3년물 + 프리미엄
+      (코스피 +0.5%p / 코스닥 +1.0%p — 보수적. config 조정 가능)
+      한국 시장금리 벤치마크 = 국고채 3년물. 금리 오르면 기준도 자동 상승.
+
+    반환: {symbol, dividend_yield, threshold, base_rate, premium,
+           passed, note}
+    """
+    if init_kis:
+        try:
+            from mytrading.common import init
+            init(require_confirm=False)
+        except Exception:
+            pass
+
+    if price is None:
+        try:
+            from mytrading.data_manager import get_trend
+            t = get_trend(symbol)
+            price = t.get("last") if t else None
+        except Exception:
+            price = None
+
+    div = get_dividend_yield(symbol, price) if price else None
+    dy = div.get("yield_pct") if div else None      # 시가배당률(%)
+    th = dividend_threshold(market)
+    limit = th["threshold"]
+
+    passed = bool(dy is not None and dy >= limit)
+
+    if dy is None:
+        note = "배당 데이터 없음"
+    else:
+        base = th["base_rate"]
+        b = f"국고채 {base}% + {th['premium']}%p" if base else "고정"
+        mark = "통과" if passed else "미달"
+        note = f"배당 {dy:.2f}% vs 기준 {limit:.2f}% ({b}) → {mark}"
+
+    return {
+        "symbol": symbol,
+        "dividend_yield": dy,
+        "annual_dividend": div.get("annual_dividend") if div else None,
+        "threshold": limit,
+        "base_rate": th["base_rate"],
+        "premium": th["premium"],
+        "passed": passed,
+        "note": note,
+    }
+
+
 def get_financial_summary(symbol: str, industry: str = None) -> Optional[dict]:
     """재무 종합 — 개별 함수들을 한 번에 묶어서 반환.
     industry(표준산업분류) 주면 부채비율을 업종별로 해석.
