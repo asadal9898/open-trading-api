@@ -82,15 +82,16 @@ dividend_filter:
 # 나중에 항공(리스)·부동산임대 등 추가하려면 여기에 한 줄씩만
 # 업종별 부채 해석 규칙 (키워드 매칭 + 섹터)
 # KIS industry(표준산업분류 텍스트)에 키워드 포함 시 해당 규칙 적용.
-# debt: none = 부채비율 안 봄(업의 특성상), 숫자 = 부채비율 상한(%).
+# debt: null = 부채비율 안 봄(업의 특성상), 숫자 = 부채비율 상한(%).
 # ※ 값은 시작 기준값 — 차영석이 확인 후 조정 예정.
 debt_industry_rules:
-  "은행":  { sector: "금융",   debt: none }
-  "보험":  { sector: "금융",   debt: none }
-  "증권":  { sector: "금융",   debt: none }
-  "여신":  { sector: "금융",   debt: none }
-  "금융":  { sector: "금융",   debt: none }   # 기타 금융업
-  "선박":  { sector: "산업재", debt: 200 }    # 조선 — 선수금이 부채
+  "은행":  { sector: "금융",   debt: null }
+  "보험":  { sector: "금융",   debt: null }
+  "증권":  { sector: "금융",   debt: null }
+  "여신":  { sector: "금융",   debt: null }
+  "금융":  { sector: "금융",   debt: null }   # 기타 금융업
+  "선박":  { sector: "산업재", debt: null }   # 조선 — 선수금=부채. 수주 많을수록 부채↑
+                                             # → 부채비율로 판단 불가 (은행 예금과 같은 논리)
   "건설":  { sector: "건설",   debt: 150 }    # PF·선수금
   "항공":  { sector: "산업재", debt: 200 }    # 리스부채(IFRS16)
   "도매":  { sector: "유통",   debt: 130 }    # 리스부채

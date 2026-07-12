@@ -64,7 +64,6 @@ def _match_debt_rule(industry):
                 return rule
     return _DEBT_DEFAULT
 
-_DEBT_RULES, _DEBT_DEFAULT = _load_debt_rules()
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -77,6 +76,11 @@ for sub in ("finance_financial_ratio", "ksdinfo_dividend", "finance_income_state
     p = _EX / sub
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
+
+
+# 부채 규칙 로드 — ※ _REPO_ROOT 정의 뒤여야 함!
+# (앞에 두면 NameError → except 로 조용히 기본값 폴백 → config 무시됨)
+_DEBT_RULES, _DEBT_DEFAULT = _load_debt_rules()
 
 
 def _to_float(v, default=None):
@@ -357,12 +361,7 @@ def get_per(symbol, price=None, init_kis=False, year=None):
 
     # 현재가
     if price is None:
-        try:
-            from mytrading.data_manager import get_trend
-            t = get_trend(symbol)
-            price = t.get("last") if t else None
-        except Exception:
-            price = None
+        price = _price_of(symbol)
     if not price:
         return None
 
@@ -569,6 +568,34 @@ def evaluate_operating_profit(symbol, init_kis=False):
     }
 
 
+def _price_of(symbol):
+    """현재가. inquire_price(실시간 API) 우선, 실패 시 CSV 캐시(get_trend).
+    ※ universe에 갓 추가된 종목은 일봉 CSV가 아직 없음 (daily_update 전).
+      캐시만 믿으면 배당률 계산이 안 됨 → API 직접 조회가 안전.
+    """
+    # 1순위: inquire_price (캐시 불필요)
+    try:
+        ip_dir = _REPO_ROOT / "examples_llm" / "domestic_stock" / "inquire_price"
+        if str(ip_dir) not in sys.path:
+            sys.path.insert(0, str(ip_dir))
+        import inquire_price as _ip
+        df = _ip.inquire_price(env_dv="real", fid_cond_mrkt_div_code="J",
+                               fid_input_iscd=symbol)
+        if df is not None and not df.empty:
+            v = df.iloc[0].get("stck_prpr", None)
+            if v not in (None, "", "0"):
+                return float(str(v).replace(",", ""))
+    except Exception:
+        pass
+    # 2순위: CSV 캐시
+    try:
+        from mytrading.data_manager import get_trend
+        t = get_trend(symbol)
+        return t.get("last") if t else None
+    except Exception:
+        return None
+
+
 def get_base_rate(fallback=3.0):
     """국고채 3년물 금리 (%) — 배당 매력 판단의 기준(무위험 수익률).
 
@@ -669,12 +696,7 @@ def evaluate_dividend(symbol, price=None, market="kospi", init_kis=False):
             pass
 
     if price is None:
-        try:
-            from mytrading.data_manager import get_trend
-            t = get_trend(symbol)
-            price = t.get("last") if t else None
-        except Exception:
-            price = None
+        price = _price_of(symbol)          # 실시간 API 우선 (캐시 없어도 OK)
 
     div = get_dividend_yield(symbol, price) if price else None
     dy = div.get("yield_pct") if div else None      # 시가배당률(%)
