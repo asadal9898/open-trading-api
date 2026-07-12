@@ -102,6 +102,30 @@ debt_default: { sector: "기타", debt: 100 }
 #    (위기연도 제외 — 시스템 위기는 회사 잘못 아님)
 # 2) 최근 분기 영업이익증가율(YoY, 작년 동기 대비) → 등급·점수
 #    ※ 점수 스케일 -2~+2 (시작값, 전체 결합 설계 후 조정 예정)
+# 스타일별 재무 평가 기준 (종목 평가) — 차영석 확정
+# style 은 universe.yaml 의 각 종목에 붙어 있음 (매매 방식 = 평가 기준)
+#
+#   value_range  (배당주)   : 안정성 중심. 배당 필수.
+#   momentum     (공격적)   : 성장성 중심. 영업이익이 실제로 늘어야 함 (+10%↑).
+#   accumulate   (ETF)      : 개별 기업이 아니라 재무 무의미 → 스킵.
+#                             대신 경제·섹터 전망 + 차트로 판단 (별도 구현 필요).
+#   free_holdings(자유투자) : 평가는 하되 강제 안 함. 알림만 주고 사람이 판단.
+#                             ("자유투자니까 자유를")
+style_rules:
+  value_range:
+    debt: required             # 업종별 부채 기준 통과 필요
+    op_profit: required        # 흑자 지속성 + 위험/대악재 아님
+    dividend: required         # 국고채 + 프리미엄 이상 (배당주니까 필수)
+  momentum:
+    debt: required
+    op_profit: required
+    op_min_growth: 10          # ★ 영업이익증가율 +10% 이상 (성장 확인)
+    dividend: skip             # 성장주는 배당 안 봄
+  accumulate:
+    skip_financial: true       # ETF — 재무 평가 자체를 안 함
+  free_holdings:
+    advisory: true             # 평가하되 통과/탈락 강제 안 함 (사람 판단)
+
 op_profit_rules:
   check_years: 5
   min_positive_years: 3

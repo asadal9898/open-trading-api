@@ -703,6 +703,128 @@ def evaluate_dividend(symbol, price=None, market="kospi", init_kis=False):
     }
 
 
+def _load_style_rules():
+    """config의 style_rules 로드 (스타일별 재무 평가 기준)."""
+    default = {
+        "value_range": {"debt": "required", "op_profit": "required",
+                        "dividend": "required"},
+        "momentum": {"debt": "required", "op_profit": "required",
+                     "op_min_growth": 10, "dividend": "skip"},
+        "accumulate": {"skip_financial": True},
+        "free_holdings": {"advisory": True},
+    }
+    try:
+        import yaml
+        cfg_path = _REPO_ROOT / "mytrading" / "mytrading_config.yaml"
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        r = cfg.get("style_rules")
+        if r and isinstance(r, dict):
+            return r
+    except Exception:
+        pass
+    return default
+_STYLE_RULES = _load_style_rules()
+
+
+def evaluate_financials(symbol, style="momentum", industry=None,
+                        market="kospi", price=None, init_kis=False):
+    """재무 종합 평가 (스타일별 기준). 종목 평가의 재무 절반.
+
+    스타일별 기준 (config style_rules):
+      value_range  (배당주)   — 부채 + 영업이익 + 배당(필수)
+      momentum     (공격적)   — 부채 + 영업이익(증가율 +10%↑). 배당 안 봄.
+      accumulate   (ETF)      — 재무 평가 스킵 (개별 기업 아님)
+      free_holdings(자유투자) — 평가는 하되 강제 안 함 (사람 판단)
+
+    반환: {symbol, style, passed, advisory, score, debt, op, dividend, note}
+      passed: 재무 기준 통과 여부 (advisory면 None)
+      score:  참고 점수 (영업이익 등급 점수 기반)
+    """
+    rules = _STYLE_RULES.get(style, {}) or {}
+
+    # ETF 등 — 재무 평가 스킵
+    if rules.get("skip_financial"):
+        return {"symbol": symbol, "style": style, "passed": None,
+                "advisory": False, "skipped": True, "score": None,
+                "note": f"{style}: 재무 평가 대상 아님 (ETF — 섹터 전망·차트로 판단)"}
+
+    if init_kis:
+        try:
+            from mytrading.common import init
+            init(require_confirm=False)
+        except Exception:
+            pass
+
+    advisory = bool(rules.get("advisory"))       # 자유투자 = 알림만
+    checks = []                                   # (항목, 통과여부, 설명)
+
+    # --- 1순위: 부채 ---
+    debt_info = None
+    if rules.get("debt") == "required" or advisory:
+        fin = get_financials(symbol)
+        dr = fin.get("debt_ratio") if fin else None
+        rule = _match_debt_rule(industry)
+        limit = rule.get("debt")
+        note = _debt_note(dr, industry)
+        if limit is None:
+            ok = True                             # 금융 등 — 부채 판단 제외
+        elif dr is None:
+            ok = False
+        else:
+            ok = dr <= limit
+        debt_info = {"ratio": dr, "limit": limit,
+                     "sector": rule.get("sector"), "passed": ok, "note": note}
+        checks.append(("부채", ok, note))
+
+    # --- 2순위: 영업이익 ---
+    op_info = None
+    if rules.get("op_profit") == "required" or advisory:
+        op = evaluate_operating_profit(symbol)
+        ok = bool(op and op.get("passed"))
+        # 공격적(momentum)은 증가율 하한 추가 (성장 확인)
+        min_g = rules.get("op_min_growth")
+        if ok and min_g is not None:
+            g = op.get("op_growth")
+            if g is None or g < min_g:
+                ok = False
+        op_info = dict(op or {})
+        op_info["passed"] = ok
+        note = op.get("note") if op else "영업이익 데이터 없음"
+        if min_g is not None:
+            note += f" (기준 +{min_g}%↑)"
+        checks.append(("영업이익", ok, note))
+
+    # --- 3순위: 배당 (배당주만) ---
+    div_info = None
+    if rules.get("dividend") == "required" or advisory:
+        dv = evaluate_dividend(symbol, price=price, market=market)
+        ok = bool(dv and dv.get("passed"))
+        div_info = dv
+        checks.append(("배당", ok, dv.get("note") if dv else "배당 데이터 없음"))
+
+    all_ok = all(c[1] for c in checks) if checks else False
+    score = op_info.get("score") if op_info else None
+
+    lines = [f"{n}: {'O' if ok else 'X'} {d}" for n, ok, d in checks]
+    head = ("[참고] " if advisory else "") + \
+           (f"{'통과' if all_ok else '탈락'}")
+    note = head + " — " + " / ".join(lines)
+
+    return {
+        "symbol": symbol,
+        "style": style,
+        "passed": None if advisory else all_ok,
+        "advisory": advisory,
+        "skipped": False,
+        "score": score,
+        "debt": debt_info,
+        "op": op_info,
+        "dividend": div_info,
+        "note": note,
+    }
+
+
 def get_financial_summary(symbol: str, industry: str = None) -> Optional[dict]:
     """재무 종합 — 개별 함수들을 한 번에 묶어서 반환.
     industry(표준산업분류) 주면 부채비율을 업종별로 해석.
