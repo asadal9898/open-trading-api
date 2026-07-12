@@ -414,6 +414,161 @@ def get_per(symbol, price=None, init_kis=False, year=None):
     }
 
 
+def _load_op_rules():
+    """config의 op_profit_rules 로드 (영업이익 평가 규칙)."""
+    default = {
+        "check_years": 5,
+        "min_positive_years": 3,
+        "exclude_years": ["2008", "2020"],
+        "grades": [
+            {"min": 25, "label": "호재", "score": 2},
+            {"min": 10, "label": "좋음", "score": 1},
+            {"min": -10, "label": "보통", "score": 0},
+            {"min": -25, "label": "경고", "score": -1},
+            {"min": None, "label": "위험", "score": -2},
+        ],
+    }
+    try:
+        import yaml
+        cfg_path = _REPO_ROOT / "mytrading" / "mytrading_config.yaml"
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        r = cfg.get("op_profit_rules")
+        if r and isinstance(r, dict):
+            return r
+    except Exception:
+        pass
+    return default
+_OP_RULES = _load_op_rules()
+
+
+def get_recent_quarter_growth(symbol, init_kis=False):
+    """최근 분기 영업이익증가율 (YoY — 작년 동기 대비, 계절성 상쇄).
+    KIS finance_financial_ratio(div=1) 의 bsop_prfi_inrt 첫 행.
+    반환: {quarter, op_growth} | None
+    """
+    if init_kis:
+        try:
+            from mytrading.common import init
+            init(require_confirm=False)
+        except Exception:
+            pass
+    try:
+        from finance_financial_ratio import finance_financial_ratio
+    except Exception:
+        return None
+    try:
+        df = finance_financial_ratio(
+            fid_div_cls_code="1",
+            fid_cond_mrkt_div_code="J",
+            fid_input_iscd=symbol,
+        )
+    except Exception:
+        return None
+    if df is None or df.empty:
+        return None
+    r = df.iloc[0]
+    return {
+        "quarter": str(r.get("stac_yymm", "")),
+        "op_growth": _to_float(r.get("bsop_prfi_inrt")),
+    }
+
+
+def _op_grade(growth):
+    """영업이익증가율 → (등급, 점수).
+
+    등급: config grades (대호재/호재/좋음/보통/경고/위험/대악재)
+    점수 (차영석 확정):
+      |증가율| >= score_step(25%) → 계단식: 부호 x (1 + |증가율| // 25)
+        예: +25%→+2, +50%→+3, +100%→+5, +756%→+31
+            -25%→-2, -50%→-3
+      |증가율| <  25% → grades 의 고정 score (좋음 +1 / 보통 0 / 경고 -1)
+    ※ 상한 없음 (차영석 확정). 결합 설계 시 정규화 검토.
+    """
+    if growth is None:
+        return ("판단 불가", None)
+
+    # 등급 (양수 구간은 "이상", 음수 구간은 "이하"로 판정)
+    label = "대악재"
+    fixed = None
+    for g in _OP_RULES.get("grades", []):
+        lim = g.get("min")
+        if lim is None:
+            label = g.get("label", "?")
+            fixed = g.get("score")
+            break
+        hit = (growth >= lim) if lim >= 0 else (growth > lim)
+        if hit:
+            label = g.get("label", "?")
+            fixed = g.get("score")
+            break
+
+    # 점수
+    step = _OP_RULES.get("score_step", 25)
+    if abs(growth) >= step:
+        sign = 1 if growth > 0 else -1
+        score = sign * (1 + int(abs(growth) // step))
+    else:
+        score = fixed if fixed is not None else 0
+
+    return (label, score)
+
+
+def evaluate_operating_profit(symbol, init_kis=False):
+    """영업이익 평가 (재무 2순위). config op_profit_rules 기준.
+
+    1) 흑자 지속성 — 최근 N년 중 M년 이상 흑자 (위기연도 제외)
+    2) 최근 분기 영업이익증가율(YoY) → 등급·점수
+       +25%↑ 호재(+2) / +10%↑ 좋음(+1) / ±10% 보통(0)
+       / -10%↓ 경고(-1) / -25%↓ 위험(-2)
+
+    passed = 흑자 지속성 충족 AND 등급이 "위험" 아님.
+    반환: {symbol, positive_years, checked_years, steady,
+           recent_quarter, op_growth, grade, score, passed, note}
+    """
+    if init_kis:
+        try:
+            from mytrading.common import init
+            init(require_confirm=False)
+        except Exception:
+            pass
+
+    years = _OP_RULES.get("check_years", 5)
+    min_pos = _OP_RULES.get("min_positive_years", 3)
+    excl = _OP_RULES.get("exclude_years", ["2008", "2020"])
+
+    op = get_operating_profit(symbol, years=years, exclude_years=excl)
+    q = get_recent_quarter_growth(symbol)
+
+    pos = op.get("positive_years") if op else None
+    checked = op.get("checked_years") if op else None
+    growth = q.get("op_growth") if q else None
+    quarter = q.get("quarter") if q else None
+    grade, score = _op_grade(growth)
+
+    steady = (pos is not None and pos >= min_pos)
+    passed = bool(steady and grade not in ("위험", "대악재", "판단 불가"))
+
+    if pos is None:
+        note = "영업이익 데이터 없음"
+    else:
+        g = f"{growth:+.1f}%" if growth is not None else "증가율 없음"
+        note = f"흑자 {pos}/{checked}년 · 최근분기({quarter}) {g} → {grade}"
+
+    return {
+        "symbol": symbol,
+        "positive_years": pos,
+        "checked_years": checked,
+        "steady": steady,
+        "recent_quarter": quarter,
+        "op_growth": growth,
+        "grade": grade,
+        "score": score,
+        "passed": passed,
+        "note": note,
+    }
+
+
 def get_financial_summary(symbol: str, industry: str = None) -> Optional[dict]:
     """재무 종합 — 개별 함수들을 한 번에 묶어서 반환.
     industry(표준산업분류) 주면 부채비율을 업종별로 해석.

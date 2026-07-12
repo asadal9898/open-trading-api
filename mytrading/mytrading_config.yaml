@@ -91,6 +91,31 @@ debt_industry_rules:
 # 위 키워드 없으면 기본: { sector: "기타", debt: 100 }
 debt_default: { sector: "기타", debt: 100 }
 
+# 영업이익 평가 규칙 (재무 2순위) — 차영석 확정
+# 1) 흑자 지속성: 최근 check_years 중 min_positive_years 이상 흑자
+#    (위기연도 제외 — 시스템 위기는 회사 잘못 아님)
+# 2) 최근 분기 영업이익증가율(YoY, 작년 동기 대비) → 등급·점수
+#    ※ 점수 스케일 -2~+2 (시작값, 전체 결합 설계 후 조정 예정)
+op_profit_rules:
+  check_years: 5
+  min_positive_years: 3
+  exclude_years: ["2008", "2020"]      # 리먼·코로나
+  # 등급 판정 (위에서부터, min 이상이면 해당 등급)
+  grades:
+    - { min: 50,   label: "대호재" }
+    - { min: 25,   label: "호재" }
+    - { min: 10,   label: "좋음",  score: 1 }    # 고정점수
+    - { min: -10,  label: "보통",  score: 0 }    # 고정점수
+    - { min: -25,  label: "경고",  score: -1 }   # 고정점수
+    - { min: -50,  label: "위험" }
+    - { min: null, label: "대악재" }
+  # 점수 규칙: |증가율| >= step 이면 계단식 (부호 x (1 + |증가율|//step))
+  #            그 미만이면 위 grades 의 고정 score.
+  #  예: +25%→+2, +50%→+3, +756%→+31 / -25%→-2, -50%→-3
+  score_step: 25          # 25%마다 +1
+  # 알림 임계 (텔레그램) — |증가율| 이 이 값 이상이면 알림 (크론 연결 시 사용)
+  notify_threshold: 25
+
 trading:
   symbols: ["005930"]      # 대상 종목 (삼성전자)
   default_qty: 1           # 기본 주문 수량
