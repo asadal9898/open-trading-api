@@ -237,9 +237,17 @@ def add_to_universe(results: list, uni_path: Path = None) -> int:
         div_field = f'dividend: {div_cnt}, ' if div_cnt > 0 else ''
         sector = _stock_sector(code)
         sec_field = f'sector: "{sector}", ' if sector else ''
+        # industry (표준산업분류) — 업종별 부채·PER 규칙에 필요
+        industry = ""
+        try:
+            from mytrading.dart_data import get_industry
+            industry = get_industry(code) or ""
+        except Exception:
+            pass
+        ind_field = f'industry: "{industry}", ' if industry else ''
         line = (f'  - {{ code: "{code}", name: "{name}", style: "value_range", '
                 f'added_by: "AI", confirm: "Waiting", added_date: "{today}", '
-                f'{div_field}{sec_field}note: "{note}" }}\n')
+                f'{div_field}{sec_field}{ind_field}note: "{note}" }}\n')
         to_add.append((code, name, line))
 
     if to_add:

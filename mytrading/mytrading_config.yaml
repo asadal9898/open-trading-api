@@ -90,6 +90,8 @@ debt_industry_rules:
   "증권":  { sector: "금융",   debt: null }
   "여신":  { sector: "금융",   debt: null }
   "금융":  { sector: "금융",   debt: null }   # 기타 금융업
+  "신탁":  { sector: "금융",   debt: null }   # 부동산신탁 등 (한국자산신탁)
+  "투자":  { sector: "금융",   debt: null }   # 투자기관·투자회사
   "선박":  { sector: "산업재", debt: null }   # 조선 — 선수금=부채. 수주 많을수록 부채↑
                                              # → 부채비율로 판단 불가 (은행 예금과 같은 논리)
   "건설":  { sector: "건설",   debt: 150 }    # PF·선수금
@@ -112,6 +114,25 @@ debt_default: { sector: "기타", debt: 100 }
 #                             대신 경제·섹터 전망 + 차트로 판단 (별도 구현 필요).
 #   free_holdings(자유투자) : 평가는 하되 강제 안 함. 알림만 주고 사람이 판단.
 #                             ("자유투자니까 자유를")
+# 차트 평가 규칙 (종목 평가의 '차트' 절반) — 차영석 확정
+# 같은 차트를 스타일별로 정반대로 해석:
+#   momentum    (공격적) — 추세를 따라간다  → 정배열(상승 추세)이 좋음
+#   value_range (배당주) — 소외되어 싸질 때 산다 → 52주 저점 근처가 좋음
+#   accumulate  (ETF)    — 섹터 전망 + 차트 (섹터 전망은 미구현)
+chart_rules:
+  momentum:
+    require_perfect_order: true   # 필수: 정배열 (5일선 > 20일선 > 60일선)
+    score_perfect_order: 2        # 정배열이면 +2
+    score_slope_up: 1             # + 5일선 기울기 상승이면 +1 (총 +3)
+    score_above_ma20: 1           # 정배열 아니어도 20일선 위면 +1 (약한 상승)
+    score_below_ma20: -1          # 20일선 아래면 -1 (하락)
+  value_range:
+    require_buy_zone: true        # 필수: 52주 저점 근처 (value_range_signal = buy)
+    # 저점/고점 zone 은 order_pace 의 buy_zone/sell_zone 설정을 사용
+  accumulate:
+    skip_chart: false             # ETF도 차트는 봄 (섹터 전망은 별도 — 미구현)
+    require_above_ma20: true      # 단순: 20일선 위면 매수 (적립식이라 느슨)
+
 style_rules:
   value_range:
     debt: required             # 업종별 부채 기준 통과 필요
