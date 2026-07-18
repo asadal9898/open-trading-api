@@ -513,6 +513,113 @@ def _op_grade(growth):
     return (label, score)
 
 
+# 국면 판정 임계값 (백테스트 collect_op/build_disclosed 와 동일 — 통일 목적)
+_PHASE_BIG = 25.0        # |YoY| 이 값 이상이면 "큰 변화"
+_PHASE_GROWTH_AVG = 20.0 # 성장 vs 턴어라운드 가르는 5년평균 대비 기준
+_PHASE_QUARTERS = ("Q1", "Q2", "Q3", "Q4")
+
+
+# 국면 → 매수 가능 여부 (실전·백테스트 공유)
+#   침체 = 실적 국면 악화 → 배제
+#   None(판정불가) = 데이터 부족 → 안전 우선으로 배제 (차영석 확정: 모르면 안 산다)
+_PHASE_BLOCK_BUY = {"침체", None}
+
+
+def is_buyable_phase(phase):
+    """국면이 매수 허용인지. 침체·판정불가(None)면 False."""
+    return phase not in _PHASE_BLOCK_BUY
+
+
+def _judge_phase_from_data(hist, rcepts, as_of):
+    """국면 판정 — 순수 로직 (데이터 주입식).
+
+    hist:   {year: {Q1: op억원, Q2: op, ...}}  — 공시 확인된 값만
+    rcepts: {(year, q): date}                  — 각 값의 실제 공시일
+    as_of:  판정 기준일 (date)
+
+    실전(_judge_phase)·백테스트가 공유하는 단일 판정부.
+    데이터 소스(실전=DART, 백테스트=op_history.json)와 무관하게
+    동일한 국면을 산출 → 로직 분기(divergence) 원천 차단.
+
+    반환: {"phase", "yoy", "vs", "quarter", "note"}  (판정 불가 시 phase=None)
+    """
+    # 가장 최근에 공시된 (year, q) = 당분기
+    if not rcepts:
+        return {"phase": None, "yoy": None, "vs": None,
+                "quarter": None, "note": "공시된 분기 실적 없음"}
+    (cyr, cq), _ = max(rcepts.items(), key=lambda kv: kv[1])
+    cur = hist[cyr][cq]
+
+    # 전년 동일분기 → YoY
+    prev = hist.get(cyr - 1, {}).get(cq)
+    if prev is None or prev == 0:
+        return {"phase": None, "yoy": None, "vs": None,
+                "quarter": f"{cyr}{cq}", "note": "전년 동기 없음 → YoY 불가"}
+    yoy = (cur / prev - 1) * 100
+
+    # 지난 5년 동일분기 평균 → vs
+    past = [hist[y][cq] for y in range(cyr - 5, cyr)
+            if y in hist and cq in hist[y]]
+    if len(past) < 2:
+        return {"phase": None, "yoy": yoy, "vs": None,
+                "quarter": f"{cyr}{cq}", "note": "5년평균 표본 부족(<2)"}
+    avg = sum(past) / len(past)
+    vs = (cur / avg - 1) * 100 if avg else 0
+
+    # 5분류 (build_disclosed 와 동일)
+    if abs(yoy) < _PHASE_BIG:
+        phase = "평범"
+    elif yoy >= _PHASE_BIG:
+        phase = "성장" if vs >= _PHASE_GROWTH_AVG else "턴어라운드"
+    else:  # yoy <= -_PHASE_BIG
+        phase = "정점통과" if vs > 0 else "침체"
+
+    note = f"{cyr}{cq}: YoY {yoy:+.1f}% · 5년평균대비 {vs:+.1f}% → {phase}"
+    return {"phase": phase, "yoy": yoy, "vs": vs,
+            "quarter": f"{cyr}{cq}", "note": note}
+
+
+def _judge_phase(symbol, as_of=None):
+    """영업이익 국면 판정 (실전) — DART 로 데이터 수집 후 _judge_phase_from_data 호출.
+
+    관심사 분리: passed(종목 품질) 와 별개로 "지금 살 국면인가"만 판정.
+    매수 로직에서 phase == "침체" 이면 매수 배제.
+
+    as_of: 판정 기준일 (date). None 이면 오늘.
+      rcept(실제 공시일) <= as_of 인 분기만 사용 → 룩어헤드 차단.
+
+    ※ 판정 로직은 _judge_phase_from_data 에 있음 (백테스트와 공유).
+      이 함수는 DART 수집 껍데기.
+    반환: _judge_phase_from_data 와 동일.
+    """
+    from datetime import date
+    from mytrading.dart_data import get_quarterly_op
+
+    if as_of is None:
+        as_of = date.today()
+
+    # 최근 6년치 분기 영업이익 + 공시일 수집
+    #   (5년 동일분기 평균 + 당해 → 최소 6년 필요)
+    hist = {}   # {year: {Q1: op, Q2: op, ...}}, 공시된 것만
+    rcepts = {} # {(year, q): date}
+    for yr in range(as_of.year - 6, as_of.year + 1):
+        try:
+            qd = get_quarterly_op(symbol, yr)
+        except Exception:
+            continue
+        for q in _PHASE_QUARTERS:
+            cell = qd.get(q) or {}
+            op = cell.get("op")
+            rc = cell.get("rcept")
+            # 공시 확인된(rcept<=as_of) 분기만 채택 → 룩어헤드 차단
+            if op is None or rc is None or rc > as_of:
+                continue
+            hist.setdefault(yr, {})[q] = op
+            rcepts[(yr, q)] = rc
+
+    return _judge_phase_from_data(hist, rcepts, as_of)
+
+
 def evaluate_operating_profit(symbol, init_kis=False):
     """영업이익 평가 (재무 2순위). config op_profit_rules 기준.
 
@@ -554,6 +661,14 @@ def evaluate_operating_profit(symbol, init_kis=False):
         g = f"{growth:+.1f}%" if growth is not None else "증가율 없음"
         note = f"흑자 {pos}/{checked}년 · 최근분기({quarter}) {g} → {grade}"
 
+    # 국면 판정 (방식 B: passed 와 분리, 정보로만 반환)
+    #   매수 로직에서 phase == "침체" 이면 매수 배제.
+    try:
+        ph = _judge_phase(symbol)
+    except Exception as e:
+        ph = {"phase": None, "yoy": None, "vs": None,
+              "quarter": None, "note": f"국면 판정 실패: {e}"}
+
     return {
         "symbol": symbol,
         "positive_years": pos,
@@ -565,6 +680,11 @@ def evaluate_operating_profit(symbol, init_kis=False):
         "score": score,
         "passed": passed,
         "note": note,
+        "phase": ph.get("phase"),
+        "phase_yoy": ph.get("yoy"),
+        "phase_vs": ph.get("vs"),
+        "phase_quarter": ph.get("quarter"),
+        "phase_note": ph.get("note"),
     }
 
 

@@ -66,6 +66,8 @@ INDICES = {
     "ust30y":    {"code": "Y0201", "market": "I", "name": "미국채30년"},
     "us_ffr":    {"code": "Y0204", "market": "I", "name": "미국연방기금금리"},
     "jgb10y":    {"code": "Y0207", "market": "I", "name": "일본채10년"},
+    "ktb3y":     {"code": "Y0101", "market": "I", "name": "한국국고채3년"},
+    "ktb10y":    {"code": "Y0102", "market": "I", "name": "한국국고채10년"},
     # ── 원자재 ── 금/원유/옥수수. 다 N(지수)으로 조회됨 (가격, USD)
     "gold":      {"code": "NYGOLD",  "market": "N", "name": "금(COMEX)"},
     "wti":       {"code": "WTIF",    "market": "N", "name": "WTI원유"},

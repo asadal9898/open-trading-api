@@ -120,6 +120,111 @@ def get_eps(code: str, year: int, period: str = "FY", fs: str = "CFS"):
         return None
 
 
+def _find_op_profit(df):
+    """전체재무제표에서 영업이익 추출 (억원 단위).
+    계정명이 보고서마다 다름 → 정확 매칭 우선, 없으면 부분 매칭.
+    반환: float(억원) | None
+    """
+    if df is None or getattr(df, "empty", True):
+        return None
+    op = df[df["account_nm"].str.strip() == "영업이익"]
+    if op.empty:
+        op = df[df["account_nm"].str.contains("영업이익", na=False)]
+    if op.empty:
+        return None
+    v = str(op.iloc[0].get("thstrm_amount", "")).replace(",", "").strip()
+    try:
+        return float(v) / 1e8      # 원 → 억원
+    except Exception:
+        return None
+
+
+# 정기보고서 report_nm 의 (YYYY.MM) → 분기 매핑
+_MONTH_Q = {"03": "Q1", "06": "Q2", "09": "Q3", "12": "FY"}
+
+
+def _disclosure_dates(code, year):
+    """DART list(kind='A') 로 해당 연도 정기보고서의 실제 공시일(rcept_dt) 조회.
+    반환: {"Q1": date, "Q2": date, "Q3": date, "FY": date}  (없으면 키 누락)
+    ※ Q4 실적은 사업보고서(FY)로 처음 공개되므로 Q4 공시일 = FY 공시일.
+    """
+    from datetime import date as _date
+    import re
+    out = {}
+    try:
+        d = _get_dart()
+        df = d.list(code, start=f"{year}-01-01", end=f"{year+1}-06-30", kind="A")
+        if df is None or getattr(df, "empty", True):
+            return out
+        for _, r in df.iterrows():
+            nm = str(r.get("report_nm", ""))
+            if not any(k in nm for k in ("분기보고서", "반기보고서", "사업보고서")):
+                continue
+            m = re.search(r"\((\d{4})\.(\d{2})\)", nm)
+            if not m:
+                continue
+            yr, mm = m.group(1), m.group(2)
+            if yr != str(year):
+                continue
+            q = _MONTH_Q.get(mm)
+            if not q:
+                continue
+            rd = str(r.get("rcept_dt", "")).strip()
+            if len(rd) == 8:
+                out[q] = _date(int(rd[:4]), int(rd[4:6]), int(rd[6:8]))
+    except Exception as e:
+        print(f"[dart] _disclosure_dates({code}, {year}) 실패: {e}")
+    return out
+
+
+def get_quarterly_op(code: str, year: int, fs: str = "CFS", with_dates: bool = True):
+    """DART 분기별 영업이익(억원) + 실제 공시일.
+
+    백테스트(collect_op.py)와 실전이 공유하는 단일 데이터 소스.
+    데이터·룩어헤드 판정을 한 곳에서 관리 → 로직 분기(divergence) 방지.
+
+    ※ Q2 는 반기보고서(11012) 값 = 상반기 '누적'.
+      (collect_op.py 와 동일하게 재현 — 백테스트 검증 로직 유지가 목적.
+       Q2 단독이 아님에 주의. 단독 필요 시 Q2 - Q1 로 별도 계산.)
+    ※ Q4 = FY - (Q1 + Q2 + Q3): collect_op 방식 그대로 유지.
+      (Q2가 반기누적이라 엄밀히는 부정확하나, 백테스트가 쓴 정의를
+       그대로 재현해야 재검증이 의미를 가짐. 국면 판정은 YoY·5년평균
+       '비율' 비교라 이 정의로도 일관성 유지됨.)
+    ※ 공시일(rcept): 그 분기 실적이 시장에 처음 공개된 날.
+      실전 국면 판정 시 "rcept <= 현재일" 인 분기만 사용 → 룩어헤드 차단.
+
+    반환: {
+      "Q1": {"op": 억원|None, "rcept": date|None},
+      "Q2": {...}, "Q3": {...}, "Q4": {...}, "FY": {...},
+      "year": year,
+    }
+    """
+    reprt_map = [("11013", "Q1"), ("11012", "Q2"),
+                 ("11014", "Q3"), ("11011", "FY")]
+    ops = {}
+    d = _get_dart()
+    for reprt, q in reprt_map:
+        try:
+            df = d.finstate_all(code, year, reprt_code=reprt, fs_div=fs)
+            ops[q] = _find_op_profit(df)
+        except Exception:
+            ops[q] = None
+
+    if all(ops.get(k) is not None for k in ("Q1", "Q2", "Q3", "FY")):
+        ops["Q4"] = round(ops["FY"] - (ops["Q1"] + ops["Q2"] + ops["Q3"]), 1)
+    else:
+        ops["Q4"] = None
+
+    dates = _disclosure_dates(code, year) if with_dates else {}
+    fy_date = dates.get("FY")
+
+    out = {"year": year}
+    for q in ("Q1", "Q2", "Q3", "Q4", "FY"):
+        rcept = fy_date if q == "Q4" else dates.get(q)
+        out[q] = {"op": ops.get(q), "rcept": rcept}
+    return out
+
+
 def get_quarterly_eps(code: str, year: int, fs: str = "CFS"):
     """DART 분기별 EPS (단일 분기 값).
     반환: {"Q1":.., "Q2":.., "Q3":.., "FY":.., "year":year}
