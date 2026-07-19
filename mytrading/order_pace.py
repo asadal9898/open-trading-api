@@ -125,6 +125,47 @@ def compute_slice(style: str, regime: str, direction: str) -> float:
 # ──────────────────────────────────────────────────────────
 # value_range: 소외주 52주 가격조건 (저점매수 / 고점매도)
 # ──────────────────────────────────────────────────────────
+# 평단 기준 보유 판단 (백테스트 검증: 익절 +15% / 물타기 -30% 1회 / 손절 -50%)
+VR_TAKE_PROFIT = 15.0
+VR_AVERAGE_DOWN = -30.0
+VR_STOP_LOSS = -50.0
+
+
+def position_action(pnl_percent: float, already_averaged: bool = False) -> dict:
+    """보유 종목의 평단 대비 손익률로 매매 판단.
+
+    검증(5년 백테스트, 승률 92%):
+      +15% 이상  → 익절 (전량)
+      -50% 이하  → 손절 (전량)
+      -30% 이하  → 물타기 1회 (already_averaged 면 보류)
+      그 외      → 보유
+
+    ※ 손절(-50%) 이 물타기(-30%) 보다 우선. 순서 주의.
+    반환: {"action": "sell"/"buy"/"hold", "reason": str, "kind": str}
+    """
+    if pnl_percent is None:
+        return {"action": "hold", "reason": "손익률 없음", "kind": "none"}
+    if pnl_percent >= VR_TAKE_PROFIT:
+        return {"action": "sell",
+                "reason": f"평단 대비 {pnl_percent:+.1f}% (익절 기준 +{VR_TAKE_PROFIT:.0f}%)",
+                "kind": "take_profit"}
+    if pnl_percent <= VR_STOP_LOSS:
+        return {"action": "sell",
+                "reason": f"평단 대비 {pnl_percent:+.1f}% (손절 기준 {VR_STOP_LOSS:.0f}%)",
+                "kind": "stop_loss"}
+    if pnl_percent <= VR_AVERAGE_DOWN:
+        if already_averaged:
+            return {"action": "hold",
+                    "reason": f"평단 대비 {pnl_percent:+.1f}% (물타기 1회 소진)",
+                    "kind": "averaged_done"}
+        return {"action": "buy",
+                "reason": f"평단 대비 {pnl_percent:+.1f}% (물타기 기준 {VR_AVERAGE_DOWN:.0f}%, 1회)",
+                "kind": "average_down"}
+    return {"action": "hold",
+            "reason": f"평단 대비 {pnl_percent:+.1f}% (보유 유지)",
+            "kind": "hold"}
+
+
 def value_range_signal(symbol: str, asof: Optional[date] = None) -> dict:
     """
     소외주(value_range) 의 52주 가격조건 판단.
@@ -154,11 +195,10 @@ def value_range_signal(symbol: str, asof: Optional[date] = None) -> dict:
         return {"action": "buy",
                 "reason": f"52주 최저가 +{r['pct_from_low']:.1f}% (저점 근처, ≤{buy_zone:.0f}%)",
                 "range": r}
-    # 고점 근처? (현재가가 52주 최고가 -sell_zone% 이내, 즉 pct_from_high >= -sell_zone)
-    if r["pct_from_high"] >= -sell_zone:
-        return {"action": "sell",
-                "reason": f"52주 최고가 {r['pct_from_high']:.1f}% (고점 근처, ≥-{sell_zone:.0f}%)",
-                "range": r}
+    # ※ 52주 고점 기준 매도는 제거됨 (2026-07 백테스트 검증).
+    #   검증된 매도 규칙은 '내 평단 대비 +15% 익절' 이며, 52주 고점은 매수가와 무관해
+    #   손실 구간에서도 매도 신호가 날 수 있어 백테스트와 어긋남.
+    #   보유 종목의 매도 판단은 position_action() 사용.
     return {"action": "hold",
             "reason": f"중간 구간 (저점+{r['pct_from_low']:.1f}%, 고점{r['pct_from_high']:.1f}%)",
             "range": r}

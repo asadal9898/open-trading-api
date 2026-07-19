@@ -113,8 +113,12 @@ def get_eps(code: str, year: int, period: str = "FY", fs: str = "CFS"):
         return None
     try:
         d = _get_dart()
-        df = d.finstate_all(code, year, reprt_code=reprt, fs_div=fs)
-        return _find_eps(df)
+        for _fs in (fs, "OFS" if fs == "CFS" else "CFS"):
+            df = d.finstate_all(code, year, reprt_code=reprt, fs_div=_fs)
+            v = _find_eps(df)
+            if v is not None:
+                return v
+        return None
     except Exception as e:
         print(f"[dart] get_eps({code}, {year}, {period}) 실패: {e}")
         return None
@@ -204,11 +208,19 @@ def get_quarterly_op(code: str, year: int, fs: str = "CFS", with_dates: bool = T
     ops = {}
     d = _get_dart()
     for reprt, q in reprt_map:
-        try:
-            df = d.finstate_all(code, year, reprt_code=reprt, fs_div=fs)
-            ops[q] = _find_op_profit(df)
-        except Exception:
-            ops[q] = None
+        # 연결(CFS) 우선, 없으면 개별(OFS) 폴백.
+        #   종속회사가 없는 소규모 기업은 연결재무제표를 작성하지 않아 CFS 가 빈 결과.
+        #   실측: DSR제강·삼일기업공사는 OFS 에만 존재. 둘 다 있으면 CFS 가 그룹 전체 실적.
+        val = None
+        for _fs in (fs, "OFS" if fs == "CFS" else "CFS"):
+            try:
+                df = d.finstate_all(code, year, reprt_code=reprt, fs_div=_fs)
+                val = _find_op_profit(df)
+            except Exception:
+                val = None
+            if val is not None:
+                break
+        ops[q] = val
 
     if all(ops.get(k) is not None for k in ("Q1", "Q2", "Q3", "FY")):
         ops["Q4"] = round(ops["FY"] - (ops["Q1"] + ops["Q2"] + ops["Q3"]), 1)

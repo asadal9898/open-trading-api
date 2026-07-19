@@ -49,13 +49,22 @@ def evaluate_stock(symbol, style="momentum", industry=None,
     fin_skip = bool(fin and fin.get("skipped"))
     advisory = bool(fin and fin.get("advisory"))
 
+    # 국면 게이트 (value_range 전용) — 침체·판정불가면 매수 보류.
+    #   백테스트 검증: "52주 저점+5%(차트) AND 국면OK" 조합이 승률 92%.
+    #   passed(종목 품질) 는 건드리지 않고 buy(매수 판단) 에만 적용 → 관심사 분리.
+    from mytrading.finance_data import is_buyable_phase
+    phase = ((fin or {}).get("op") or {}).get("phase")
+    phase_ok = True
+    if style == "value_range":
+        phase_ok = is_buyable_phase(phase)
+
     # 재무 스킵(ETF) → 차트만으로 판단
     if fin_skip:
         buy = bool(cht_ok)
     elif advisory:
         buy = None                      # 자유투자 — 사람이 판단
     else:
-        buy = bool(fin_ok and cht_ok)   # AND
+        buy = bool(fin_ok and cht_ok and phase_ok)   # AND
 
     fs = fin.get("score") if fin else None
     cs = cht.get("score") if cht else None
@@ -67,7 +76,10 @@ def evaluate_stock(symbol, style="momentum", industry=None,
     c_mark = "O" if cht_ok else "X"
     head = ("[참고]" if advisory else
             ("★매수후보" if buy else "-"))
-    note = (f"{head} 재무 {f_mark} / 차트 {c_mark}"
+    p_mark = ""
+    if style == "value_range" and phase:
+        p_mark = f" / 국면 {phase}" + ("" if phase_ok else " ✗매수보류")
+    note = (f"{head} 재무 {f_mark} / 차트 {c_mark}{p_mark}"
             + (f" (점수 {score:+d})" if score is not None else ""))
 
     return {

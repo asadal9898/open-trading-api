@@ -579,6 +579,12 @@ def _judge_phase_from_data(hist, rcepts, as_of):
             "quarter": f"{cyr}{cq}", "note": note}
 
 
+# 국면 판정 캐시 — (종목, 기준일) 단위. 국면은 분기 공시 때만 바뀌므로 일 단위로 충분.
+#   _judge_phase 는 종목당 DART 30회 호출(6년 x 4보고서 + list) → 캐시 필수.
+_PHASE_CACHE = {}
+_PHASE_CACHE_MAX = 2000
+
+
 def _judge_phase(symbol, as_of=None):
     """영업이익 국면 판정 (실전) — DART 로 데이터 수집 후 _judge_phase_from_data 호출.
 
@@ -597,6 +603,10 @@ def _judge_phase(symbol, as_of=None):
 
     if as_of is None:
         as_of = date.today()
+
+    ckey = (str(symbol), as_of)
+    if ckey in _PHASE_CACHE:
+        return _PHASE_CACHE[ckey]
 
     # 최근 6년치 분기 영업이익 + 공시일 수집
     #   (5년 동일분기 평균 + 당해 → 최소 6년 필요)
@@ -617,7 +627,11 @@ def _judge_phase(symbol, as_of=None):
             hist.setdefault(yr, {})[q] = op
             rcepts[(yr, q)] = rc
 
-    return _judge_phase_from_data(hist, rcepts, as_of)
+    res = _judge_phase_from_data(hist, rcepts, as_of)
+    if len(_PHASE_CACHE) >= _PHASE_CACHE_MAX:
+        _PHASE_CACHE.clear()          # 단순 전체 비움 (날짜 바뀌면 어차피 무효)
+    _PHASE_CACHE[ckey] = res
+    return res
 
 
 def evaluate_operating_profit(symbol, init_kis=False):

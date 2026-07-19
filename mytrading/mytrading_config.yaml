@@ -73,8 +73,8 @@ dividend_filter:
   #   ※ premium 은 보수적으로 — 너무 높이면 통과 종목이 사라짐.
   base_rate_source: kcif        # kcif(자동) | fixed(rate_threshold 사용)
   fallback_rate: 3.5            # KCIF 못 읽을 때 대비 국고채 값
-  kospi:   { premium: 0.5, rate_threshold: 4.0, debt_max: 100.0, min_volume: 30000, top_n: 20 }
-  kosdaq:  { premium: 1.0, rate_threshold: 4.5, debt_max: 80.0,  min_volume: 20000, top_n: 20 }
+  kospi:   { premium: 0.0, rate_threshold: 4.0, debt_max: 100.0, min_volume: 30000, top_n: 20 }
+  kosdaq:  { premium: 0.0, rate_threshold: 4.5, debt_max: 80.0,  min_volume: 20000, top_n: 20 }
 
 # 부채비율 관대 해석 업종 (표준산업분류 키워드)
 # industry에 이 키워드가 포함되면 "부채 높아도 정상"으로 해석
@@ -238,3 +238,26 @@ kis_maintenance_watch:
   label: 경제/한국투자증권       # 확인할 라벨
   subject_keyword: 중단 안내      # 점검 공지 제목 키워드
   img_host: securities.koreainvestment.com  # 점검 이미지가 오는 호스트
+
+# ────────────────────────────────────────────────────────────
+# 매수 금액 산정 (mytrading/position_sizing.py)
+#   예산     = 계좌 총평가금액 × allocations.yaml 의 카테고리 비중(%)
+#   투자가능 = 예산 × (1 - cash_floor%)
+#   슬롯수   = clamp(투자가능 ÷ min_unit, 1, max_slots)   내림
+#   종목당   = 투자가능 ÷ 슬롯수
+#   수량     = 종목당 ÷ 현재가  (1주 단위 내림)
+position_sizing:
+  min_unit: 1000000         # 슬롯당 최소 금액 (100만원)
+  max_slots: 20             # 슬롯 상한 — 이후로는 종목당 금액이 커진다
+  min_slots: 1
+  # 현금 하한 % — 예산 전액을 소진하지 않고 남겨두는 비율.
+  #   ⚠️ 최적화된 값이 아니다. 10~20% 어느 값이든 비슷했고 그 안의 차이는 노이즈였다.
+  #   견고한 결론은 "현금을 0까지 소진하지 않는다" 하나뿐.
+  #   근거: 하한 0%면 하락장에서 자금이 소진돼 물타기·저점매수를 못 함
+  #        (75종목 5년 백테스트 CAGR +5.7% vs 하한 적용 +8~9%)
+  cash_floor: 15
+  min_order_amount: 300000  # 이 금액 미만이면 매수 건너뜀 (수수료 비효율)
+  # 투자가능액이 min_unit 미만일 때:
+  #   true  = 소액이라도 1종목 매수 (현재 설정)
+  #   false = 매수 안 함 (슬롯당 최소금액 보장, 자금 모일 때까지 대기)
+  allow_below_min_unit: true
