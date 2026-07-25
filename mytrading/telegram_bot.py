@@ -931,8 +931,6 @@ def _classify_document(file_name: str):
     # KCIF 카테고리 (내용 키워드 우선)
     if "리스크" in file_name and "워치" in file_name:
         return ("mytrading/reports/kcif/risk_watch", "KCIF 리스크워치")
-    if "원자재" in file_name or "글로벌 리스크" in file_name and "원자재" in file_name:
-        return ("mytrading/reports/kcif/materials", "KCIF 원자재")
     if "국제금융" in file_name or "insight" in fn or "인사이트" in file_name:
         return ("mytrading/reports/kcif/insight", "KCIF INSIGHT")
     # 한국은행 3종 (기존 폴더 재활용)
@@ -942,8 +940,8 @@ def _classify_document(file_name: str):
         return ("mytrading/reports/통화신용정책보고서", "통화신용정책보고서")
     if "경제전망" in file_name:
         return ("mytrading/reports/경제전망보고서", "경제전망보고서")
-    # 나머지
-    return ("mytrading/reports/inbox", "미분류")
+    # 분류 안 되면 저장하지 않음
+    return None
 
 
 def _safe_filename(name: str) -> str:
@@ -962,7 +960,11 @@ def _save_document(user: dict, file_name: str, file_id: str, chat_id: str):
         notify._send_raw(chat_id, "파일명이 비어있어요.")
         return
     safe_name = _safe_filename(file_name)
-    folder, label = _classify_document(safe_name)
+    result = _classify_document(safe_name)
+    if result is None:
+        notify._send_raw(chat_id, f"⏭️ 분류되지 않는 문서라 저장하지 않아요.\n파일: {safe_name}")
+        return
+    folder, label = result
     save_path = f"{folder}/{safe_name}"
     print(f"[bot] {user['name']} → 파일 수신: {safe_name} → {label}")
     ok = notify.download_telegram_file(file_id, save_path)
