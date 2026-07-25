@@ -12,14 +12,20 @@ import pdfplumber
 from ruamel.yaml import YAML
 
 # 헤더 패턴: '6월 7월 9월 10월 12월'
+# IB 표 열 머리글 — 연말·연초에는 해가 넘어가 "'27.1월" 형태가 섞인다
+#   26.6월호: 6월 7월 9월 10월 12월
+#   26.7월호: 7월 9월 10월 12월 '27.1월
+# 캡처 그룹 5개는 그대로 유지한다 (parse_ib_us_rates 가 시점 라벨로 쓴다).
+_MONTH_TOKEN = r"(?:['\u2018\u2019`]?\d{2}\.)?\d{1,2}월"
 _HEADER_PATTERN = re.compile(
-    r"^(\d+월)\s+(\d+월)\s+(\d+월)\s+(\d+월)\s+(\d+월)$",
-    re.MULTILINE,
+    rf"({_MONTH_TOKEN})\s+({_MONTH_TOKEN})\s+({_MONTH_TOKEN})"
+    rf"\s+({_MONTH_TOKEN})\s+({_MONTH_TOKEN})",
+    re.M,
 )
 
 # IB 행 패턴: 'Barclays 3.75 3.75 3.75 3.75 3.75'
 _IB_PATTERN = re.compile(
-    r"^([A-Z][A-Za-z ]+?)\s+(\d\.\d{2})\s+(\d\.\d{2})\s+(\d\.\d{2})\s+(\d\.\d{2})\s+(\d\.\d{2})$",
+    r"([A-Z][A-Za-z ]+?)\s+(\d\.\d{2})\s+(\d\.\d{2})\s+(\d\.\d{2})\s+(\d\.\d{2})\s+(\d\.\d{2})$",
     re.MULTILINE,
 )
 
@@ -30,76 +36,171 @@ _DATE_PATTERN = re.compile(r"`?(\d{2})[.\s]*(\d{1,2})월호")
 def _find_ib_rates_page(pdf) -> int | None:
     """PDF에서 IB 정책금리 표가 있는 페이지 번호 찾기 (0-indexed).
     페이지 6 근처를 우선 확인, 없으면 전체 스캔."""
-    for i in range(min(15, len(pdf.pages))):
+    for i in range(len(pdf.pages)):
         text = pdf.pages[i].extract_text() or ""
         if _HEADER_PATTERN.search(text) and _IB_PATTERN.search(text):
             return i
     return None
 
 
-def parse_ib_us_rates(pdf_path: Path) -> dict | None:
-    """INSIGHT PDF에서 IB 미 정책금리 전망 표 파싱.
+# ── IB 정책금리 표 ──────────────────────────────────────────────
+# 시점 라벨은 호마다 형식이 다르다. 월·분기를 모두 인정한다.
+_IB_TP_TOKEN = (
+    r"(?:"
+    r"(?:['\u2018\u2019`]?\d{2}\.)?\d{1,2}월"      # 7월, ’27.1월
+    r"|(?:['\u2018\u2019`]?\d{2}\.)?\d[Qq]"        # ’25.1Q
+    r"|['\u2018\u2019`]?\d{2}[Qq]\d"               # ’23Q3
+    r")"
+)
+_IB_TP_RE = re.compile(_IB_TP_TOKEN)
+_IB_HEADER_RE = re.compile(
+    r"%s(?:\s+%s){4}" % (_IB_TP_TOKEN, _IB_TP_TOKEN)
+)
 
-    반환 형태:
-      {
-        "source_file": "국제금융+인사이트+`26.6월호.pdf",
-        "table_page": 6,
-        "months": ["6월", "7월", "9월", "10월", "12월"],
-        "forecasts": [
-          {"ib": "Barclays", "rates": [3.75, 3.75, 3.75, 3.75, 3.75]},
-          ...
-        ]
-      }
-    실패 시 None.
+# 값은 3.75 형태, 결측은 '-'
+_IB_VAL = r"(?:-?\d\.\d{2}|-)"
+_IB_ROW_RE = re.compile(
+    r"([A-Za-z][A-Za-z&.\- ]{1,24}?|중간값)\s+"
+    r"(%s(?:\s+%s){4})(?!\s+%s)" % (_IB_VAL, _IB_VAL, _IB_VAL)
+)
+
+# 알려진 IB 이름만 인정 (형식만 맞는 잡음 배제)
+_IB_NAMES = (
+    "barclays", "boa", "bofa", "bank of america", "citi", "deutsche",
+    "goldman", "hsbc", "jpmorgan", "jpm", "morgan stanley",
+    "nomura", "ubs", "bnp", "societe", "credit suisse", "중간값",
+)
+
+
+def _ib_rows(text):
+    """페이지 텍스트에서 [(줄번호, 은행명, 값5개)] 추출.
+
+    pdfplumber 가 2단을 합치므로 값 행 앞뒤에 다른 텍스트가 붙는다.
+    줄 시작·끝을 전제하지 않는다.
+    """
+    out = []
+    for i, line in enumerate(text.splitlines()):
+        for m in _IB_ROW_RE.finditer(line):
+            name = m.group(1).strip()
+            low = name.lower()
+            if not any(low.startswith(n) or n in low for n in _IB_NAMES):
+                continue
+            vals = [None if v == "-" else float(v) for v in m.group(2).split()]
+            out.append((i, name, vals))
+    return out
+
+
+def parse_ib_us_rates(pdf_path: Path) -> dict | None:
+    """INSIGHT PDF에서 '주요 IB 미 정책금리 전망' 표를 파싱한다.
+
+    ⚠️ 시점 라벨은 반드시 **값 행 바로 위**에서 뽑는다. 페이지 안 아무 곳이나
+       찾으면 다른 표의 머리글을 집어 조용히 틀린 라벨이 붙는다.
     """
     try:
         with pdfplumber.open(pdf_path) as pdf:
-            page_idx = _find_ib_rates_page(pdf)
-            if page_idx is None:
+            best = None
+            for idx, page in enumerate(pdf.pages):
+                text = page.extract_text() or ""
+                rows = _ib_rows(text)
+                if len(rows) < 5:
+                    continue
+                if len(rows) >= 8:          # 표준 표(10곳 내외) — 즉시 채택
+                    best = (idx, rows, text)
+                    break
+                if best is None or len(rows) > len(best[1]):
+                    best = (idx, rows, text)
+
+            if best is None:
                 print(f"[insight] IB 표 못 찾음: {pdf_path.name}")
                 return None
-            text = pdf.pages[page_idx].extract_text() or ""
+
+            page_idx, rows, text = best
+            lines = text.splitlines()
+            first_line = rows[0][0]
+
+            months = None
+            for j in range(first_line, max(-1, first_line - 12), -1):
+                m = _IB_HEADER_RE.search(lines[j])
+                if m:
+                    months = _IB_TP_RE.findall(m.group(0))
+                    break
+
+            if not months or len(months) != 5:
+                print(f"[insight] IB 시점 라벨 추출 실패: {pdf_path.name}")
+                return None
     except Exception as e:
         print(f"[insight] PDF 열기 실패: {pdf_path.name} - {e}")
         return None
 
-    # 헤더 (월들)
-    header_match = _HEADER_PATTERN.search(text)
-    if not header_match:
-        return None
-    months = list(header_match.groups())
-
-    # IB 값들
-    forecasts = []
-    for line in text.split("\n"):
-        line = line.strip()
-        m = _IB_PATTERN.match(line)
-        if not m:
-            continue
-        ib_name = m.group(1).strip()
-        rates = [float(x) for x in m.groups()[1:]]
-        forecasts.append({"ib": ib_name, "rates": rates})
-
-    if not forecasts:
-        print(f"[insight] IB 데이터 못 찾음: {pdf_path.name}")
-        return None
-
     return {
         "source_file": pdf_path.name,
-        "table_page": page_idx + 1,  # 1-indexed
+        "table_page": page_idx + 1,
         "months": months,
-        "forecasts": forecasts,
+        "forecasts": [{"ib": n, "rates": v} for _, n, v in rows],
     }
+def _extract_world_timepoints(text: str):
+    """PDF 본문에서 시점 라벨을 뽑는다.
+
+    하드코딩하면 옛 리포트 값에 최신 라벨이 붙어 조용히 틀린 데이터가 된다.
+    표는 신·구판 모두 이 형태다:
+        분기별
+        2026f 2027f            <- 연간
+        '26.2Q '26.3Q ...      <- 분기
+        세계경제 3.1 3.1
+
+    주의: pdfplumber 는 2단을 한 줄로 합치므로 값 행·라벨 앞에 다른 텍스트가
+    붙는다. 줄 시작을 기준으로 삼으면 안 된다.
+
+    반환 순서는 기존 YAML 과 맞춰 분기 4개 + 연간 2개.
+    """
+    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
+    anchor = next((i for i, l in enumerate(lines) if "세계경제" in l), None)
+    if anchor is None:
+        return None
+
+    annuals, quarters = [], []
+    for l in reversed(lines[max(0, anchor - 25):anchor]):
+        if not quarters:
+            q = [x.replace(" ", "") for x in _QUARTER_RE.findall(l)]
+            if len(q) >= 3:
+                quarters = q
+        if not annuals:
+            a = _ANNUAL_RE.findall(l)
+            if len(a) >= 2:
+                annuals = a
+        if quarters and annuals:
+            break
+
+    if not (annuals and quarters):
+        return None
+    return quarters + annuals
 
 
-# 세계 주요국 표 값 행 패턴
-# 예: '미국 2.5 1.9 1.9 2.0 2.2 2.0' (6개 값) 또는 '세계경제 3.1 3.1' (2개 값)
-_WORLD_ROW_PATTERN = re.compile(
-    r"^(세계경제|미국|유로존|중국|일본)\s+((?:-?\d+\.\d+\s+){1,5}-?\d+\.\d+)$",
-    re.MULTILINE,
-)
+def _find_world_page(pdf):
+    """세계 전망표가 있는 페이지 인덱스를 찾는다.
 
-_WORLD_TIMEPOINTS = ["'26.2Q", "'26.3Q", "'26.4Q", "'27.1Q", "2026f", "2027f"]
+    제목 대신 내용으로 찾는다 — 제목 문구는 판마다 다르고, 본문 서술이나
+    그림 캡션에 먼저 등장해 엉뚱한 페이지를 잡는 일이 있었다.
+
+    판별 기준: '세계경제' 값 행이 있고 국가 값 행이 3개 이상인 페이지.
+      (주요지표 표에는 미국·유로존·중국·일본만 있고 세계경제 행이 없다)
+
+    pdfplumber 는 2단을 한 줄로 합치므로 값 행 앞에 다른 텍스트가 붙는다.
+    따라서 줄 시작이 아니라 줄 안 어디서든 찾는다.
+    """
+    best_idx, best_n, best_text = None, 0, None
+    for i, page in enumerate(pdf.pages):
+        text = page.extract_text() or ""
+        found = set()
+        for line in text.splitlines():
+            m = _WORLD_ROW_PATTERN.search(line.strip())
+            if m:
+                found.add(m.group(1))
+        if "세계경제" not in found or len(found) < 3:
+            continue
+        if len(found) > best_n:
+            best_idx, best_n, best_text = i, len(found), text
+    return best_idx, best_text
 
 
 def parse_world_economic_forecast(pdf_path: Path) -> dict | None:
@@ -124,23 +225,21 @@ def parse_world_economic_forecast(pdf_path: Path) -> dict | None:
     """
     try:
         with pdfplumber.open(pdf_path) as pdf:
-            page_idx = None
-            for i in range(len(pdf.pages)):
-                text = pdf.pages[i].extract_text() or ""
-                if "세계 주요국 경제지표 전망" in text:
-                    page_idx = i
-                    break
+            page_idx, text = _find_world_page(pdf)
             if page_idx is None:
                 print(f"[insight] 세계 경제지표 표 못 찾음: {pdf_path.name}")
                 return None
-            text = pdf.pages[page_idx].extract_text() or ""
+            tps = _extract_world_timepoints(text)
+            if not tps:
+                print(f"[insight] 시점 라벨 추출 실패 — 건너뜀: {pdf_path.name}")
+                return None
     except Exception as e:
         print(f"[insight] PDF 열기 실패: {pdf_path.name} - {e}")
         return None
 
     countries = {}
     for line in text.split("\n"):
-        m = _WORLD_ROW_PATTERN.match(line.strip())
+        m = _WORLD_ROW_PATTERN.search(line.strip())
         if not m:
             continue
         country = m.group(1)
@@ -157,7 +256,7 @@ def parse_world_economic_forecast(pdf_path: Path) -> dict | None:
     return {
         "source_file": pdf_path.name,
         "table_page": page_idx + 1,
-        "timepoints": _WORLD_TIMEPOINTS,
+        "timepoints": tps,
         "countries": countries,
     }
 
@@ -166,7 +265,7 @@ def parse_world_economic_forecast(pdf_path: Path) -> dict | None:
 # 예: '한국 1.0 2.8 2.1 2.1 2.6 2.0 6.6 10.8 10.2' (9개 값)
 _ASIA_COUNTRIES = ["한국", "대만", "홍콩", "인도", "인도네시아", "말레이시아", "필리핀", "싱가포르", "태국", "베트남"]
 _ASIA_ROW_PATTERN = re.compile(
-    r"^(한국|대만|홍콩|인도|인도네시아|말레이시아|필리핀|싱가포르|태국|베트남)"
+    r"(한국|대만|홍콩|인도|인도네시아|말레이시아|필리핀|싱가포르|태국|베트남)"
     r"\s+((?:-?\d+\.\d+\s+){8}-?\d+\.\d+)$",
     re.MULTILINE,
 )
@@ -217,7 +316,7 @@ def parse_asia_economic_forecast(pdf_path: Path) -> dict | None:
 
     countries = {}
     for line in text.split("\n"):
-        m = _ASIA_ROW_PATTERN.match(line.strip())
+        m = _ASIA_ROW_PATTERN.search(line.strip())
         if not m:
             continue
         country = m.group(1)
