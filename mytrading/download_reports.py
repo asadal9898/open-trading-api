@@ -44,11 +44,15 @@ REPORTS = {
     },
     "경제전망": {
         "name": "경제전망보고서",
-        "menuNo": "201150",
-        "depth2": "200699",
-        "depth3": "200066",
-        "bbs_id": "P0002359",
+        "menuNo": "201263",          # 목록용
+        "view_menuNo": "201265",     # 상세 페이지용
+        "depth2": "200038",
+        "depth3": "201263",
+        "bbs_id": "B0000502",
         "pdf_style": "fileSrc",
+        "search_kwd": "경제전망",
+        "out_subdir": "bok/eor",     # 저장 폴더 (name 대신)
+        "fname_prefix": "경제전망",  # 파일명 접두 (_개관 제거)
     },
 }
 
@@ -83,9 +87,12 @@ def _fetch_bytes(url: str) -> bytes:
 
 def get_latest(report: dict) -> dict:
     """목록에서 최신 보고서 1건. 반환 {nttId, year, month} 또는 None."""
+    import urllib.parse as _up
+    kwd = report.get("search_kwd")
+    kwd_q = f"&searchKwd={_up.quote(kwd)}" if kwd else ""
     url = (f"{BASE}/listCont.do?pageIndex=1&targetDepth=3"
            f"&menuNo={report['menuNo']}&syncMenuChekKey=1"
-           f"&searchCnd=1&depth2={report['depth2']}&depth3={report['depth3']}")
+           f"&searchCnd=1{kwd_q}&depth2={report['depth2']}&depth3={report['depth3']}")
     html = _fetch(url)
     # 첫 nttId = 최신
     ids = re.findall(r"nttId=([0-9]+)", html)
@@ -93,7 +100,8 @@ def get_latest(report: dict) -> dict:
         return None
     ntt = ids[0]
     # 제목에서 년월 (금융안정보고서(2026년 6월))
-    m = re.search(rf"{report['name']}\(([0-9]+)년\s*([0-9]+)월\)", html)
+    title_kw = report.get("search_kwd") or report["name"]
+    m = re.search(rf"{title_kw}\(([0-9]+)년\s*([0-9]+)월\)", html)
     year = m.group(1) if m else "0000"
     month = m.group(2).zfill(2) if m else "00"
     return {"nttId": ntt, "year": year, "month": month}
@@ -102,7 +110,8 @@ def get_latest(report: dict) -> dict:
 def get_pdf_url(nttId: str, report: dict) -> str:
     """상세 페이지에서 PDF 다운로드 URL. 스타일별 분기 (fileDown/fileSrc). 없으면 None."""
     bbs = report["bbs_id"]
-    url = f"https://www.bok.or.kr/portal/bbs/{bbs}/view.do?nttId={nttId}&menuNo={report['menuNo']}"
+    view_menu = report.get("view_menuNo", report["menuNo"])
+    url = f"https://www.bok.or.kr/portal/bbs/{bbs}/view.do?nttId={nttId}&menuNo={view_menu}"
     html = _fetch(url)
     style = report.get("pdf_style", "fileDown")
     if style == "fileDown":
@@ -111,7 +120,7 @@ def get_pdf_url(nttId: str, report: dict) -> str:
             return None
         return f"https://www.bok.or.kr/portal/cmmn/file/fileDown.do?atchFileId={m.group(1)}&fileSn=1"
     if style == "fileSrc":
-        m = re.search(r'/fileSrc/portal/([a-f0-9]{32})/1/([^"]+?\.pdf)', html)
+        m = re.search(r'/fileSrc/portal/([a-f0-9]{32})/\d+/([^"]+?\.pdf)', html)
         if not m:
             return None
         return f"https://www.bok.or.kr{m.group(0)}"
@@ -125,7 +134,7 @@ def download_one(key: str, report: dict, base_dir: Path) -> str:
     if not latest:
         return f"[{key}] 목록에서 최신 못 찾음"
 
-    out_dir = base_dir / report["name"]
+    out_dir = base_dir / report.get("out_subdir", report["name"])
     out_dir.mkdir(parents=True, exist_ok=True)
     marker = out_dir / ".downloaded"
     done = set()
@@ -140,7 +149,9 @@ def download_one(key: str, report: dict, base_dir: Path) -> str:
     if not pdf_url:
         return f"[{key}] PDF 링크 못 찾음 (nttId={latest['nttId']})"
 
-    fname = f"{report['name']}_{latest['year']}-{latest['month']}_개관.pdf"
+    prefix = report.get("fname_prefix", report["name"])
+    suffix = "" if report.get("fname_prefix") else "_개관"
+    fname = f"{prefix}_{latest['year']}-{latest['month']}{suffix}.pdf"
     fpath = out_dir / fname
     data = _fetch_bytes(pdf_url)
     if not data.startswith(b"%PDF"):

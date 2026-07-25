@@ -939,7 +939,7 @@ def _classify_document(file_name: str):
     if "통화신용정책" in file_name or "통화신용" in file_name:
         return ("mytrading/reports/통화신용정책보고서", "통화신용정책보고서")
     if "경제전망" in file_name:
-        return ("mytrading/reports/경제전망보고서", "경제전망보고서")
+        return ("mytrading/reports/bok/eor", "경제전망보고서")
     # 분류 안 되면 저장하지 않음
     return None
 
