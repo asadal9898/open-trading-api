@@ -68,8 +68,11 @@ def _dec_header(s: str) -> str:
     return out
 
 
-def _body_text(mail) -> str:
-    """메일 본문에서 텍스트 추출 (plain 우선, 없으면 html 태그 제거)."""
+def _body_parts(mail):
+    """메일에서 (본문 텍스트, 링크 목록) 추출.
+
+    plain 파트를 본문으로 쓰되, 링크는 HTML 파트에서 따로 수집한다.
+    """
     plain, html = "", ""
     for part in mail.walk():
         ct = part.get_content_type()
@@ -86,10 +89,31 @@ def _body_text(mail) -> str:
             if payload:
                 html += payload.decode(part.get_content_charset() or "utf-8",
                                        errors="replace")
+    import re as _re
+    import html as _html
+
+    # 링크는 항상 HTML 파트에서 뽑는다 (plain 파트에는 없는 경우가 많다).
+    #   기존 코드는 태그를 통째로 지워 href 가 본문과 함께 사라졌다.
+    links = []
+    if html:
+        for m in _re.finditer(r'href=["\']([^"\']+)["\']', html, _re.I):
+            u = _html.unescape(m.group(1)).strip()
+            if u.lower().startswith(("http://", "https://")) and u not in links:
+                links.append(u)
+
     if plain.strip():
-        return plain
-    import re
-    return re.sub(r"<[^>]+>", " ", html)
+        return _html.unescape(plain), links
+
+    # script/style 안쪽은 내용까지 제거 (CSS 가 본문으로 섞여 들어오는 것 방지)
+    body = _re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html,
+                   flags=_re.I | _re.S)
+    body = _re.sub(r"<[^>]+>", " ", body)
+    return _html.unescape(body), links
+
+
+def _body_text(mail) -> str:
+    """본문 텍스트만 (기존 호출부 호환)."""
+    return _body_parts(mail)[0]
 
 
 def _utf7_decode(s: str) -> str:
@@ -155,11 +179,13 @@ def read_label(label: str, limit: int = 20, since: str = None) -> list:
     for i in reversed(ids):
         typ, msg = M.fetch(i, "(RFC822)")
         mail = email.message_from_bytes(msg[0][1])
+        _bt, _bl = _body_parts(mail)
         out.append({
             "subject": _dec_header(mail.get("Subject", "")),
             "from": _dec_header(mail.get("From", "")),
             "date": mail.get("Date", ""),
-            "body": _body_text(mail),
+            "body": _bt,
+            "links": _bl,
         })
     M.logout()
     return out
