@@ -43,6 +43,8 @@ REPORTS = {
         "depth3": "200067",
         "bbs_id": "B0000156",
         "pdf_style": "fileSrc",
+        "out_subdir": "bok/mcpr",
+        "fname_prefix": "통화신용정책",
     },
     "경제전망": {
         "name": "경제전망보고서",
