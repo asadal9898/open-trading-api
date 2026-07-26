@@ -33,6 +33,8 @@ REPORTS = {
         "depth3": "200068",
         "bbs_id": "P0000593",
         "pdf_style": "fileDown",
+        "out_subdir": "bok/fsr",
+        "fname_prefix": "금융안정",
     },
     "통화신용정책": {
         "name": "통화신용정책보고서",
