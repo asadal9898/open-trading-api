@@ -66,7 +66,7 @@ VALID_REGIMES = ("bull", "bear", "toppish", "sideways")
 
 MAX_BODY_CHARS = 15000     # 프롬프트에 넣을 본문 상한
 MAX_PDF_PAGES = 6          # PDF 앞부분만 (요약이 몰려 있음)
-OUT_PATH = _ROOT / "mytrading" / "reports" / "newsletter_ai.json"
+OUT_PATH = _ROOT / "mytrading" / "reports" / "inbox" / "newsletter_ai.json"
 
 # 따라가면 안 되는 링크.
 #   response.do 는 수신거부·클릭집계 추적 URL 일 수 있어 기본 차단한다.
