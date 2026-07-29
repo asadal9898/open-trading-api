@@ -37,7 +37,7 @@ def _load_chart_rules():
     }
     try:
         import yaml
-        cfg_path = _REPO_ROOT / "mytrading" / "mytrading_config.yaml"
+        cfg_path = _REPO_ROOT / "mytrading" / "configs" / "mytrading_config.yaml"
         with open(cfg_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
         r = cfg.get("chart_rules")

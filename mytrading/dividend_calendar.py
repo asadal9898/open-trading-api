@@ -28,7 +28,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 import yaml
 
-_CAL_PATH = _REPO_ROOT / "mytrading" / "dividend_calendar.yaml"
+_CAL_PATH = _REPO_ROOT / "mytrading" / "configs" / "dividend_calendar.yaml"
 
 
 def _load() -> dict:

@@ -22,8 +22,8 @@ from typing import Dict, List, Optional
 import yaml
 
 _THIS_DIR = Path(__file__).resolve().parent
-ALLOCATIONS_PATH = _THIS_DIR / "allocations.yaml"
-UNIVERSE_PATH = _THIS_DIR / "universe.yaml"
+ALLOCATIONS_PATH = _THIS_DIR / "configs" / "allocations.yaml"
+UNIVERSE_PATH = _THIS_DIR / "configs" / "universe.yaml"
 
 _CATEGORIES = ("aggressive", "moderate", "safe")
 _CAT_LABEL = {"aggressive": "공격", "moderate": "보수", "safe": "안전"}

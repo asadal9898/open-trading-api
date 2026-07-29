@@ -18,7 +18,7 @@ import kis_auth as ka  # backtester/kis_auth.py (editable 설치로 import 가�
 
 # ----- 경로 -----
 _THIS_DIR = Path(__file__).resolve().parent          # .../mytrading
-CONFIG_PATH = _THIS_DIR / "mytrading_config.yaml"
+CONFIG_PATH = _THIS_DIR / "configs" / "mytrading_config.yaml"
 KIS_DEVLP_PATH = Path(os.path.expanduser("~")) / "KIS" / "config" / "kis_devlp.yaml"
 
 # 유효한 모드

@@ -20,7 +20,7 @@ from mytrading import notify
 
 def _load_config() -> dict:
     import yaml
-    p = _REPO_ROOT / "mytrading" / "mytrading_config.yaml"
+    p = _REPO_ROOT / "mytrading" / "configs" / "mytrading_config.yaml"
     cfg = yaml.safe_load(open(p, encoding="utf-8")) or {}
     return cfg.get("newsletter_watch", {}) or {}
 
@@ -84,7 +84,7 @@ def check_kcif() -> bool:
     (마지막 주 일요일에만 실제 체크. 그 외엔 아무것도 안 함.)"""
     import yaml
     cfg_all = yaml.safe_load(open(
-        _REPO_ROOT / "mytrading" / "mytrading_config.yaml", encoding="utf-8")) or {}
+        _REPO_ROOT / "mytrading" / "configs" / "mytrading_config.yaml", encoding="utf-8")) or {}
     cfg = cfg_all.get("kcif_watch", {}) or {}
     if not cfg:
         return False
@@ -165,7 +165,7 @@ def check_kis_maintenance() -> bool:
     import re
     import yaml
     cfg_all = yaml.safe_load(open(
-        _REPO_ROOT / "mytrading" / "mytrading_config.yaml", encoding="utf-8")) or {}
+        _REPO_ROOT / "mytrading" / "configs" / "mytrading_config.yaml", encoding="utf-8")) or {}
     cfg = cfg_all.get("kis_maintenance_watch", {}) or {}
     if not cfg:
         return False

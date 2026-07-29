@@ -41,7 +41,7 @@ def _load_debt_rules():
     }
     try:
         import yaml
-        cfg_path = _REPO_ROOT / "mytrading" / "mytrading_config.yaml"
+        cfg_path = _REPO_ROOT / "mytrading" / "configs" / "mytrading_config.yaml"
         with open(cfg_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
         r = cfg.get("debt_industry_rules")
@@ -429,7 +429,7 @@ def _load_op_rules():
     }
     try:
         import yaml
-        cfg_path = _REPO_ROOT / "mytrading" / "mytrading_config.yaml"
+        cfg_path = _REPO_ROOT / "mytrading" / "configs" / "mytrading_config.yaml"
         with open(cfg_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
         r = cfg.get("op_profit_rules")
@@ -776,7 +776,7 @@ def _load_div_rules():
     }
     try:
         import yaml
-        cfg_path = _REPO_ROOT / "mytrading" / "mytrading_config.yaml"
+        cfg_path = _REPO_ROOT / "mytrading" / "configs" / "mytrading_config.yaml"
         with open(cfg_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
         r = cfg.get("dividend_filter")
@@ -871,7 +871,7 @@ def _load_style_rules():
     }
     try:
         import yaml
-        cfg_path = _REPO_ROOT / "mytrading" / "mytrading_config.yaml"
+        cfg_path = _REPO_ROOT / "mytrading" / "configs" / "mytrading_config.yaml"
         with open(cfg_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
         r = cfg.get("style_rules")

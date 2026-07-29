@@ -181,7 +181,7 @@ def _cmd_status(user: dict) -> str:
     try:
         from pathlib import Path as _P
         _repo = _P(__file__).resolve().parents[1]
-        data = _rt_load(_repo / "mytrading" / "allocations.yaml")
+        data = _rt_load(_repo / "mytrading" / "configs" / "allocations.yaml")
         fh = (data.get("free_holdings") or {}).get(user["key"], {})
         for _acc, lst in fh.items():
             if isinstance(lst, list):
@@ -476,7 +476,7 @@ def _cmd_confirm_add(user: dict) -> str:
     _set_pending("add:" + user["key"], None)
 
     _repo = _P(__file__).resolve().parents[1]
-    alloc_path = _repo / "mytrading" / "allocations.yaml"
+    alloc_path = _repo / "mytrading" / "configs" / "allocations.yaml"
     try:
         data = _rt_load(alloc_path)
     except Exception as e:
@@ -725,7 +725,7 @@ def _save_buy_plan(user: dict, code: str, name: str, plan: dict) -> str:
     import yaml
     from pathlib import Path as _P
     _repo = _P(__file__).resolve().parents[1]
-    alloc_path = _repo / "mytrading" / "allocations.yaml"
+    alloc_path = _repo / "mytrading" / "configs" / "allocations.yaml"
     try:
         data = _rt_load(alloc_path)
     except Exception as e:
@@ -754,7 +754,7 @@ def _save_buy_plan(user: dict, code: str, name: str, plan: dict) -> str:
 def _name_by_code(user: dict, code: str):
     from pathlib import Path as _P
     _repo = _P(__file__).resolve().parents[1]
-    alloc_path = _repo / "mytrading" / "allocations.yaml"
+    alloc_path = _repo / "mytrading" / "configs" / "allocations.yaml"
     try:
         data = _rt_load(alloc_path)
     except Exception:
@@ -772,7 +772,7 @@ def _name_by_code(user: dict, code: str):
 def _delete_holding(user: dict, code: str) -> str:
     from pathlib import Path as _P
     _repo = _P(__file__).resolve().parents[1]
-    alloc_path = _repo / "mytrading" / "allocations.yaml"
+    alloc_path = _repo / "mytrading" / "configs" / "allocations.yaml"
     try:
         data = _rt_load(alloc_path)
     except Exception as e:
