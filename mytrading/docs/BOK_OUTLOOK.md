@@ -30,7 +30,7 @@ KCIF 인사이트(월간)와 달리 경제전망은 분기 발간(연 4회, 2·5
 `download_reports.py`가 한국은행 보도자료 검색에서 경제전망 PDF를 받는다.
 
 ```bash
-uv run python mytrading/download_reports.py 경제전망
+uv run python mytrading/reports/download_reports.py 경제전망
 ```
 
 - 검색: menuNo 201263, 게시판 B0000502, searchKwd=경제전망
@@ -43,8 +43,8 @@ uv run python mytrading/download_reports.py 경제전망
 `rename_eor.py`로 이 형식에 맞춰 통일했다.
 
 ```bash
-uv run python mytrading/rename_eor.py           # 미리보기
-uv run python mytrading/rename_eor.py --apply    # 적용
+uv run python mytrading/reports/rename_eor.py           # 미리보기
+uv run python mytrading/reports/rename_eor.py --apply    # 적용
 ```
 
 ### 2-3. 간이판 주의
@@ -58,11 +58,11 @@ uv run python mytrading/rename_eor.py --apply    # 적용
 ## 3. 파싱
 
 ```bash
-uv run python mytrading/bok_outlook_parser.py                  # 전체 수집
-uv run python mytrading/bok_outlook_parser.py --dry-run         # 저장 없이 확인
-uv run python mytrading/bok_outlook_parser.py --file 2026-05    # 한 호만
-uv run python mytrading/bok_outlook_parser.py --file 2026-05 --debug
-uv run python mytrading/bok_outlook_parser.py --show            # 저장 결과 요약
+uv run python mytrading/reports/bok_outlook_parser.py                  # 전체 수집
+uv run python mytrading/reports/bok_outlook_parser.py --dry-run         # 저장 없이 확인
+uv run python mytrading/reports/bok_outlook_parser.py --file 2026-05    # 한 호만
+uv run python mytrading/reports/bok_outlook_parser.py --file 2026-05 --debug
+uv run python mytrading/reports/bok_outlook_parser.py --show            # 저장 결과 요약
 ```
 
 `bok/eor/*.pdf`를 전부 읽어
@@ -157,7 +157,7 @@ KCIF와 마찬가지로 텍스트 추출은 pdfplumber로 진단한다. 페이�
 ## 7. 관련
 
 - 수집 데이터: `reports/investment_checklist/bok_economic_outlook_history.yaml`
-- 파서: `mytrading/bok_outlook_parser.py`
-- 다운로드: `mytrading/download_reports.py`, `mytrading/rename_eor.py`
+- 파서: `mytrading/reports/bok_outlook_parser.py`
+- 다운로드: `mytrading/reports/download_reports.py`, `mytrading/reports/rename_eor.py`
 - 같은 성격의 월간 신호: KCIF 인사이트 → `KCIF_REPORTS.md`
 - 폴더 전체 안내: `INVESTMENT_CHECKLIST.md`

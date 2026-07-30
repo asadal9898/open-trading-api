@@ -48,14 +48,14 @@ import re
 import sys
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import pdfplumber
 import yaml
 
-from mytrading.kcif_ib_rates import _columns, report_yearmonth
+from mytrading.reports.kcif_ib_rates import _columns, report_yearmonth
 
 PDF_DIR = _ROOT / "mytrading" / "reports" / "kcif" / "insight"
 OUT_PATH = (_ROOT / "mytrading" / "reports" / "investment_checklist"

@@ -195,7 +195,13 @@ AGENTS.md
 *.code-workspace
 
 # 다운로드된 보고서 PDF (download_reports.py 산출물)
-mytrading/reports/
+# reports/ 데이터 생성물만 무시 (파서 .py 코드는 추적)
+mytrading/reports/bok/
+mytrading/reports/credit/
+mytrading/reports/inbox/
+mytrading/reports/kcif/
+mytrading/reports/investment_checklist/
+mytrading/reports/__pycache__/
 
 # OpenDartReader corp_code 캐시 (자동 생성, 날짜별 갱신)
 docs_cache/

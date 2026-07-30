@@ -50,9 +50,9 @@
 전망 수정 방향을 전략 성과와 대조해 "전망 하향이 나쁜 해를 구분하는가"를 본다.
 
 ```bash
-uv run python mytrading/report_trend.py            # 연도별 대조
-uv run python mytrading/kcif_growth.py --show       # KCIF 월별 수정폭
-uv run python mytrading/bok_outlook_parser.py --show # BOK 전망·수정폭
+uv run python mytrading/reports/report_trend.py            # 연도별 대조
+uv run python mytrading/reports/kcif_growth.py --show       # KCIF 월별 수정폭
+uv run python mytrading/reports/bok_outlook_parser.py --show # BOK 전망·수정폭
 ```
 
 ---

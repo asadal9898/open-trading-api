@@ -20,7 +20,7 @@ import yaml
 
 _THIS = Path(__file__).resolve().parent
 _REPO = _THIS.parent
-_CONFIG = _THIS / "mytrading_config.yaml"
+_CONFIG = _THIS.parent / "configs" / "mytrading_config.yaml"
 
 BASE = "https://www.bok.or.kr/portal/singl/newsData"
 
