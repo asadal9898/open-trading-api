@@ -155,7 +155,8 @@ def screen(symbol: str, cfg: dict) -> dict:
         payout_ok = (payout <= payout_max)
 
     # 조건 판정
-    c1 = div_yield >= cfg["rate_threshold"]
+    _ceil = cfg.get("yield_ceiling", 15.0)  # 상한 초과 = 액면분할 미조정 의심
+    c1 = cfg["rate_threshold"] <= div_yield <= _ceil
     c2 = op_ok   # 영업이익 흑자 지속 (위기 제외)
     c3 = (debt is not None) and (debt <= cfg["debt_max"])
     c4 = payout_ok   # 배당성향 정상 (데이터 오류 아님)
