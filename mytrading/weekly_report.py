@@ -157,6 +157,15 @@ def build_fx_section() -> str:
         return ""
 
 
+def build_yield_curve_section() -> str:
+    """장단기 금리차 섹션 (한국+미국). 실패 시 빈 문자열."""
+    try:
+        from mytrading.yield_curve_alert import build_yield_curve_section as _yc
+        return _yc()
+    except Exception:
+        return ""
+
+
 def build_message(brokerage=None, config: dict = None) -> str:
     """주간 알림 전체 메시지 생성."""
     if config is None:
@@ -177,6 +186,10 @@ def build_message(brokerage=None, config: dict = None) -> str:
     if fx:
         parts.append("")
         parts.append(fx)
+    yc = build_yield_curve_section()
+    if yc:
+        parts.append("")
+        parts.append(yc)
     return "\n".join(parts)
 
 # ---------- 사용자별 발송 (2-b 기반) ----------
