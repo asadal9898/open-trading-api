@@ -225,6 +225,15 @@ else
     warn "재로그인 후 'bash setup.sh' 재실행 시 이 단계가 진행됩니다."
 fi
 
+# ----- 6.6 tmux (Claude Code Remote Control 세션 유지용) -----
+if command -v tmux >/dev/null 2>&1; then
+    ok "tmux 이미 설치됨: $(tmux -V)"
+else
+    warn "tmux 미설치 → 설치 진행"
+    sudo apt install -y tmux
+    command -v tmux >/dev/null 2>&1 && ok "tmux 설치 완료: $(tmux -V)" || warn "tmux 설치 실패 — 수동 확인 필요"
+fi
+
 # ----- 7. Claude Code + 플러그인 -----
 if command -v claude >/dev/null 2>&1; then
     ok "Claude Code 이미 설치됨: $(claude --version 2>/dev/null || echo '버전 확인 불가')"
