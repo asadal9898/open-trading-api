@@ -11,6 +11,9 @@ Gmail 라벨의 메일을 읽어 뉴스레터 만료·KCIF 리스크워치 미�
   3. 한국투자증권 점검 공지 (매주) — 점검 이미지 OCR → 점검 일시 추출
 - 설정: `mytrading_config.yaml` (newsletter_watch, kcif_watch, kis_maintenance_watch)
 
+> **참고** — 경제 뉴스레터를 Groq LLM으로 분석하는 `newsletter_ai.py` 는 별개 작업이다.
+> 이 문서(감시·알림)와 무관하며, 매일 09:00 크론으로 돈다. 상세는 `CRON_SCHEDULE.md` 참조.
+
 ## 사전 준비
 
 ### 1. Gmail 앱 비밀번호

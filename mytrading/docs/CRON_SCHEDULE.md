@@ -9,11 +9,15 @@
 |------|------|------|---------|--------|
 | 매시간 (0분) | 매일 | `weekly_report.py --scheduled` | 매시간 깨어나 사용자별 발송 조건 확인 | 조건 맞으면 주간 리포트 텔레그램 발송 |
 | 07:00 | 평일(월~금) | `daily_update.py` | 종목 일봉 + 거시 지수 증분 갱신 | CSV 캐시 최신화 |
+| 09:00 | 매일 | `newsletter_ai.py` | 경제 뉴스레터 Gmail 라벨 AI 분석 (Groq) | 국면·영향도 점수 JSON (참고용) |
 | 09:00 | 주말(토·일) | `index_data.py` | 지수·환율·금리·유가 등 17개 거시지표 수집 | 거시 데이터 CSV (국면 판단용) |
 | 11:00 | 일요일 | `newsletter_check.py` | 뉴스레터 만료·KCIF 미수신·한투 점검 감시 | 감지 시 텔레그램 알림 |
 | 14:00 | 주말(토·일) | `scan_dividend.py --market kospi` | 코스피 전체 배당주 스캔 | universe.yaml에 후보 추가 + 알림 |
 | 15:00 | 주말(토·일) | `scan_dividend.py --market kosdaq` | 코스닥 전체 배당주 스캔 | universe.yaml에 후보 추가 + 알림 |
 | 05:00 | 매월 1일 | `dividend_calendar.py --update-universe` | 배당락일 캘린더 연간 갱신 | dividend_calendar.yaml |
+
+> **이름 주의** — `newsletter_check.py`(감시·알림)와 `newsletter_ai.py`(AI 분석)는
+> 이름만 비슷할 뿐 역할이 완전히 다르다. 아래 상세 참조.
 
 ## 작업별 상세
 
@@ -22,6 +26,10 @@
 
 **daily_update.py** — 일간 데이터 갱신 (평일 07:00)
 universe 종목 전체의 일봉 + 거시 지수(코스피·S&P500·나스닥)를 증분 갱신. 전일까지 데이터를 최신 유지. 한·미 둘 다 휴장이면 조용히 종료. 증분이라 가벼움. 로그: `~/KIS/cache/daily_update.log`
+
+**newsletter_ai.py** — 경제 뉴스레터 AI 분석 (매일 09:00)
+
+Gmail의 경제 라벨(국제금융·한국은행 등) 메일을 읽어 Groq LLM(기본 llama-3.3-70b)으로 분석. daily/weekly/brief 뉴스레터별 국면(bull/bear/sideways)·영향도 점수·핵심 포인트를 뽑는다. **참고용** — `slice_pct`는 실제 주문 실행에 연결돼 있지 않음. 출력: `mytrading/reports/inbox/newsletter_ai.json`. 로그: `~/KIS/cache/newsletter_ai.log`. 수동 실행: `uv run --with pypdf --with beautifulsoup4 python mytrading/newsletter_ai.py`
 
 **index_data.py** — 거시 데이터 수집 (주말 09:00)
 시장 국면 판단(market_regime) 참고용. KIS API로 17개 거시지표를 수집. 인자 없이 실행하면(크론) 전체를 받음.
