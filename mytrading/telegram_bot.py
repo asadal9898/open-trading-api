@@ -108,6 +108,7 @@ def handle_command(user: dict, text: str) -> str:
     # 한글 명령 -> 영어 매핑
     _KO = {
         "/추가": "/add", "/목록": "/list", "/승인": "/approve",
+        "/매수": "/buy", "/분할매수": "/splitbuy", "/매도": "/sell",
         "/재부팅": "/reboot", "/도움": "/help", "/시작": "/start",
         "/상태": "/status",
     }
@@ -121,6 +122,9 @@ def handle_command(user: dict, text: str) -> str:
         return ("자유투자 봇 (한글 명령도 됨)\n"
                 "/add(/추가) 종목명 - 종목 추가\n"
                 "/approve(/승인) 종목명 - 매수 승인\n"
+                "/buy(/매수) 종목명 - 승인 종목 일시매수\n"
+                "/splitbuy(/분할매수) 종목명 - 승인 종목 분할매수\n"
+                "/sell(/매도) 종목명 - 보유 종목 매도\n"
                 "/list(/목록) - 내 종목\n"
                 "/status(/상태) - 모드·계좌·예산\n"
                 "/reboot(/재부팅) - 재부팅 (owner)")
@@ -135,6 +139,15 @@ def handle_command(user: dict, text: str) -> str:
         if not args:
             return "사용법: /승인 종목명  (예: /승인 카카오)"
         return _cmd_approve(user, " ".join(args))
+    if cmd == "/buy":
+        if not args: return "종목명을 입력하세요. 예: /매수 삼성전자"
+        return _cmd_buy(user, " ".join(args))
+    if cmd == "/splitbuy":
+        if not args: return "종목명을 입력하세요. 예: /분할매수 삼성전자"
+        return _cmd_splitbuy(user, " ".join(args))
+    if cmd == "/sell":
+        if not args: return "종목명을 입력하세요. 예: /매도 삼성전자"
+        return _cmd_sell(user, " ".join(args))
     if _get_pending("approve:" + user["key"]):
         return _approve_parse(user, text.strip())
     if text.strip() in ("예", "yes", "y", "네"):
@@ -518,11 +531,145 @@ def _cmd_confirm_add(user: dict) -> str:
             f"매수하려면 아래 버튼을 누르세요.\x00ADDDONE:{code}:{name}")
 
 
-def _cmd_approve(user: dict, query: str) -> str:
-    """종목명 -> free_holdings에서 찾기 -> 매수방식 입력 안내."""
-    # 새 흐름 시작 - 이전 미완료 대기 모두 정리 (add/approve 흐름 섞임 방지)
+
+def _resolve_free_symbol(user: dict, query: str):
+    """종목명/코드 → (code, name, confirm). confirm: None(미등록)/Waiting/Approval/기타.
+    code=None 이면 종목 자체를 못 찾음."""
+    import sys as _sys
+    from pathlib import Path as _P
+    fdir = _P(__file__).resolve().parents[1] / "mytrading"
+    if str(fdir) not in _sys.path:
+        _sys.path.insert(0, str(fdir))
+    from find_stock_code import find_by_name
+    q = query.strip()
+    if q.isdigit():
+        code, name = q, q
+    else:
+        matches = find_by_name(q)
+        if not matches:
+            return (None, q, None)
+        code, name, _m = matches[0]
+    from mytrading.portfolio import load_portfolio
+    pf = load_portfolio()
+    for _acc, al in (pf.allocations.get(user["key"], {}) or {}).items():
+        for sym in al.free_symbols:
+            if str(sym.get("code")) == str(code):
+                return (str(code), sym.get("name", name), sym.get("confirm", "Waiting"))
+    return (str(code), name, None)
+
+
+def _approval_gate(user: dict, query: str):
+    """매수 승인 관문. 통과 못하면 안내 str, 통과하면 (code, name)."""
+    code, name, status = _resolve_free_symbol(user, query)
+    if code is None:
+        return f"'{name}' 종목을 못 찾았어요."
+    if status is None:
+        return f"❗ {name}({code}) 은 자유 종목에 없어요.\n먼저 /추가 {name} 하세요."
+    if status == "Waiting":
+        return (f"❗ {name}({code}) 은 아직 승인되지 않았어요.\n"
+                f"먼저 /승인 {name} 으로 매수 승인을 해주세요.")
+    if status != "Approval":
+        return (f"❗ {name}({code}) 상태가 '{status}' 라 매수할 수 없어요.\n"
+                f"/목록 으로 상태를 확인하세요.")
+    return (code, name)
+
+
+def _build_buy_ui(user: dict, code: str, name: str, kind: str) -> str:
+    """매수 UI 화면 (일시/분할 공용). kind='buy'(일시)/'split'(분할)."""
+    budget, acc_name, free_pct = _free_budget(user)
+    price = _price_now(code)
+    if budget <= 0 or price <= 0:
+        return f"{name}({code}) 예산/현재가 조회 실패. 잠시 후 다시 시도하세요."
+    full = int(budget // price)
+    half = full // 2
+    _set_pending("pbuy_ctx:" + user["key"],
+                 [{"code": str(code), "name": name, "half": half,
+                   "full": full, "price": int(price), "sel": 0, "kind": kind}])
+    _mode_txt = "모의 투자" if _is_paper() else "실전 투자"
+    _kind_txt = "일시매수" if kind == "buy" else "분할매수"
+    header = (f"✅ {name}({code}) {_mode_txt} — {_kind_txt}\n"
+              f"💼 자유 투자 예산: {budget:,.0f}원 ({acc_name} free {free_pct:.0f}%)\n"
+              f"📈 현재가: {price:,.0f}원\n")
+    if full < 1:
+        header += f"📊 예산으로 1주도 부족해요.\x00BUYUI:{code}:0:0:{int(price)}:{kind}"
+        return header
+    header += (f"📊 최대 매수: {full}주 ({full*int(price):,}원)"
+               f"\x00BUYUI:{code}:{half}:{full}:{int(price)}:{kind}")
+    return header
+
+
+def _held_qty(code: str) -> int:
+    """현재 계좌에서 code 종목 보유 수량 (없으면 0)."""
+    try:
+        from mytrading.common import get_brokerage
+        from mytrading.account_snapshot import get_snapshot
+        snap = get_snapshot(get_brokerage())
+        return int(snap.quantity_of(str(code)) or 0)
+    except Exception as e:
+        print(f"[bot] _held_qty({code}) 실패: {e}")
+        return 0
+
+
+def _build_sell_ui(user: dict, code: str, name: str) -> str:
+    """매도 UI. 최대 수량 = 보유 수량. 승인 체크 없음."""
+    price = _price_now(code)
+    held = _held_qty(code)
+    if price <= 0:
+        return f"{name}({code}) 현재가 조회 실패. 잠시 후 다시 시도하세요."
+    if held < 1:
+        return (f"\u2757 {name}({code}) 은 보유 중이 아니에요 (매도할 수량 없음).\n"
+                f"/상태 로 보유 종목을 확인하세요.")
+    full = held
+    half = full // 2
+    _set_pending("pbuy_ctx:" + user["key"],
+                 [{"code": str(code), "name": name, "half": half,
+                   "full": full, "price": int(price), "sel": 0, "kind": "sell"}])
+    _mode_txt = "모의 투자" if _is_paper() else "실전 투자"
+    header = (f"\U0001f4b0 {name}({code}) {_mode_txt} \u2014 매도\n"
+              f"\U0001f4e6 보유 수량: {held}주\n"
+              f"\U0001f4c8 현재가: {price:,.0f}원 (평가 {held*int(price):,}원)\n"
+              f"\U0001f4ca 매도할 수량을 정하세요."
+              f"\x00BUYUI:{code}:{half}:{full}:{int(price)}:sell")
+    return header
+
+
+def _cmd_sell(user: dict, query: str) -> str:
+    """/매도 — 자유 종목 중 보유분. 승인 체크 없음."""
     for _k in ("approve:", "approve_plan:", "add:", ""):
         _set_pending(_k + user["key"], None)
+    code, name, status = _resolve_free_symbol(user, query)
+    if code is None:
+        return f"'{name}' 종목을 못 찾았어요."
+    if status is None:
+        return f"\u2757 {name}({code}) 은 자유 종목에 없어요."
+    return _build_sell_ui(user, code, name)
+
+
+def _cmd_buy(user: dict, query: str) -> str:
+    """/매수 — 승인된 종목만. 일시매수 UI (분할 없이)."""
+    for _k in ("approve:", "approve_plan:", "add:", ""):
+        _set_pending(_k + user["key"], None)
+    gate = _approval_gate(user, query)
+    if isinstance(gate, str):
+        return gate
+    code, name = gate
+    return _build_buy_ui(user, code, name, kind="buy")
+
+
+def _cmd_splitbuy(user: dict, query: str) -> str:
+    """/분할매수 — 승인된 종목만. 분할매수 UI."""
+    for _k in ("approve:", "approve_plan:", "add:", ""):
+        _set_pending(_k + user["key"], None)
+    gate = _approval_gate(user, query)
+    if isinstance(gate, str):
+        return gate
+    code, name = gate
+    return _build_buy_ui(user, code, name, kind="split")
+
+
+def _cmd_approve(user: dict, query: str) -> str:
+    """종목명 -> free_holdings에서 confirm을 Approval 로 변경 (승인만).
+    매수 방식은 /매수 또는 /분할매수 로 별도 지정."""
     import sys as _sys
     from pathlib import Path as _P
     _repo = _P(__file__).resolve().parents[1]
@@ -533,60 +680,38 @@ def _cmd_approve(user: dict, query: str) -> str:
 
     # 이름 -> 코드
     if query.strip().isdigit():
-        code = query.strip()
-        name = query.strip()
+        code, name = query.strip(), query.strip()
     else:
         matches = find_by_name(query)
         if not matches:
             return f"'{query}' 종목을 못 찾았어요."
         code, name, _m = matches[0]
 
-    # free_holdings에 있는지 확인
-    from mytrading.portfolio import load_portfolio
-    pf = load_portfolio()
-    found = False
-    for _acc, al in (pf.allocations.get(user["key"], {}) or {}).items():
-        for sym in al.free_symbols:
-            if str(sym.get("code")) == str(code):
-                found = True
-                name = sym.get("name", name)
-    if not found:
-        return f"{name}은 자유 종목에 없어요. 먼저 /추가 하세요."
-
-    # approve 대기 저장
-    _set_pending("approve:" + user["key"], [[str(code), name]])
-
-    # 예산·현재가 조회 → 수량 버튼. 실패 시 텍스트 폴백.
-    budget, acc_name, free_pct = _free_budget(user)
-    price = _price_now(code)
-    _text_fallback = (f"{name}({code}) 매수 방식을 입력하세요 (수량):\n"
-                      f"  · 일시 10주\n"
-                      f"  · 분할 주1회 1주\n"
-                      f"  · 분할 매일 1주\n"
-                      f"  · 일시 5주 + 분할 주1회 1주  (동시)")
-    if budget <= 0 or price <= 0:
-        return _text_fallback
-
-    full = int(budget // price)          # 전액 매수 가능 주수
-    half = full // 2                     # 반
-
-    # 매수 UI 컨텍스트 저장 (스테퍼 콜백이 읽음)
-    _set_pending("pbuy_ctx:" + user["key"],
-                 [{"code": str(code), "name": name, "half": half,
-                   "full": full, "price": int(price), "sel": 0}])
-
-    _mode_txt = "모의 투자" if _is_paper() else "실전 투자"
-    header = (f"✅ {name}({code}) {_mode_txt}\n"
-              f"💼 자유 투자 예산: {budget:,.0f}원 ({acc_name} free {free_pct:.0f}%)\n"
-              f"📈 현재가: {price:,.0f}원\n")
-    if full < 1:
-        header += (f"📊 예산으로 1주도 부족해요.\n"
-                   f"그래도 등록만 하려면 [취소 (등록만)]을 누르세요."
-                   f"\x00BUYUI:{code}:0:0:{int(price)}")
-        return header
-    header += (f"📊 최대 매수: {full}주 ({full*int(price):,}원)"
-               f"\x00BUYUI:{code}:{half}:{full}:{int(price)}")
-    return header
+    # allocations.yaml 에서 confirm 을 Approval 로 변경
+    import yaml
+    alloc_path = _repo / "mytrading" / "configs" / "allocations.yaml"
+    try:
+        data = _rt_load(alloc_path)
+    except Exception as e:
+        return f"승인 실패(로드): {e}"
+    fh = (data.get("free_holdings") or {}).get(user["key"], {})
+    updated, cur_name = False, name
+    for _acc, lst in fh.items():
+        if not isinstance(lst, list):
+            continue
+        for it in lst:
+            if isinstance(it, dict) and str(it.get("code")) == str(code):
+                it["confirm"] = "Approval"
+                cur_name = it.get("name", name)
+                updated = True
+    if not updated:
+        return f"{name}({code}) 은 자유 종목에 없어요. 먼저 /추가 하세요."
+    try:
+        _rt_dump(data, alloc_path)
+    except Exception as e:
+        return f"승인 실패(쓰기): {e}"
+    return (f"✅ {cur_name}({code}) 매수 승인 완료 (Approval)\n"
+            f"이제 /매수 {cur_name} 또는 /분할매수 {cur_name} 로 매수할 수 있어요.")
 
 
 def _is_paper() -> bool:
@@ -720,6 +845,34 @@ def _approve_parse(user: dict, text: str) -> str:
             "\n맞나요?  예 / 아니요\x00YESNO")
 
 
+def _save_sell_plan(user: dict, code: str, name: str, qty: int) -> str:
+    """매도 요청 기록 — free_holdings 에 sell_qty + confirm: SellRequested."""
+    from pathlib import Path as _P
+    _repo = _P(__file__).resolve().parents[1]
+    alloc_path = _repo / "mytrading" / "configs" / "allocations.yaml"
+    try:
+        data = _rt_load(alloc_path)
+    except Exception as e:
+        return f"매도 기록 실패(로드): {e}"
+    fh = (data.get("free_holdings") or {}).get(user["key"], {})
+    updated = False
+    for _acc, lst in fh.items():
+        if not isinstance(lst, list):
+            continue
+        for it in lst:
+            if isinstance(it, dict) and str(it.get("code")) == str(code):
+                it["sell_qty"] = int(qty)
+                it["confirm"] = "SellRequested"
+                updated = True
+    if not updated:
+        return f"{name} 종목을 못 찾았어요."
+    try:
+        _rt_dump(data, alloc_path)
+    except Exception as e:
+        return f"매도 기록 실패(쓰기): {e}"
+    return f"\u2705 {name}({code}) 매도 {qty}주 기록 (다음 매매 시점 반영)."
+
+
 def _save_buy_plan(user: dict, code: str, name: str, plan: dict) -> str:
     """buy_plan 저장 + confirm: Approval. allocations.yaml."""
     import yaml
@@ -804,7 +957,7 @@ _YESNO_KEYBOARD = {"inline_keyboard": [[
     {"text": "❌ 아니요", "callback_data": "no"},
 ]]}
 
-def _stepper_keyboard(code, cur, full, price, half=0):
+def _stepper_keyboard(code, cur, full, price, half=0, kind=None):
     """수량 스테퍼 키보드 (전환 없이 단독 사용).
     cur=현재수량(0 허용=매수안함), full=상한(전액), half=반."""
     cur = max(0, int(cur or 0))
@@ -837,10 +990,26 @@ def _stepper_keyboard(code, cur, full, price, half=0):
         preset.append({"text": f"전액 {full}주", "callback_data": f"pset:{code}:{full}"})
     if preset:
         rows.append(preset)
-    rows.append([
-        {"text": "\u2705 매수 (분할매수 설정)", "callback_data": f"pbuy_go:{code}"},
-        {"text": "\u274c 취소 (등록만)", "callback_data": f"pbuy_cancel:{code}"},
-    ])
+    if kind == "sell":
+        rows.append([
+            {"text": "\U0001f4b0 매도", "callback_data": f"sell_go:{code}"},
+            {"text": "\u274c 취소", "callback_data": f"sell_cancel:{code}"},
+        ])
+    elif kind == "buy":
+        rows.append([
+            {"text": "\u2705 매수", "callback_data": f"pbuy_go:{code}"},
+            {"text": "\u274c 취소", "callback_data": f"buynow_cancel:{code}"},
+        ])
+    elif kind == "split":
+        rows.append([
+            {"text": "\u2705 분할매수 설정", "callback_data": f"pbuy_go:{code}"},
+            {"text": "\u274c 취소", "callback_data": f"buynow_cancel:{code}"},
+        ])
+    else:
+        rows.append([
+            {"text": "\u2705 매수 (분할매수 설정)", "callback_data": f"pbuy_go:{code}"},
+            {"text": "\u274c 취소 (등록만)", "callback_data": f"pbuy_cancel:{code}"},
+        ])
     return {"inline_keyboard": rows}
 
 def _split_keyboard(code, qty, onetime, every="daily"):
@@ -897,7 +1066,8 @@ def _split_marker(reply: str):
         half = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
         full = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
         price = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
-        kb = _stepper_keyboard(code, 0, full, price, half=half)
+        kind = parts[4] if len(parts) > 4 and parts[4] in ("buy", "split") else None
+        kb = _stepper_keyboard(code, 0, full, price, half=half, kind=kind)
         return head, kb
     if "\x00YESNO" in reply:
         return reply.replace("\x00YESNO", ""), _YESNO_KEYBOARD
@@ -1017,7 +1187,7 @@ def poll_once():
                     ctx["sel"] = cur
                     _set_pending("pbuy_ctx:" + user["key"], [ctx])
                     mid = cb_msg.get("message_id")
-                    kb = _stepper_keyboard(ctx["code"], cur, ctx["full"], ctx["price"])
+                    kb = _stepper_keyboard(ctx["code"], cur, ctx["full"], ctx["price"], kind=ctx.get("kind"))
                     if mid:
                         _edit_markup(chat_id, mid, kb)
                     print(f"[bot] {user['name']} [스테퍼] {cur}주")
@@ -1035,7 +1205,8 @@ def poll_once():
                     _set_pending("pbuy_ctx:" + user["key"], [ctx])
                     mid = cb_msg.get("message_id")
                     kb = _stepper_keyboard(ctx["code"], val, ctx["full"],
-                                           ctx["price"], half=ctx.get("half", 0))
+                                           ctx["price"], half=ctx.get("half", 0),
+                                           kind=ctx.get("kind"))
                     if mid:
                         _edit_markup(chat_id, mid, kb)
                     print(f"[bot] {user['name']} [프리셋] {val}주")
@@ -1049,6 +1220,20 @@ def poll_once():
                         continue
                     ctx = ctxp[0]
                     sel = max(0, int(ctx.get("sel", 0) or 0))
+                    # /매수(일시) 모드: 분할 UI 안 가고 바로 저장
+                    if ctx.get("kind") == "buy":
+                        if sel < 1:
+                            notify._send_raw(chat_id,
+                                f"⚠️ {ctx['name']}: 매수 수량이 0주예요. +버튼으로 수량을 정하세요.")
+                            continue
+                        plan = {"onetime": sel}
+                        result = _save_buy_plan(user, ctx["code"], ctx["name"], plan)
+                        _set_pending("pbuy_ctx:" + user["key"], None)
+                        print(f"[bot] {user['name']} [/매수] {ctx['name']} 일시 {sel}주")
+                        notify._send_raw(chat_id,
+                            f"✅ (모의) {ctx['name']}({ctx['code']}) 일시매수 {sel}주 저장\n"
+                            f"  ({sel*ctx['price']:,}원)\n" + result)
+                        continue
                     amt = sel * ctx["price"]
                     if sel >= 1:
                         print(f"[bot] {user['name']} [버튼] 일시매수 확정: {ctx['name']} {sel}주")
@@ -1153,6 +1338,34 @@ def poll_once():
                     notify._send_raw(chat_id,
                         f"✅ (모의) {ctx['name']} 일시매수 {plan['onetime']}주만 저장 "
                         f"(분할 안 함)\n" + result)
+                    continue
+                if data.startswith("sell_go:"):
+                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
+                    if not ctxp:
+                        notify._send_raw(chat_id, "매도 대기가 만료됐어요. 다시 /매도 하세요.")
+                        continue
+                    ctx = ctxp[0]
+                    sel = max(0, int(ctx.get("sel", 0) or 0))
+                    if sel < 1:
+                        notify._send_raw(chat_id,
+                            f"\u26a0\ufe0f {ctx['name']}: 매도 수량이 0주예요. +버튼으로 수량을 정하세요.")
+                        continue
+                    result = _save_sell_plan(user, ctx["code"], ctx["name"], sel)
+                    _set_pending("pbuy_ctx:" + user["key"], None)
+                    print(f"[bot] {user['name']} [/매도] {ctx['name']} {sel}주")
+                    notify._send_raw(chat_id,
+                        f"\U0001f4b0 (모의) {ctx['name']}({ctx['code']}) 매도 {sel}주 요청\n"
+                        f"  ({sel*ctx['price']:,}원)\n" + result)
+                    continue
+                if data.startswith("sell_cancel:"):
+                    _set_pending("pbuy_ctx:" + user["key"], None)
+                    print(f"[bot] {user['name']} [/매도 취소] 변경 없음")
+                    notify._send_raw(chat_id, "매도를 취소했어요 (변경 없음).")
+                    continue
+                if data.startswith("buynow_cancel:"):
+                    _set_pending("pbuy_ctx:" + user["key"], None)
+                    print(f"[bot] {user['name']} [/매수·분할 취소] 변경 없음")
+                    notify._send_raw(chat_id, "취소했어요 (등록·변경 없음).")
                     continue
                 if data.startswith("pbuy_cancel:"):
                     reply = _cmd_confirm_add(user)
