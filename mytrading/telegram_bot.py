@@ -110,7 +110,7 @@ def handle_command(user: dict, text: str) -> str:
         "/추가": "/add", "/목록": "/list", "/승인": "/approve",
         "/매수": "/buy", "/분할매수": "/splitbuy", "/매도": "/sell",
         "/재부팅": "/reboot", "/도움": "/help", "/시작": "/start",
-        "/상태": "/status",
+        "/상태": "/status", "/계좌": "/account",
     }
     cmd = _KO.get(cmd, cmd)
 
@@ -126,7 +126,7 @@ def handle_command(user: dict, text: str) -> str:
                 "/splitbuy(/분할매수) 종목명 - 승인 종목 분할매수\n"
                 "/sell(/매도) 종목명 - 보유 종목 매도\n"
                 "/list(/목록) - 내 종목\n"
-                "/status(/상태) - 모드·계좌·예산\n"
+                "/status(/상태) - 모드·계좌·등록종목\n"                "/account(/계좌) - 계좌 상세(예산·보유종목)\n"
                 "/reboot(/재부팅) - 재부팅 (owner)")
     if cmd == "/add":
         if not args:
@@ -159,16 +159,15 @@ def handle_command(user: dict, text: str) -> str:
         return _cmd_list(user)
     if cmd == "/status":
         return _cmd_status(user)
+    if cmd == "/account":
+        return _cmd_account(user)
     return f"모르는 명령: {cmd}"
 
 
 def _cmd_status(user: dict) -> str:
-    """현재 모드·계좌·자유예산·종목수 조회 (전환 없음, 안전)."""
-    # 모드
+    """간단 상태 — 모드·계좌·총평가금액·비중별 등록종목 개수. (자세히는 /계좌)"""
     paper = _is_paper()
     mode_line = "✅ 모의투자 (vps)" if paper else "🚨 실전투자 (prod)"
-
-    # 계좌·평가금액
     acct_line = "계좌: (조회 실패)"
     equity_line = ""
     try:
@@ -176,21 +175,14 @@ def _cmd_status(user: dict) -> str:
         from mytrading.account_snapshot import get_snapshot
         snap = get_snapshot(get_brokerage())
         equity_line = f"총평가금액: {snap.total_equity:,.0f}원\n"
-        equity_line += f"주문가능현금: {snap.available_cash:,.0f}원\n"
-        equity_line += f"보유종목: {len(snap.holdings)}개\n"
     except Exception as e:
         equity_line = f"평가금액 조회 실패: {e}\n"
-
-    # 자유예산
-    budget, acc_name, free_pct = _free_budget(user)
-    if budget > 0:
+    # 계좌명
+    _, acc_name, _ = _free_budget(user)
+    if acc_name:
         acct_line = f"계좌: {acc_name}"
-        budget_line = f"자유예산: {budget:,.0f}원 (free {free_pct:.0f}%)\n"
-    else:
-        budget_line = "자유예산: (계산 불가 — free 비중 확인)\n"
-
-    # 등록 종목 수
-    n_stocks = 0
+    # 비중별 등록종목 개수 (지금은 자유만)
+    n_free = 0
     try:
         from pathlib import Path as _P
         _repo = _P(__file__).resolve().parents[1]
@@ -198,17 +190,65 @@ def _cmd_status(user: dict) -> str:
         fh = (data.get("free_holdings") or {}).get(user["key"], {})
         for _acc, lst in fh.items():
             if isinstance(lst, list):
-                n_stocks += len(lst)
+                n_free += len(lst)
     except Exception:
         pass
-
     return (f"📊 시스템 상태\n"
             f"────────\n"
             f"모드: {mode_line}\n"
             f"{acct_line}\n"
             f"{equity_line}"
-            f"{budget_line}"
-            f"자유 등록종목: {n_stocks}개")
+            f"자유 등록종목: {n_free}개\n"
+            f"────────\n"
+            f"자세히: /계좌")
+
+
+def _cmd_account(user: dict) -> str:
+    """자세한 계좌 정보 — 자유예산·주문가능현금·보유종목 상세·등록종목."""
+    paper = _is_paper()
+    mode_line = "✅ 모의투자 (vps)" if paper else "🚨 실전투자 (prod)"
+    lines = [f"\U0001f4bc 계좌 상세", "\u2500\u2500\u2500\u2500", f"모드: {mode_line}"]
+    # 평가금액·현금·보유
+    try:
+        from mytrading.common import get_brokerage
+        from mytrading.account_snapshot import get_snapshot
+        snap = get_snapshot(get_brokerage())
+        lines.append(f"총평가금액: {snap.total_equity:,.0f}원")
+        _cash = float(snap.total_equity) - float(snap.holdings_value)
+        lines.append(f"주문가능현금: {_cash:,.0f}원")
+        # 자유예산
+        budget, acc_name, free_pct = _free_budget(user)
+        if acc_name:
+            lines.insert(3, f"계좌: {acc_name}")
+        if budget >= 0:
+            lines.append(f"자유예산: {budget:,.0f}원 (free {free_pct:.0f}%, 보유 차감후)")
+        # 보유종목 상세
+        lines.append("\u2500\u2500\u2500\u2500")
+        if snap.holdings:
+            lines.append(f"\U0001f4e6 보유종목 {len(snap.holdings)}개")
+            for h in snap.holdings:
+                pnl = f"{h.pnl_percent:+.1f}%" if h.pnl_percent is not None else ""
+                lines.append(f"  {h.name}({h.symbol}) {h.quantity}주 "
+                             f"{h.market_value:,.0f}원 {pnl}")
+        else:
+            lines.append("\U0001f4e6 보유종목 없음")
+    except Exception as e:
+        lines.append(f"계좌 조회 실패: {e}")
+    # 등록종목
+    n_free = 0
+    try:
+        from pathlib import Path as _P
+        _repo = _P(__file__).resolve().parents[1]
+        data = _rt_load(_repo / "mytrading" / "configs" / "allocations.yaml")
+        fh = (data.get("free_holdings") or {}).get(user["key"], {})
+        for _acc, lst in fh.items():
+            if isinstance(lst, list):
+                n_free += len(lst)
+    except Exception:
+        pass
+    lines.append("\u2500\u2500\u2500\u2500")
+    lines.append(f"자유 등록종목: {n_free}개 (/목록 으로 상세)")
+    return "\n".join(lines)
 
 
 def _cmd_list(user: dict) -> str:
@@ -759,7 +799,15 @@ def _free_budget(user: dict):
         from mytrading.account_snapshot import get_snapshot
         snap = get_snapshot(get_brokerage())
         budget = float(snap.total_equity) * (float(alloc.free) / 100.0)
-        return (budget, acc_name, float(alloc.free))
+        # 자유투자로 이미 산 금액(자유종목 보유 평가액) 차감
+        used = 0.0
+        for _sym in (alloc.free_symbols or []):
+            _code = str(_sym.get("code", ""))
+            _h = snap.holding_of(_code)
+            if _h:
+                used += float(_h.market_value)
+        remaining = budget - used
+        return (max(0.0, remaining), acc_name, float(alloc.free))
     except Exception as e:
         print(f"[bot] _free_budget 실패: {e}")
         return (0.0, None, 0.0)
@@ -873,6 +921,44 @@ def _save_sell_plan(user: dict, code: str, name: str, qty: int) -> str:
     return f"\u2705 {name}({code}) 매도 {qty}주 기록 (다음 매매 시점 반영)."
 
 
+def _execute_order_now(code: str, name: str, qty: int, is_sell: bool) -> str:
+    """정규장에서 즉시 시장가 주문. 성공/실패 메시지 문자열 반환.
+    정규장 아니면 주문 안 하고 안내만."""
+    side_txt = "매도" if is_sell else "매수"
+    # 1. 정규장 체크
+    if not _is_trading_hours():
+        return (f"\u23f0 지금은 정규장이 아니에요 (평일 09:00~15:30).\n"
+                f"{name}({code}) {side_txt}는 정규장에만 가능해요.")
+    # 2. 주문 가능 계좌 체크
+    try:
+        from mytrading.common import assert_can_order, get_brokerage
+        if not assert_can_order():
+            return f"\u26d4 주문 불가 계좌예요 (IRP 등). {side_txt} 중단."
+    except Exception as e:
+        return f"\u26a0\ufe0f 계좌 확인 실패: {e}"
+    # 3. 즉시 시장가 주문
+    try:
+        from kis_backtest.providers.base import OrderSide, OrderType
+        brk = get_brokerage()
+        side = OrderSide.SELL if is_sell else OrderSide.BUY
+        order = brk.submit_order(symbol=str(code), side=side,
+                                 quantity=int(qty), order_type=OrderType.MARKET)
+        # 알림
+        try:
+            notify.notify_order_submitted(str(code), side_txt, int(qty), "시장가")
+        except Exception:
+            pass
+        mode_txt = "모의" if _is_paper() else "\U0001f6a8실전"
+        return (f"\u2705 ({mode_txt}) {name}({code}) {side_txt} {qty}주 주문 접수\n"
+                f"  주문번호 {order.id}")
+    except Exception as e:
+        try:
+            notify.notify_error(f"{name} {side_txt} 주문 실패", str(e))
+        except Exception:
+            pass
+        return f"\u274c {name}({code}) {side_txt} 주문 실패: {e}"
+
+
 def _save_buy_plan(user: dict, code: str, name: str, plan: dict) -> str:
     """buy_plan 저장 + confirm: Approval. allocations.yaml."""
     import yaml
@@ -963,7 +1049,7 @@ def _stepper_keyboard(code, cur, full, price, half=0, kind=None):
     cur = max(0, int(cur or 0))
     amt = cur * price
     rows = [
-        [{"text": (f"수량: {cur}주 ({amt:,}원)" if cur >= 1 else "수량: 0주 (일시매수 안 함)"), "callback_data": "noop"}],
+        [{"text": (f"수량: {cur}주 ({amt:,}원)" if cur >= 1 else ("수량: 0주" if kind == "sell" else "수량: 0주 (일시매수 안 함)")), "callback_data": "noop"}],
         [
             {"text": "-10", "callback_data": f"pstep:{code}:-10"},
             {"text": "-5", "callback_data": f"pstep:{code}:-5"},
@@ -1066,7 +1152,7 @@ def _split_marker(reply: str):
         half = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
         full = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
         price = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
-        kind = parts[4] if len(parts) > 4 and parts[4] in ("buy", "split") else None
+        kind = parts[4] if len(parts) > 4 and parts[4] in ("buy", "split", "sell") else None
         kb = _stepper_keyboard(code, 0, full, price, half=half, kind=kind)
         return head, kb
     if "\x00YESNO" in reply:
@@ -1226,13 +1312,10 @@ def poll_once():
                             notify._send_raw(chat_id,
                                 f"⚠️ {ctx['name']}: 매수 수량이 0주예요. +버튼으로 수량을 정하세요.")
                             continue
-                        plan = {"onetime": sel}
-                        result = _save_buy_plan(user, ctx["code"], ctx["name"], plan)
                         _set_pending("pbuy_ctx:" + user["key"], None)
-                        print(f"[bot] {user['name']} [/매수] {ctx['name']} 일시 {sel}주")
-                        notify._send_raw(chat_id,
-                            f"✅ (모의) {ctx['name']}({ctx['code']}) 일시매수 {sel}주 저장\n"
-                            f"  ({sel*ctx['price']:,}원)\n" + result)
+                        print(f"[bot] {user['name']} [/매수 즉시] {ctx['name']} {sel}주")
+                        result = _execute_order_now(ctx["code"], ctx["name"], sel, is_sell=False)
+                        notify._send_raw(chat_id, result)
                         continue
                     amt = sel * ctx["price"]
                     if sel >= 1:
@@ -1350,12 +1433,10 @@ def poll_once():
                         notify._send_raw(chat_id,
                             f"\u26a0\ufe0f {ctx['name']}: 매도 수량이 0주예요. +버튼으로 수량을 정하세요.")
                         continue
-                    result = _save_sell_plan(user, ctx["code"], ctx["name"], sel)
                     _set_pending("pbuy_ctx:" + user["key"], None)
-                    print(f"[bot] {user['name']} [/매도] {ctx['name']} {sel}주")
-                    notify._send_raw(chat_id,
-                        f"\U0001f4b0 (모의) {ctx['name']}({ctx['code']}) 매도 {sel}주 요청\n"
-                        f"  ({sel*ctx['price']:,}원)\n" + result)
+                    print(f"[bot] {user['name']} [/매도 즉시] {ctx['name']} {sel}주")
+                    result = _execute_order_now(ctx["code"], ctx["name"], sel, is_sell=True)
+                    notify._send_raw(chat_id, result)
                     continue
                 if data.startswith("sell_cancel:"):
                     _set_pending("pbuy_ctx:" + user["key"], None)
