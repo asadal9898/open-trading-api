@@ -238,6 +238,11 @@ def _cmd_account(user: dict) -> str:
                 pnl = f"{h.pnl_percent:+.1f}%" if h.pnl_percent is not None else ""
                 lines.append(f"  {h.name}({h.symbol}) {h.quantity}주 "
                              f"{h.market_value:,.0f}원 {pnl}")
+                # 집중도: free 한도 대비 이 종목 보유 비중 (한도>0일 때만)
+                if free_pct and free_pct > 0:
+                    _conc = float(h.market_value) / float(free_pct) * 100.0
+                    _warn = "  \u26a0\ufe0f 집중 경고 (50% 초과)" if _conc > 50 else ""
+                    lines.append(f"    \u2514 free 한도의 {_conc:.0f}%{_warn}")
         else:
             lines.append("\U0001f4e6 보유종목 없음")
     except Exception as e:
@@ -315,23 +320,6 @@ def _cmd_alloc(user: dict) -> str:
     return "\n".join(lines)
 
 
-def _cmd_alloc_set_line(user: dict, args) -> str:
-    """한 줄 설정: /비중 자유 5000000  또는  /비중 보수 3000000."""
-    _MAP = {"자유": "free", "자유투자": "free", "free": "free",
-            "보수": "moderate", "보수투자": "moderate", "moderate": "moderate"}
-    if len(args) < 2:
-        return ("사용법: /비중 자유 5000000  (자유투자 500만원)\n"
-                "        /비중 보수 3000000  (보수투자 300만원)\n"
-                "또는 /비중 만 입력하면 현재 상태·버튼이 나와요.")
-    field = _MAP.get(args[0].strip().lower())
-    if field is None:
-        return f"'{args[0]}' 는 모르는 항목이에요. '자유' 또는 '보수' 로 입력하세요."
-    raw = args[1].replace(",", "").replace("원", "").replace(" ", "").strip()
-    if not raw.isdigit():
-        return f"금액이 숫자가 아니에요: {args[1]}  (예: /비중 {args[0]} 5000000)"
-    return _alloc_set_amount(user, [[field]], raw)
-
-
 def _alloc_set_amount(user: dict, pending, text: str) -> str:
     """숫자 입력받아 moderate/free 금액 저장. cash 음수면 거부."""
     # pending: [["field"]] 형태 (moderate 또는 free)
@@ -372,7 +360,7 @@ def _alloc_set_amount(user: dict, pending, text: str) -> str:
     accts = ((data.get("users") or {}).get(user["key"]) or {}).get("accounts") or {}
     if acc_name in accts:
         accts[acc_name][field] = amt
-        _rt_dump(data, ypath)
+        _rt_dump(ypath, data)
     _set_pending("alloc_input:" + user["key"], None)
 
     cash_txt = ""
