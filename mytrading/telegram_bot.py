@@ -221,7 +221,7 @@ def _cmd_account(user: dict) -> str:
         if acc_name:
             lines.insert(3, f"계좌: {acc_name}")
         if budget >= 0:
-            lines.append(f"자유예산: {budget:,.0f}원 (free {free_pct:.0f}%, 보유 차감후)")
+            lines.append(f"자유예산: {budget:,.0f}원 (한도 {free_pct:,.0f}원, 보유 차감후)")
         # 보유종목 상세
         lines.append("\u2500\u2500\u2500\u2500")
         if snap.holdings:
@@ -442,7 +442,7 @@ def _analyze_paper(code: str, name: str, ukey: str = None) -> str:
                        "full": full, "price": int(price), "sel": 0}])
 
     header = (f"✅ {name}({code}) 모의 투자\n"
-              f"💼 자유 투자 예산: {budget:,.0f}원 (총자산의 {free_pct:.0f}%)\n"
+              f"💼 자유 투자 예산: {budget:,.0f}원 (한도 {free_pct:,.0f}원)\n"
               f"📈 현재가: {price:,.0f}원\n")
     if full < 1:
         header += (f"📊 예산으로 1주도 부족해요.\n"
@@ -628,7 +628,7 @@ def _build_buy_ui(user: dict, code: str, name: str, kind: str) -> str:
     _mode_txt = "모의 투자" if _is_paper() else "실전 투자"
     _kind_txt = "일시매수" if kind == "buy" else "분할매수"
     header = (f"✅ {name}({code}) {_mode_txt} — {_kind_txt}\n"
-              f"💼 자유 투자 예산: {budget:,.0f}원 ({acc_name} free {free_pct:.0f}%)\n"
+              f"💼 자유 투자 예산: {budget:,.0f}원 ({acc_name} 한도 {free_pct:,.0f}원)\n"
               f"📈 현재가: {price:,.0f}원\n")
     if full < 1:
         header += f"📊 예산으로 1주도 부족해요.\x00BUYUI:{code}:0:0:{int(price)}:{kind}"
@@ -779,15 +779,16 @@ def _price_now(code: str) -> float:
 
 
 def _free_budget(user: dict):
-    """사용자 첫 계좌의 자유투자 예산.
-    반환: (budget, account_name, free_pct) 또는 (0, None, 0) 실패 시.
-    예산 = total_equity x (free% / 100).
+    """사용자 첫 계좌의 자유투자 예산 (금액 기반).
+    반환: (remaining, account_name, free_amount) 또는 (0, None, 0) 실패 시.
+    예산 = free 배분 금액 − 이미 산 자유종목 평가액.
+    ★ moderate+free 가 총자산 초과(cash<0)면 설정 오류로 (0, name, 0) 반환.
     """
     try:
         from mytrading.portfolio import load_portfolio
         pf = load_portfolio()
         accts = pf.allocations.get(user["key"], {}) or {}
-        # free 비중 > 0 인 첫 계좌
+        # free 금액 > 0 인 첫 계좌
         acc_name, alloc = None, None
         for _an, _al in accts.items():
             if getattr(_al, "free", 0) and _al.free > 0:
@@ -798,7 +799,13 @@ def _free_budget(user: dict):
         from mytrading.common import get_brokerage
         from mytrading.account_snapshot import get_snapshot
         snap = get_snapshot(get_brokerage())
-        budget = float(snap.total_equity) * (float(alloc.free) / 100.0)
+        total_eq = float(snap.total_equity)
+        # cash 음수 검증: moderate+free 가 총자산 초과면 설정 오류
+        if alloc.cash(total_eq) < 0:
+            print(f"[bot] 설정 오류: moderate({alloc.moderate:,.0f})+"
+                  f"free({alloc.free:,.0f}) > 총자산({total_eq:,.0f})")
+            return (0.0, acc_name, 0.0)
+        free_amt = float(alloc.free)  # 금액 직접
         # 자유투자로 이미 산 금액(자유종목 보유 평가액) 차감
         used = 0.0
         for _sym in (alloc.free_symbols or []):
@@ -806,8 +813,8 @@ def _free_budget(user: dict):
             _h = snap.holding_of(_code)
             if _h:
                 used += float(_h.market_value)
-        remaining = budget - used
-        return (max(0.0, remaining), acc_name, float(alloc.free))
+        remaining = free_amt - used
+        return (max(0.0, remaining), acc_name, free_amt)
     except Exception as e:
         print(f"[bot] _free_budget 실패: {e}")
         return (0.0, None, 0.0)

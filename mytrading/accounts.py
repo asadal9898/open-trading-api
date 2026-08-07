@@ -33,20 +33,17 @@ _PENSION_PRODS = {"22", "29"}  # 22=개인연금, 29=퇴직연금
 
 @dataclass
 class Allocation:
-    """계좌 자금 비중 (%). 합이 100이어야 정상."""
-    cash: float = 0.0          # 현금 (투자 안 함)
-    aggressive: float = 0.0    # 공격 투자
-    moderate: float = 0.0      # 보수 투자
-    safe: float = 0.0          # 안전 투자 (ETF 등)
+    """계좌 자금 배분 (금액, 원). moderate·free 지정, cash 는 자동 계산."""
+    moderate: float = 0.0
+    free: float = 0.0
 
-    @property
-    def total(self) -> float:
-        return self.cash + self.aggressive + self.moderate + self.safe
+    def cash(self, total_equity: float) -> float:
+        """여유 현금 = 총자산 - moderate - free."""
+        return float(total_equity) - self.moderate - self.free
 
-    @property
-    def is_valid(self) -> bool:
-        # 부동소수 오차 허용 (99.9~100.1)
-        return abs(self.total - 100.0) < 0.1 or self.total == 0.0
+    def is_valid(self, total_equity: float) -> bool:
+        """moderate + free 가 총자산 이하이면 정상 (cash >= 0)."""
+        return self.cash(total_equity) >= 0
 
 
 @dataclass
@@ -61,7 +58,7 @@ class Account:
     paper_sec: Optional[str] = None
     paper_stock: Optional[str] = None  # 모의 증권계좌 8자리 (yaml: my_paper_stock)
     allocation: Optional[Allocation] = None   # 비중 설정 (없으면 None)
-    # 종목 리스트: {"aggressive": [{code,name}], "moderate": [...], "safe": [...]}
+    # 종목 리스트: {"moderate": [{code,name}]}
     universe: dict = field(default_factory=dict)
 
     @property
@@ -78,7 +75,7 @@ class Account:
         if category:
             return [s["code"] for s in self.universe.get(category, [])]
         out = []
-        for cat in ("aggressive", "moderate", "safe"):
+        for cat in ("moderate",):
             out += [s["code"] for s in self.universe.get(cat, [])]
         return out
 
@@ -161,20 +158,16 @@ def load_accounts(path: Path = ACCOUNTS_PATH) -> AccountsData:
             alloc_raw = acc.get("allocation")
             if isinstance(alloc_raw, dict):
                 alloc = Allocation(
-                    cash=float(alloc_raw.get("cash", 0) or 0),
-                    aggressive=float(alloc_raw.get("aggressive", 0) or 0),
                     moderate=float(alloc_raw.get("moderate", 0) or 0),
-                    safe=float(alloc_raw.get("safe", 0) or 0),
+                    free=float(alloc_raw.get("free", 0) or 0),
                 )
-                if not alloc.is_valid:
-                    warnings.append(
-                        f"{ukey}/{name}: 비중 합이 {alloc.total:.0f}% (100 아님) → 확인 필요")
+                # cash 음수(moderate+free>총자산) 검증은 총자산 아는 사용처에서
 
             # 종목 리스트(universe) 파싱 (선택)
             universe = {}
             uni_raw = acc.get("universe")
             if isinstance(uni_raw, dict):
-                for cat in ("aggressive", "moderate", "safe"):
+                for cat in ("moderate",):
                     items = uni_raw.get(cat) or []
                     clean = []
                     for it in items:
@@ -239,10 +232,10 @@ def list_accounts(data: Optional[AccountsData] = None) -> None:
             print(f"  - {a.name}: {a.acct_stock}/{a.prod} [{order}]{paper}")
             if a.allocation:
                 al = a.allocation
-                print(f"      비중: 현금 {al.cash:.0f} / 공격 {al.aggressive:.0f} "
-                      f"/ 보수 {al.moderate:.0f} / 안전 {al.safe:.0f} (합 {al.total:.0f})")
+                print(f"      배분: 보수 {al.moderate:,.0f}원 / 자유 {al.free:,.0f}원 "
+                      f"(cash=총자산-이 둘)")
             if a.universe:
-                for cat, label in (("aggressive","공격"),("moderate","보수"),("safe","안전")):
+                for cat, label in (("moderate","보수"),):
                     items = a.universe.get(cat, [])
                     if items:
                         names = ", ".join(f"{s['name']}({s['code']})" for s in items)

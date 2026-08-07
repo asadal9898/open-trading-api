@@ -25,9 +25,8 @@ from typing import List, Dict, Optional
 
 
 # 비중을 가진 분류 (cash 는 투자 안 하므로 종목 배분 대상 아님)
-_INVEST_CATEGORIES = ("aggressive", "moderate", "safe", "free")
-_CAT_LABEL = {"aggressive": "공격", "moderate": "보수", "safe": "안전",
-              "free": "자유", "cash": "현금"}
+_INVEST_CATEGORIES = ("moderate", "free")
+_CAT_LABEL = {"moderate": "보수", "free": "자유"}
 
 
 @dataclass
@@ -88,16 +87,14 @@ def build_plan(snapshot, portfolio, user_key: str,
     plan = AllocationPlan(user_key=user_key, account_name=account_name,
                           total_equity=total)
 
-    # 1) 분류별 목표금액 = 총평가 × 비중%
-    plan.cash_target = total * (al.cash / 100.0)
-    cat_pct = {
-        "aggressive": al.aggressive,
+    # 1) 분류별 목표금액 = 지정 금액 그대로, 현금은 자동(총자산-moderate-free)
+    plan.cash_target = al.cash(total)
+    cat_amt = {
         "moderate": al.moderate,
-        "safe": al.safe,
         "free": al.free,
     }
-    for cat, pct in cat_pct.items():
-        plan.category_targets[cat] = total * (pct / 100.0)
+    for cat, amt in cat_amt.items():
+        plan.category_targets[cat] = float(amt)
 
     # 2) 분류 안에서 종목별 균등 분배 + 3) 현재 보유와 차이
     for cat in _INVEST_CATEGORIES:
@@ -174,7 +171,7 @@ def print_plan(plan: AllocationPlan) -> None:
     print(f"\n  [현금 분석]")
     print(f"    현재 주문가능현금 : {plan.current_cash:,.0f}원")
     print(f"    매도 예정 대금(+)  : {plan.total_sell_proceeds:,.0f}원")
-    print(f"    현금 목표(−)       : {plan.cash_target:,.0f}원 (비중상 남길 현금)")
+    print(f"    현금 목표(−)       : {plan.cash_target:,.0f}원 (자동: 총자산-배분)")
     print(f"    → 매수 가용현금     : {plan.available_for_buy:,.0f}원")
     print(f"    매수 필요액        : {plan.total_buy_needed:,.0f}원")
     if plan.cash_sufficient:

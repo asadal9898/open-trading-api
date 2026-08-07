@@ -25,28 +25,24 @@ _THIS_DIR = Path(__file__).resolve().parent
 ALLOCATIONS_PATH = _THIS_DIR / "configs" / "allocations.yaml"
 UNIVERSE_PATH = _THIS_DIR / "configs" / "universe.yaml"
 
-_CATEGORIES = ("aggressive", "moderate", "safe")
-_CAT_LABEL = {"aggressive": "공격", "moderate": "보수", "safe": "안전"}
+_CATEGORIES = ("moderate",)
+_CAT_LABEL = {"moderate": "보수"}
 
 
 @dataclass
 class Allocation:
-    """계좌 자금 비중 (%). 합 100 이어야 정상."""
-    cash: float = 0.0
-    aggressive: float = 0.0
+    """계좌 자금 배분 (금액, 원). moderate·free 지정, cash 는 자동 계산."""
     moderate: float = 0.0
-    safe: float = 0.0
-    free: float = 0.0          # 자유 투자 (개인별 재량 종목)
-    # 개인별 자유 종목 [{code, name}] — free 비중으로 살 종목 (사람마다 다름)
+    free: float = 0.0
     free_symbols: List[dict] = field(default_factory=list)
 
-    @property
-    def total(self) -> float:
-        return self.cash + self.aggressive + self.moderate + self.safe + self.free
+    def cash(self, total_equity: float) -> float:
+        """여유 현금 = 총자산 - moderate - free (자동)."""
+        return float(total_equity) - self.moderate - self.free
 
-    @property
-    def is_valid(self) -> bool:
-        return abs(self.total - 100.0) < 0.1
+    def is_valid(self, total_equity: float) -> bool:
+        """moderate + free 가 총자산 이하이면 정상 (cash >= 0)."""
+        return self.cash(total_equity) >= 0
 
 
 @dataclass
@@ -140,20 +136,15 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
                         free_syms.append({"code": str(it["code"]).strip(),
                                           "name": str(it.get("name", "")).strip()})
             al = Allocation(
-                cash=float(vals.get("cash", 0) or 0),
-                aggressive=float(vals.get("aggressive", 0) or 0),
                 moderate=float(vals.get("moderate", 0) or 0),
-                safe=float(vals.get("safe", 0) or 0),
                 free=float(vals.get("free", 0) or 0),
                 free_symbols=free_syms,
             )
-            if not al.is_valid:
-                warnings.append(
-                    f"{ukey}/{acc_name}: 비중 합 {al.total:.0f}% (100 아님) → 확인 필요")
-            # free 비중이 있는데 자유 종목이 없으면 안내
+            # cash 음수(=moderate+free>총자산) 검증은 총자산을 아는 사용처
+            # (_free_budget / /계좌)에서 수행. 파싱 시점엔 총자산이 없음.
             if al.free > 0 and not free_syms:
                 warnings.append(
-                    f"{ukey}/{acc_name}: free 비중 {al.free:.0f}%인데 free_symbols 없음")
+                    f"{ukey}/{acc_name}: free 금액 {al.free:,.0f}원인데 free_symbols 없음")
             allocations.setdefault(ukey, {})[acc_name] = al
 
     # --- 종목풀 ---
@@ -214,9 +205,8 @@ def print_portfolio(pf: Optional[Portfolio] = None) -> None:
     for ukey, accts in pf.allocations.items():
         print(f"[{ukey}]")
         for name, al in accts.items():
-            print(f"  - {name}: 현금 {al.cash:.0f} / 공격 {al.aggressive:.0f} "
-                  f"/ 보수 {al.moderate:.0f} / 안전 {al.safe:.0f} / 자유 {al.free:.0f} "
-                  f"(합 {al.total:.0f})")
+            print(f"  - {name}: 보수 {al.moderate:,.0f}원 / 자유 {al.free:,.0f}원 "
+                  f"(cash=총자산-이 둘, 자동)")
             if al.free_symbols:
                 fs = ", ".join(f"{s['name']}({s['code']})" for s in al.free_symbols)
                 print(f"      자유종목: {fs}")

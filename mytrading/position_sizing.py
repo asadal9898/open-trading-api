@@ -2,7 +2,7 @@
 매수 금액 산정 — 예산 → 슬롯 → 종목당 금액 → 주문 수량.
 
 설계 근거 (2026-07 백테스트 검증):
-  1. 예산은 allocations.yaml 의 카테고리 비중에서 나온다.
+  1. 예산은 allocations.yaml 의 카테고리 배분 금액에서 나온다.
        moderate 예산 = 계좌 총평가금액 × moderate 비율(%)
      총자산이 변해도 비율이 자동 조정되므로 별도 관리가 필요 없다.
 
@@ -73,16 +73,16 @@ def load_cfg() -> dict:
     return cfg
 
 
-def category_ratio(category: str, user: str = None,
+def category_amount(category: str, user: str = None,
                    account: str = None) -> Optional[float]:
-    """allocations.yaml 에서 카테고리 비중(%) 조회.
+    """allocations.yaml 에서 카테고리 배분 금액(원) 조회.
 
     user/account 를 생략하면 첫 번째 사용자·계좌를 쓴다.
     """
     try:
         import yaml
         data = yaml.safe_load(
-            (_ROOT / "mytrading" / "allocations.yaml").read_text(
+            (_ROOT / "mytrading" / "configs" / "allocations.yaml").read_text(
                 encoding="utf-8")) or {}
     except Exception as e:
         print(f"[position_sizing] allocations.yaml 읽기 실패: {e}")
@@ -137,7 +137,7 @@ def plan_buy(category: str, price: float, total_equity: float,
              held_count: int = 0, cfg: dict = None) -> dict:
     """매수 1건의 금액·수량 계산.
 
-    category    : moderate / aggressive / safe
+    category    : moderate / free
     price       : 현재가
     total_equity: 계좌 총평가금액
     held_count  : 해당 카테고리에서 이미 보유 중인 종목 수 (슬롯 여유 판단용)
@@ -148,18 +148,18 @@ def plan_buy(category: str, price: float, total_equity: float,
     cfg = cfg or load_cfg()
     out = {"category": category, "price": price, "total_equity": total_equity}
 
-    ratio = category_ratio(category, user, account)
+    ratio = category_amount(category, user, account)
     if ratio is None:
-        out.update(ok=False, reason=f"allocations.yaml 에 {category} 비중 없음")
+        out.update(ok=False, reason=f"allocations.yaml 에 {category} 배분금액 없음")
         return out
 
-    budget = total_equity * (ratio / 100.0)
+    budget = float(ratio)  # 금액 직접 (비율 환산 없음)
     floor_pct = float(cfg["cash_floor"])
     investable = budget * (1.0 - floor_pct / 100.0)
     slots, per_symbol = compute_slots(investable, cfg)
     slots_left = max(0, slots - held_count)
 
-    out.update(ratio=ratio, budget=budget, cash_floor=floor_pct,
+    out.update(amount=amount, budget=budget, cash_floor=floor_pct,
                investable=investable, slots=slots, slots_left=slots_left,
                per_symbol=per_symbol)
 
@@ -188,8 +188,8 @@ def _demo():
     for k, v in cfg.items():
         print(f"  {k}: {v:,}" if isinstance(v, (int, float)) else f"  {k}: {v}")
 
-    ratio = category_ratio("moderate")
-    print(f"\n  moderate 비중: {ratio}%")
+    ratio = category_amount("moderate")
+    print(f"\n  moderate 배분금액: {ratio:,.0f}원")
 
     total = None
     try:
