@@ -110,7 +110,7 @@ def handle_command(user: dict, text: str) -> str:
         "/추가": "/add", "/목록": "/list", "/승인": "/approve",
         "/매수": "/buy", "/분할매수": "/splitbuy", "/매도": "/sell",
         "/재부팅": "/reboot", "/도움": "/help", "/시작": "/start",
-        "/상태": "/status", "/계좌": "/account",
+        "/상태": "/status", "/계좌": "/account", "/비중": "/alloc",
     }
     cmd = _KO.get(cmd, cmd)
 
@@ -126,12 +126,16 @@ def handle_command(user: dict, text: str) -> str:
                 "/splitbuy(/분할매수) 종목명 - 승인 종목 분할매수\n"
                 "/sell(/매도) 종목명 - 보유 종목 매도\n"
                 "/list(/목록) - 내 종목\n"
-                "/status(/상태) - 모드·계좌·등록종목\n"                "/account(/계좌) - 계좌 상세(예산·보유종목)\n"
+                "/status(/상태) - 모드·계좌·등록종목\n"                "/account(/계좌) - 계좌 상세(예산·보유종목)\n"                "/alloc(/비중) - 자금배분(자유·보수 금액 설정)\n"
                 "/reboot(/재부팅) - 재부팅 (owner)")
     if cmd == "/add":
         if not args:
             return "사용법: /add 종목명  (예: /add SK하이닉스)"
         return _cmd_add(user, " ".join(args))
+    # 비중(금액) 입력 대기 중이면 우선 처리 (종목선택보다 먼저)
+    _alloc_pend = _get_pending("alloc_input:" + user["key"])
+    if _alloc_pend and _looks_like_amount(text.strip()):
+        return _alloc_set_amount(user, _alloc_pend, text.strip())
     # 숫자만 왔는데 대기중이면 후보 선택으로 처리
     if cmd.isdigit() and _get_pending(user["key"]):
         return _pick_candidate(user, int(cmd))
@@ -161,6 +165,10 @@ def handle_command(user: dict, text: str) -> str:
         return _cmd_status(user)
     if cmd == "/account":
         return _cmd_account(user)
+    if cmd == "/alloc":
+        if args:
+            return _cmd_alloc_set_line(user, args)
+        return _cmd_alloc(user)
     return f"모르는 명령: {cmd}"
 
 
@@ -249,6 +257,129 @@ def _cmd_account(user: dict) -> str:
     lines.append("\u2500\u2500\u2500\u2500")
     lines.append(f"자유 등록종목: {n_free}개 (/목록 으로 상세)")
     return "\n".join(lines)
+
+
+def _looks_like_amount(text: str) -> bool:
+    """금액 입력처럼 보이나 (숫자/콤마/원 허용)."""
+    t = text.replace(",", "").replace("원", "").replace(" ", "").strip()
+    return t.isdigit()
+
+
+def _alloc_snapshot_equity():
+    """총자산 조회. 실패 시 None."""
+    try:
+        from mytrading.common import get_brokerage
+        from mytrading.account_snapshot import get_snapshot
+        snap = get_snapshot(get_brokerage())
+        return float(snap.total_equity)
+    except Exception as e:
+        print(f"[bot] alloc 총자산 조회 실패: {e}")
+        return None
+
+
+def _alloc_load(user: dict):
+    """(acc_name, Allocation) 첫 계좌. 없으면 (None, None)."""
+    try:
+        from mytrading.portfolio import load_portfolio
+        pf = load_portfolio()
+        accts = pf.allocations.get(user["key"], {}) or {}
+        for an, al in accts.items():
+            return an, al
+    except Exception as e:
+        print(f"[bot] alloc 로드 실패: {e}")
+    return None, None
+
+
+def _cmd_alloc(user: dict) -> str:
+    """자금 배분(금액) 조회 + 설정 버튼. moderate/free 지정, cash 자동."""
+    acc_name, al = _alloc_load(user)
+    if al is None:
+        return "계좌 배분 정보를 찾을 수 없어요. allocations.yaml 확인 필요."
+    te = _alloc_snapshot_equity()
+    mod = float(getattr(al, "moderate", 0) or 0)
+    free = float(getattr(al, "free", 0) or 0)
+    lines = ["💰 자금 배분 (금액)", "─────"]
+    if te is not None:
+        lines.append(f"총자산: {te:,.0f}원")
+        lines.append("─────")
+    lines.append(f"moderate(보수): {mod:,.0f}원")
+    lines.append(f"free(자유): {free:,.0f}원")
+    if te is not None:
+        cash = te - mod - free
+        mark = "" if cash >= 0 else "  ⛔ 초과!"
+        lines.append(f"cash(여유, 자동): {cash:,.0f}원{mark}")
+    lines.append("─────")
+    lines.append("설정할 항목을 고르세요 (숫자로 금액 입력).")
+    # 버튼 마커 (콜백에서 처리)
+    lines.append("\x00ALLOCUI")
+    return "\n".join(lines)
+
+
+def _cmd_alloc_set_line(user: dict, args) -> str:
+    """한 줄 설정: /비중 자유 5000000  또는  /비중 보수 3000000."""
+    _MAP = {"자유": "free", "자유투자": "free", "free": "free",
+            "보수": "moderate", "보수투자": "moderate", "moderate": "moderate"}
+    if len(args) < 2:
+        return ("사용법: /비중 자유 5000000  (자유투자 500만원)\n"
+                "        /비중 보수 3000000  (보수투자 300만원)\n"
+                "또는 /비중 만 입력하면 현재 상태·버튼이 나와요.")
+    field = _MAP.get(args[0].strip().lower())
+    if field is None:
+        return f"'{args[0]}' 는 모르는 항목이에요. '자유' 또는 '보수' 로 입력하세요."
+    raw = args[1].replace(",", "").replace("원", "").replace(" ", "").strip()
+    if not raw.isdigit():
+        return f"금액이 숫자가 아니에요: {args[1]}  (예: /비중 {args[0]} 5000000)"
+    return _alloc_set_amount(user, [[field]], raw)
+
+
+def _alloc_set_amount(user: dict, pending, text: str) -> str:
+    """숫자 입력받아 moderate/free 금액 저장. cash 음수면 거부."""
+    # pending: [["field"]] 형태 (moderate 또는 free)
+    field = None
+    try:
+        field = pending[0][0]
+    except Exception:
+        pass
+    if field not in ("moderate", "free"):
+        _set_pending("alloc_input:" + user["key"], None)
+        return "설정 대상이 불명확해요. /비중 을 다시 실행하세요."
+
+    amt = int(text.replace(",", "").replace("원", "").replace(" ", "").strip())
+
+    acc_name, al = _alloc_load(user)
+    if al is None:
+        _set_pending("alloc_input:" + user["key"], None)
+        return "계좌 배분 정보를 찾을 수 없어요."
+
+    te = _alloc_snapshot_equity()
+    mod = float(getattr(al, "moderate", 0) or 0)
+    free = float(getattr(al, "free", 0) or 0)
+    # 새 값 적용해서 cash 음수 검증
+    if field == "moderate":
+        mod = amt
+    else:
+        free = amt
+    if te is not None and (te - mod - free) < 0:
+        return (f"⛔ moderate({mod:,.0f}) + free({free:,.0f}) 가 "
+                f"총자산({te:,.0f})을 초과해요. 저장 안 함.\n"
+                f"다시 금액을 입력하세요.")
+
+    # yaml 저장
+    from pathlib import Path as _P
+    _repo = _P(__file__).resolve().parents[1]
+    ypath = _repo / "mytrading" / "configs" / "allocations.yaml"
+    data = _rt_load(ypath)
+    accts = ((data.get("users") or {}).get(user["key"]) or {}).get("accounts") or {}
+    if acc_name in accts:
+        accts[acc_name][field] = amt
+        _rt_dump(data, ypath)
+    _set_pending("alloc_input:" + user["key"], None)
+
+    cash_txt = ""
+    if te is not None:
+        cash_txt = f"\ncash(여유, 자동): {te - mod - free:,.0f}원"
+    label = "moderate(보수)" if field == "moderate" else "free(자유)"
+    return f"✅ {label} {amt:,.0f}원 설정.{cash_txt}"
 
 
 def _cmd_list(user: dict) -> str:
@@ -1152,6 +1283,12 @@ def _split_marker(reply: str):
             {"text": "❌ 취소", "callback_data": "reboot_no"},
         ]]}
         return reply.replace("\x00REBOOT_CONFIRM", ""), kb
+    if "\x00ALLOCUI" in reply:
+        kb = {"inline_keyboard": [[
+            {"text": "moderate 설정", "callback_data": "alloc_set:moderate"},
+            {"text": "free 설정", "callback_data": "alloc_set:free"},
+        ]]}
+        return reply.replace("\x00ALLOCUI", ""), kb
     if "\x00BUYUI:" in reply:
         head, _, rest = reply.partition("\x00BUYUI:")
         parts = rest.split(":")
@@ -1265,6 +1402,16 @@ def poll_once():
                     reply = _cmd_approve(user, nm)
                     body, markup = _split_marker(reply)
                     notify._send_raw(chat_id, body, reply_markup=markup)
+                    continue
+                if data.startswith("alloc_set:"):
+                    _field = data.split(":", 1)[1]
+                    _set_pending("alloc_input:" + user["key"], [[_field]])
+                    _te = _alloc_snapshot_equity()
+                    _label = "moderate(보수)" if _field == "moderate" else "free(자유)"
+                    _hint = f" (총자산 {_te:,.0f}원)" if _te is not None else ""
+                    notify._send_raw(chat_id,
+                          f"{_label} 에 배정할 금액을 원 단위로 입력하세요.\n"
+                          f"예: 5000000{_hint}")
                     continue
                 if data.startswith("pstep:"):
                     _p = data.split(":")
