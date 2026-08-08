@@ -107,7 +107,7 @@ def handle_command(user: dict, text: str) -> str:
     args = parts[1:]
     # 한글 명령 -> 영어 매핑
     _KO = {
-        "/추가": "/add", "/목록": "/list", "/승인": "/approve",
+        "/추가": "/add", "/목록": "/list", "/종목": "/list", "/승인": "/approve",
         "/매수": "/buy", "/분할매수": "/splitbuy", "/매도": "/sell",
         "/재부팅": "/reboot", "/도움": "/help", "/시작": "/start",
         "/상태": "/status", "/계좌": "/account", "/비중": "/alloc",
@@ -125,7 +125,7 @@ def handle_command(user: dict, text: str) -> str:
                 "/buy(/매수) 종목명 - 승인 종목 일시매수\n"
                 "/splitbuy(/분할매수) 종목명 - 승인 종목 분할매수\n"
                 "/sell(/매도) 종목명 - 보유 종목 매도\n"
-                "/list(/목록) - 내 종목\n"
+                "/list(/목록 /종목) - 내 종목\n"
                 "/status(/상태) - 모드·계좌·등록종목\n"                "/account(/계좌) - 계좌 상세(예산·보유종목)\n"                "/alloc(/비중) - 자금배분(자유·보수 금액 설정)\n"
                 "/reboot(/재부팅) - 재부팅 (owner)")
     if cmd == "/add":
@@ -160,7 +160,7 @@ def handle_command(user: dict, text: str) -> str:
         _set_pending("add:" + user["key"], None)
         return "취소했어요."
     if cmd == "/list":
-        return _cmd_list(user)
+        return _cmd_list(user, args)
     if cmd == "/status":
         return _cmd_status(user)
     if cmd == "/account":
@@ -370,22 +370,85 @@ def _alloc_set_amount(user: dict, pending, text: str) -> str:
     return f"✅ {label} {amt:,.0f}원 설정.{cash_txt}"
 
 
-def _cmd_list(user: dict) -> str:
-    """내 자유 종목 목록."""
+def _list_free(pf, ukey) -> list:
+    """자유 종목 라인들."""
+    out = []
+    for acc_name, al in (pf.allocations.get(ukey, {}) or {}).items():
+        for sym in al.free_symbols:
+            conf = sym.get("confirm", "?")
+            out.append(f"  {sym.get('name','')}({sym['code']}) [{conf}]")
+    return out
+
+
+def _list_moderate(pf) -> tuple:
+    """보수(moderate) 종목 — (승인, 대기, 기타 라인들, 상태별 개수 dict)."""
+    from collections import Counter
+    approved, waiting, other, counts = [], [], [], Counter()
+    for cat in ("moderate",):
+        for item in pf.universe.get(cat, []):
+            conf = item.get("confirm", "?")
+            counts[conf] += 1
+            line = f"  {item.get('name','')}({item.get('code','')})"
+            if conf == "Approval":
+                approved.append(line)
+            elif conf in ("Waiting", "?"):
+                waiting.append(line)
+            else:
+                other.append(f"  {item.get('name','')}({item.get('code','')}) [{conf}]")
+    return approved, waiting, other, counts
+
+
+def _cmd_list(user: dict, args=None) -> str:
+    """종목 목록. 인자: 없음=전체, 보수/배당=moderate, 자유=free."""
     try:
         pf = load_portfolio()
     except Exception as e:
         return f"목록 로드 실패: {e}"
     ukey = user["key"]
-    lines = [f"{user['name']} 자유 종목:"]
-    found = False
-    for acc_name, al in (pf.allocations.get(ukey, {}) or {}).items():
-        for sym in al.free_symbols:
-            found = True
-            conf = sym.get("confirm", "?")
-            lines.append(f"  {sym['code']} {sym.get('name','')} [{conf}]")
-    if not found:
-        lines.append("  (없음)")
+    arg = (args[0] if args else "").strip() if args else ""
+
+    # 자유만
+    if arg in ("자유", "free"):
+        lines = [f"\U0001f4cb {user['name']} 자유 종목"]
+        fl = _list_free(pf, ukey)
+        lines += fl if fl else ["  (없음)"]
+        return "\n".join(lines)
+
+    # 보수만
+    if arg in ("보수", "배당", "moderate"):
+        approved, waiting, other, counts = _list_moderate(pf)
+        total = sum(counts.values())
+        lines = [f"\U0001f4cb 보수(배당) 종목 — {total}개"]
+        lines.append(f"  승인 {counts.get('Approval',0)} · "
+                     f"대기 {counts.get('Waiting',0)} · "
+                     f"기타 {total - counts.get('Approval',0) - counts.get('Waiting',0)}")
+        lines.append("\u2500\u2500\u2500\u2500")
+        if approved:
+            lines.append(f"\u2705 승인 (매매 대상) {len(approved)}개:")
+            lines += approved
+        else:
+            lines.append("\u2705 승인된 종목 없음")
+        if waiting:
+            lines.append("\u2500\u2500\u2500\u2500")
+            lines.append(f"\u23f3 대기 {len(waiting)}개 (/승인 하면 매매 대상):")
+            lines += waiting
+        if other:
+            lines.append("\u2500\u2500\u2500\u2500")
+            lines.append(f"\u26aa 기타 {len(other)}개 (멈춤/거절 등):")
+            lines += other
+        return "\n".join(lines)
+
+    # 전체 (보수 요약 + 자유 전체)
+    approved, waiting, other, counts = _list_moderate(pf)
+    total = sum(counts.values())
+    lines = [f"\U0001f4cb {user['name']} 종목 목록", ""]
+    lines.append(f"\u25a0 보수(배당) {total}개 — 승인 {counts.get('Approval',0)}, "
+                 f"대기 {counts.get('Waiting',0)}")
+    lines.append("   /종목 보수 또는 배당 로 상세")
+    lines.append("")
+    fl = _list_free(pf, ukey)
+    lines.append(f"\u25a0 자유 {len(fl)}개")
+    lines += fl if fl else ["   (없음)"]
     return "\n".join(lines)
 
 
