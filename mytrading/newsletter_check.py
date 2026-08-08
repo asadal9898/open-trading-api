@@ -15,7 +15,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from mytrading.gmail_client import read_label
-from mytrading import notify
+from mytrading.telegram import notify
 
 
 def _load_config() -> dict:

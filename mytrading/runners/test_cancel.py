@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from mytrading.common import init, get_brokerage, assert_can_order
-from mytrading.notify import send_message
+from mytrading.telegram.notify import send_message
 
 
 def main():

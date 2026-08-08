@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 
 from kis_backtest.models.enums import OrderSide, OrderType, OrderStatus
 from mytrading.common import init, get_brokerage, get_data_provider, CONFIG, assert_can_order
-from mytrading.notify import (
+from mytrading.telegram.notify import (
     notify_order_submitted, notify_order_filled, notify_error,
 )
 from mytrading.portfolio import get_watch_symbols, get_symbol_names

@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from mytrading.common import init, get_brokerage, get_data_provider, CONFIG
-from mytrading.notify import notify_balance
+from mytrading.telegram.notify import notify_balance
 from mytrading.portfolio import get_watch_symbols, get_symbol_names
 
 

@@ -226,7 +226,7 @@ def send_weekly(brokerage=None, only_user: str = None,
     - scheduled    : 각 사용자의 notify_day/time 과 현재 시각이 맞는 사람에게만 (cron용)
     반환: {user_key: 성공여부} 또는 {'preview': 메시지}
     """
-    from mytrading.notify import send_to, send_message
+    from mytrading.telegram.notify import send_to, send_message
     try:
         from mytrading.accounts import load_accounts
         adata = load_accounts()

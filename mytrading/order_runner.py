@@ -99,7 +99,7 @@ def run_orders(dry_run=True, only_user=None):
             order = brk.submit_order(symbol=code, side=side, quantity=qty, order_type=OrderType.MARKET)
             print(f"[주문]{line} → 접수 (주문번호 {order.id})")
             try:
-                from mytrading import notify
+                from mytrading.telegram import notify
                 notify.notify_order_submitted(code, side_txt, qty, "시장가")
             except Exception as e:
                 print(f"    (알림 실패: {e})")
@@ -115,7 +115,7 @@ def run_orders(dry_run=True, only_user=None):
         except Exception as e:
             print(f"[실패]{line} → {e}")
             try:
-                from mytrading import notify
+                from mytrading.telegram import notify
                 notify.notify_error(f"{name} {side_txt} 주문 실패", str(e))
             except Exception:
                 pass

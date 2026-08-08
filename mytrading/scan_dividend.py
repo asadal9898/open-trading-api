@@ -170,7 +170,7 @@ def scan(market: str, limit: int = None, dry_run: bool = False) -> dict:
 def _notify(result: dict):
     """스캔 결과 텔레그램 알림."""
     try:
-        from mytrading.notify import send_message
+        from mytrading.telegram.notify import send_message
     except Exception:
         return
     market = result["market"]

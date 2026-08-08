@@ -45,7 +45,7 @@ try:
     from mytrading.common import init, CONFIG_PATH as COMMON_CFG_PATH
     from mytrading.gmail_client import read_label, list_labels
     from mytrading.order_pace import compute_slice
-    from mytrading import notify
+    from mytrading.telegram import notify
 except ImportError as e:
     print(f"[오류] mytrading 내부 모듈을 로드할 수 없습니다: {e}")
     sys.exit(1)
