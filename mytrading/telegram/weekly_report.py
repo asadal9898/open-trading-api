@@ -151,7 +151,7 @@ def build_trades_section(mode: str = None) -> str:
 def build_fx_section() -> str:
     """환율 섹션 — 3년 평균보다 낮은 날 있을 때만 (없으면 빈 문자열)."""
     try:
-        from mytrading.fx_alert import build_fx_alert
+        from mytrading.telegram.fx_alert import build_fx_alert
         return build_fx_alert()
     except Exception:
         return ""

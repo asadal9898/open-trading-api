@@ -11,13 +11,13 @@ USD/JPY/CNY 각 환율에 대해:
 
 사용:
   uv run python mytrading/fx_alert.py            # 콘솔 출력
-  from mytrading.fx_alert import build_fx_alert  # 리포트에서 호출
+  from mytrading.telegram.fx_alert import build_fx_alert  # 리포트에서 호출
 """
 import sys
 from pathlib import Path
 from datetime import datetime, date, timedelta
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
