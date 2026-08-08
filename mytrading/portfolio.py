@@ -23,7 +23,7 @@ import yaml
 
 _THIS_DIR = Path(__file__).resolve().parent
 ALLOCATIONS_PATH = _THIS_DIR / "configs" / "allocations.yaml"
-UNIVERSE_PATH = _THIS_DIR / "configs" / "universe.yaml"
+UNIVERSE_PATH = _THIS_DIR / "configs" / "universe_ko.yaml"
 
 _CATEGORIES = ("moderate",)
 _CAT_LABEL = {"moderate": "보수"}

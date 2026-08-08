@@ -216,7 +216,7 @@ def add_to_universe(results: list, uni_path: Path = None) -> int:
     """
     from datetime import date
     if uni_path is None:
-        uni_path = _REPO_ROOT / "mytrading" / "configs" / "universe.yaml"
+        uni_path = _REPO_ROOT / "mytrading" / "configs" / "universe_ko.yaml"
 
     existing = _existing_codes()
     today = date.today().strftime("%Y-%m-%d")
