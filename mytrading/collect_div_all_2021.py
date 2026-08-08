@@ -8,9 +8,9 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
 
-OUT = _ROOT / "mytrading" / "research_backtest" / "data" / "div_2021_all.json"
+OUT = _ROOT / "mytrading" / "research_backtest" / "data" / "div_multiyear.json"
 CODES_FILE = Path("/tmp/all_krx_codes.json")
-Y0, Y1 = 2020, 2021
+Y0, Y1 = 2020, 2024
 SLEEP = 0.5
 
 def _to_float(v, d=0.0):
