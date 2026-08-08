@@ -41,7 +41,7 @@ import sys
 import time
 import requests
 
-from mytrading import notify
+from mytrading.telegram import notify
 from mytrading.portfolio import load_portfolio
 
 # 대기 상태 저장 (종목 선택 중) — chat_id별
@@ -193,7 +193,7 @@ def _cmd_status(user: dict) -> str:
     n_free = 0
     try:
         from pathlib import Path as _P
-        _repo = _P(__file__).resolve().parents[1]
+        _repo = _P(__file__).resolve().parents[2]
         data = _rt_load(_repo / "mytrading" / "configs" / "allocations.yaml")
         fh = (data.get("free_holdings") or {}).get(user["key"], {})
         for _acc, lst in fh.items():
@@ -251,7 +251,7 @@ def _cmd_account(user: dict) -> str:
     n_free = 0
     try:
         from pathlib import Path as _P
-        _repo = _P(__file__).resolve().parents[1]
+        _repo = _P(__file__).resolve().parents[2]
         data = _rt_load(_repo / "mytrading" / "configs" / "allocations.yaml")
         fh = (data.get("free_holdings") or {}).get(user["key"], {})
         for _acc, lst in fh.items():
@@ -354,7 +354,7 @@ def _alloc_set_amount(user: dict, pending, text: str) -> str:
 
     # yaml 저장
     from pathlib import Path as _P
-    _repo = _P(__file__).resolve().parents[1]
+    _repo = _P(__file__).resolve().parents[2]
     ypath = _repo / "mytrading" / "configs" / "allocations.yaml"
     data = _rt_load(ypath)
     accts = ((data.get("users") or {}).get(user["key"]) or {}).get("accounts") or {}
@@ -537,7 +537,7 @@ def _cmd_add(user: dict, query: str) -> str:
         _set_pending(_k + user["key"], None)
     import sys as _sys
     from pathlib import Path as _P
-    _repo = _P(__file__).resolve().parents[1]
+    _repo = _P(__file__).resolve().parents[2]
     fdir = _repo / "mytrading"
     if str(fdir) not in _sys.path:
         _sys.path.insert(0, str(fdir))
@@ -578,7 +578,7 @@ def _sector_now(code: str) -> str:
     """업종명 조회. find_dividend_stocks._stock_sector 재사용."""
     import sys as _sys
     from pathlib import Path as _P
-    fdir = _P(__file__).resolve().parents[1] / "mytrading"
+    fdir = _P(__file__).resolve().parents[2] / "mytrading"
     if str(fdir) not in _sys.path:
         _sys.path.insert(0, str(fdir))
     try:
@@ -650,7 +650,7 @@ def _analyze(code: str, name: str, ukey: str = None) -> str:
         try:
             import sys as _s
             from pathlib import Path as _P
-            _repo = _P(__file__).resolve().parents[1]
+            _repo = _P(__file__).resolve().parents[2]
             si = _repo / "examples_llm" / "domestic_stock" / "search_stock_info"
             if str(si) not in _s.path:
                 _s.path.insert(0, str(si))
@@ -710,7 +710,7 @@ def _cmd_confirm_add(user: dict) -> str:
     sector = row[3] if len(row) > 3 else ""
     _set_pending("add:" + user["key"], None)
 
-    _repo = _P(__file__).resolve().parents[1]
+    _repo = _P(__file__).resolve().parents[2]
     alloc_path = _repo / "mytrading" / "configs" / "allocations.yaml"
     try:
         data = _rt_load(alloc_path)
@@ -759,7 +759,7 @@ def _resolve_free_symbol(user: dict, query: str):
     code=None 이면 종목 자체를 못 찾음."""
     import sys as _sys
     from pathlib import Path as _P
-    fdir = _P(__file__).resolve().parents[1] / "mytrading"
+    fdir = _P(__file__).resolve().parents[2] / "mytrading"
     if str(fdir) not in _sys.path:
         _sys.path.insert(0, str(fdir))
     from find_stock_code import find_by_name
@@ -894,7 +894,7 @@ def _cmd_approve(user: dict, query: str) -> str:
     매수 방식은 /매수 또는 /분할매수 로 별도 지정."""
     import sys as _sys
     from pathlib import Path as _P
-    _repo = _P(__file__).resolve().parents[1]
+    _repo = _P(__file__).resolve().parents[2]
     fdir = _repo / "mytrading"
     if str(fdir) not in _sys.path:
         _sys.path.insert(0, str(fdir))
@@ -950,7 +950,7 @@ def _price_now(code: str) -> float:
     """현재가 조회. find_dividend_stocks._current_price 재사용."""
     import sys as _sys
     from pathlib import Path as _P
-    fdir = _P(__file__).resolve().parents[1] / "mytrading"
+    fdir = _P(__file__).resolve().parents[2] / "mytrading"
     if str(fdir) not in _sys.path:
         _sys.path.insert(0, str(fdir))
     try:
@@ -1085,7 +1085,7 @@ def _approve_parse(user: dict, text: str) -> str:
 def _save_sell_plan(user: dict, code: str, name: str, qty: int) -> str:
     """매도 요청 기록 — free_holdings 에 sell_qty + confirm: SellRequested."""
     from pathlib import Path as _P
-    _repo = _P(__file__).resolve().parents[1]
+    _repo = _P(__file__).resolve().parents[2]
     alloc_path = _repo / "mytrading" / "configs" / "allocations.yaml"
     try:
         data = _rt_load(alloc_path)
@@ -1152,7 +1152,7 @@ def _save_buy_plan(user: dict, code: str, name: str, plan: dict) -> str:
     """buy_plan 저장 + confirm: Approval. allocations.yaml."""
     import yaml
     from pathlib import Path as _P
-    _repo = _P(__file__).resolve().parents[1]
+    _repo = _P(__file__).resolve().parents[2]
     alloc_path = _repo / "mytrading" / "configs" / "allocations.yaml"
     try:
         data = _rt_load(alloc_path)
@@ -1181,7 +1181,7 @@ def _save_buy_plan(user: dict, code: str, name: str, plan: dict) -> str:
 # --- add 버튼 헬퍼 ---
 def _name_by_code(user: dict, code: str):
     from pathlib import Path as _P
-    _repo = _P(__file__).resolve().parents[1]
+    _repo = _P(__file__).resolve().parents[2]
     alloc_path = _repo / "mytrading" / "configs" / "allocations.yaml"
     try:
         data = _rt_load(alloc_path)
@@ -1199,7 +1199,7 @@ def _name_by_code(user: dict, code: str):
 
 def _delete_holding(user: dict, code: str) -> str:
     from pathlib import Path as _P
-    _repo = _P(__file__).resolve().parents[1]
+    _repo = _P(__file__).resolve().parents[2]
     alloc_path = _repo / "mytrading" / "configs" / "allocations.yaml"
     try:
         data = _rt_load(alloc_path)

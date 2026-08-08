@@ -12,7 +12,7 @@ import sys
 import argparse
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -76,7 +76,7 @@ def main():
     print(msg.replace("<b>", "").replace("</b>", ""))
     if args.notify:
         try:
-            from mytrading import notify
+            from mytrading.telegram import notify
             notify.send_message(msg)
             print("\n(텔레그램 발송)")
         except Exception as e:
