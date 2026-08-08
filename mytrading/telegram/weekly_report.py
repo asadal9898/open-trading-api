@@ -23,7 +23,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -160,7 +160,7 @@ def build_fx_section() -> str:
 def build_yield_curve_section() -> str:
     """장단기 금리차 섹션 (한국+미국). 실패 시 빈 문자열."""
     try:
-        from mytrading.yield_curve_alert import build_yield_curve_section as _yc
+        from mytrading.telegram.yield_curve_alert import build_yield_curve_section as _yc
         return _yc()
     except Exception:
         return ""

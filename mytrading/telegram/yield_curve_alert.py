@@ -12,7 +12,7 @@
   ※ 현재 스냅샷만 제공(시계열 아님) → 과거 백테스트는 별도 소스 필요.
 
 사용:
-  from mytrading.yield_curve_alert import build_yield_curve_alert, send_yield_curve_alert
+  from mytrading.telegram.yield_curve_alert import build_yield_curve_alert, send_yield_curve_alert
   msg = build_yield_curve_alert()          # 메시지 텍스트만
   send_yield_curve_alert()                 # 텔레그램 전송까지
 
@@ -25,7 +25,7 @@ from pathlib import Path
 from datetime import date
 
 _THIS_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = _THIS_DIR.parent
+_REPO_ROOT = _THIS_DIR.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 # comp_interest 예제 경로 추가
