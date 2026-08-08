@@ -30,7 +30,7 @@ from mytrading.common import init
 
 def load_universe_value_range():
     """universe.yaml 에서 value_range 종목 추출 (카테고리 무관)."""
-    p = (_ROOT / "mytrading" / "universe.yaml")
+    p = (_ROOT / "mytrading" / "configs" / "universe_ko.yaml")
     data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     out = []
     for cat, items in data.items():

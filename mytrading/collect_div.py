@@ -38,7 +38,7 @@ BACKUP = Path.home() / "div_history_5y.json.bak"
 def load_universe():
     """universe.yaml 의 value_range 종목 (코드, 이름)."""
     uni = yaml.safe_load(
-        (_ROOT / "mytrading" / "universe.yaml").read_text(encoding="utf-8")) or {}
+        (_ROOT / "mytrading" / "configs" / "universe_ko.yaml").read_text(encoding="utf-8")) or {}
     out, seen = [], set()
     for cat, items in uni.items():
         if not isinstance(items, list):

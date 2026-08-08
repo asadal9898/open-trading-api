@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path.cwd()))
 DIV = json.loads((Path.home()/"div_history_5y.json").read_text())
 
 # universe.yaml 의 AI 기록 배당률 파싱
-uni = Path("mytrading/universe.yaml").read_text(encoding="utf-8")
+uni = Path("mytrading/configs/universe_ko.yaml").read_text(encoding="utf-8")
 recorded = {}
 for m in re.finditer(r'code:\s*"(\d+)".*?name:\s*"([^"]+)".*?배당\s*([\d.]+)%', uni):
     recorded[m.group(1)] = (m.group(2), float(m.group(3)))

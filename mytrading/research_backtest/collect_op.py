@@ -9,7 +9,7 @@ from mytrading.dart_data import _get_dart
 d = _get_dart()
 OUT = Path("/tmp/op_history.json")
 
-uni = yaml.safe_load(open("mytrading/universe.yaml", encoding="utf-8"))
+uni = yaml.safe_load(open("mytrading/configs/universe_ko.yaml", encoding="utf-8"))
 stocks = []
 for cat in ("safe", "moderate", "aggressive"):
     for it in (uni.get(cat) or []):
