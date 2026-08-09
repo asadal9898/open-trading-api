@@ -53,9 +53,12 @@ class Portfolio:
     universe: Dict[str, List[dict]] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
 
-    def allocation_for(self, user_key: str, account_name: str) -> Optional[Allocation]:
-        """특정 유저/계좌의 비중. 없으면 None."""
-        return self.allocations.get(user_key, {}).get(account_name)
+    def allocation_for(self, user_key: str, account_name: str,
+                       mode: str = "vps") -> Optional[Allocation]:
+        """특정 유저/계좌/모드의 비중. '계좌|모드' 키 우선, 평면 키 폴백. 없으면 None."""
+        accts = self.allocations.get(user_key, {})
+        return (accts.get(f"{account_name}|{mode}")
+                or accts.get(account_name))
 
     def symbols(self, category: str = None) -> List[str]:
         """종목 코드 리스트. category 지정 시 그 분류만, 없으면 전체."""
@@ -135,17 +138,33 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
                     if isinstance(it, dict) and str(it.get("code", "")).strip():
                         free_syms.append({"code": str(it["code"]).strip(),
                                           "name": str(it.get("name", "")).strip()})
-            al = Allocation(
-                moderate=float(vals.get("moderate", 0) or 0),
-                free=float(vals.get("free", 0) or 0),
-                free_symbols=free_syms,
-            )
-            # cash 음수(=moderate+free>총자산) 검증은 총자산을 아는 사용처
-            # (_free_budget / /계좌)에서 수행. 파싱 시점엔 총자산이 없음.
-            if al.free > 0 and not free_syms:
-                warnings.append(
-                    f"{ukey}/{acc_name}: free 금액 {al.free:,.0f}원인데 free_symbols 없음")
-            allocations.setdefault(ukey, {})[acc_name] = al
+            # 모드 계층 판별: vals 안에 vps/prod 키가 있으면 모드별 구조,
+            # 없으면 평면 구조(하위호환) → vps 로 취급
+            mode_keys = [m for m in ("vps", "prod") if isinstance(vals.get(m), dict)]
+            if mode_keys:
+                for mode in mode_keys:
+                    mv = vals.get(mode) or {}
+                    al = Allocation(
+                        moderate=float(mv.get("moderate", 0) or 0),
+                        free=float(mv.get("free", 0) or 0),
+                        free_symbols=free_syms,
+                    )
+                    if al.free > 0 and not free_syms:
+                        warnings.append(
+                            f"{ukey}/{acc_name}/{mode}: free {al.free:,.0f}원인데 free_symbols 없음")
+                    # 키: "계좌|모드" 로 저장 (allocation_for 에서 분해)
+                    allocations.setdefault(ukey, {})[f"{acc_name}|{mode}"] = al
+            else:
+                # 평면 구조 (하위호환) → vps
+                al = Allocation(
+                    moderate=float(vals.get("moderate", 0) or 0),
+                    free=float(vals.get("free", 0) or 0),
+                    free_symbols=free_syms,
+                )
+                if al.free > 0 and not free_syms:
+                    warnings.append(
+                        f"{ukey}/{acc_name}: free 금액 {al.free:,.0f}원인데 free_symbols 없음")
+                allocations.setdefault(ukey, {})[f"{acc_name}|vps"] = al
 
     # --- 종목풀 ---
     uraw = _load_yaml(uni_path)

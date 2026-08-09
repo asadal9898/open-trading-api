@@ -188,9 +188,13 @@ def handle_command(user: dict, text: str) -> str:
     if cmd == "/account":
         return _cmd_account(user, args)
     if cmd == "/alloc":
-        if args:
-            return _cmd_alloc_set_line(user, args)
-        return _cmd_alloc(user)
+        _a0 = args[0].strip() if args else None
+        if _a0 in ("현금", "cash", "캐시"):
+            # /비중 현금 [일반/ISA]
+            _acc = args[1].strip() if len(args) > 1 else None
+            return _cmd_cash(user, _acc)
+        # /비중 [일반/ISA] 또는 /비중 (기본 일반증권)
+        return _cmd_alloc(user, _a0)
     return f"모르는 명령: {cmd}"
 
 
@@ -382,22 +386,167 @@ def _alloc_snapshot_equity():
         return None
 
 
-def _alloc_load(user: dict):
-    """(acc_name, Allocation) 첫 계좌. 없으면 (None, None)."""
+def _cur_mode() -> str:
+    """현재 봇 모드 → 'vps'/'prod'."""
+    return "vps" if _is_paper() else "prod"
+
+
+_ALLOC_ACC_ALIAS = {
+    "일반": "일반증권", "일반계좌": "일반증권", "일반증권": "일반증권",
+    "ISA": "ISA", "isa": "ISA", "개인자산": "ISA", "개인종합자산관리": "ISA",
+    "종합자산": "ISA", "개인": "ISA",
+}
+
+
+def _resolve_alloc_account(arg: str = None) -> str:
+    """계좌 인자 → 실제 계좌명. 없으면 기본 '일반증권'."""
+    if not arg:
+        return "일반증권"
+    return _ALLOC_ACC_ALIAS.get(arg.strip(), arg.strip())
+
+
+def _alloc_load(user: dict, account: str = None):
+    """(acc_name, Allocation) — 현재 모드·지정 계좌. 없으면 (None, None)."""
     try:
         from mytrading.portfolio import load_portfolio
         pf = load_portfolio()
-        accts = pf.allocations.get(user["key"], {}) or {}
-        for an, al in accts.items():
-            return an, al
+        mode = _cur_mode()
+        acc = _resolve_alloc_account(account)
+        al = pf.allocation_for(user["key"], acc, mode)
+        if al is not None:
+            return acc, al
     except Exception as e:
         print(f"[bot] alloc 로드 실패: {e}")
     return None, None
 
 
-def _cmd_alloc(user: dict) -> str:
+def _usd_bond_cond() -> dict:
+    """달러 단기채 편입 조건 판정.
+    조건1: 환율 순차상승 (6M<3M<현재 월평균) — 오르는 흐름일 때만 (내리는 칼 회피)
+    조건2: 미국 FFR > 한국 국고채3년 — 달러 단기 이자 유리 (한국이 높으면 제외)
+    둘 다 충족해야 달러 편입(5개) 안내. 반환 dict.
+    """
+    from pathlib import Path as _P
+    from datetime import date as _d, timedelta as _td
+    _idx = _P(__file__).resolve().parents[2] / "backtester" / ".lean-workspace" / "data" / "index"
+
+    def _load(name):
+        rows = []
+        try:
+            for ln in (_idx / f"{name}.csv").read_text().splitlines():
+                q = ln.split(",")
+                if len(q) < 5:
+                    continue
+                try:
+                    t = q[0]
+                    rows.append((_d(int(t[:4]), int(t[4:6]), int(t[6:8])), float(q[4])))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        rows.sort()
+        return rows
+
+    fx = _load("fx_usd")
+    out = {"ok": False, "cond1": False, "cond2": False,
+           "m6": None, "m3": None, "m0": None, "avg3y": None,
+           "ffr": None, "ktb": None}
+    if not fx:
+        return out
+    last = fx[-1][0]
+
+    def _mavg(months):
+        c = last - _td(days=30 * months)
+        vals = [v for dd, v in fx if c - _td(days=15) <= dd <= c + _td(days=15)]
+        return sum(vals) / len(vals) if vals else None
+
+    m6, m3, m0 = _mavg(6), _mavg(3), _mavg(0)
+    cut3 = last - _td(days=365 * 3)
+    a3 = [v for dd, v in fx if dd >= cut3]
+    avg3y = sum(a3) / len(a3) if a3 else None
+    out.update(m6=m6, m3=m3, m0=m0, avg3y=avg3y)
+    if None not in (m6, m3, m0):
+        out["cond1"] = (m6 < m3 < m0)
+
+    ffr_rows, ktb_rows = _load("us_ffr"), _load("ktb3y")
+    if ffr_rows and ktb_rows:
+        ffr, ktb = ffr_rows[-1][1], ktb_rows[-1][1]
+        out.update(ffr=ffr, ktb=ktb)
+        out["cond2"] = (ffr > ktb)
+
+    out["ok"] = out["cond1"] and out["cond2"]
+    return out
+
+
+def _cmd_cash(user: dict, account: str = None) -> str:
+    """/비중 현금 — cash 분할 안내. 4개(현금+원화ETF) 기본, 조건 충족 시 5개(+달러)."""
+    acc_name, al = _alloc_load(user, account)
+    if al is None:
+        return "계좌 배분 정보를 찾을 수 없어요. 먼저 /비중 으로 확인하세요."
+    te = _alloc_snapshot_equity()
+    mod = float(getattr(al, "moderate", 0) or 0)
+    free = float(getattr(al, "free", 0) or 0)
+
+    # 보수·자유 미설정 유도
+    if mod <= 0 and free <= 0:
+        return ("\U0001f4b5 현금 비중 설정\n─────\n"
+                "먼저 보수(moderate)와 자유(free) 금액을 정해야 해요.\n"
+                "그래야 남는 현금(cash)이 정해지고, 그 현금을 나눌 수 있어요.\n\n"
+                "/비중 에서 보수·자유를 먼저 설정하세요.")
+
+    cash = (te - mod - free) if te is not None else None
+    lines = ["\U0001f4b5 현금(cash) 운용 안내", "─────"]
+    if te is not None:
+        lines.append(f"총자산: {te:,.0f}원")
+        lines.append(f"보수 {mod:,.0f} + 자유 {free:,.0f}")
+        if cash is not None:
+            mk = "" if cash >= 0 else "  \u26d4 초과!"
+            lines.append(f"→ 여유현금(cash): {cash:,.0f}원{mk}")
+    lines.append("─────")
+
+    # 기본: 4개 구성 (현금 + 원화 ETF)
+    lines.append("\U0001f4e6 기본 구성 (4개)")
+    if cash is not None and cash > 0:
+        one5 = cash / 5.0
+        lines.append(f"  1/5 현금: {one5:,.0f}원 (직접 채권 매수용)")
+        lines.append(f"  4/5 원화 단기채 ETF: {cash - one5:,.0f}원")
+    else:
+        lines.append("  1/5 현금 (직접 채권 매수용)")
+        lines.append("  4/5 원화 단기채 ETF")
+    lines.append("     예: KODEX 단기채권 · SOL 초단기채권액티브 · TIGER 단기통안채")
+
+    # 달러 조건 판정 → 5개 안내 여부
+    c = _usd_bond_cond()
+    lines.append("─────")
+    if c["ok"]:
+        lines.append("\U0001f4b5 달러 추가 가능 (5개) — 조건 충족 \u2705")
+        if None not in (c["m6"], c["m3"], c["m0"]):
+            lines.append(f"  환율 순차상승: {c['m6']:.0f} < {c['m3']:.0f} < {c['m0']:.0f}")
+        if c["avg3y"] is not None:
+            lines.append(f"    (3년평균 {c['avg3y']:.0f}원)")
+        if None not in (c["ffr"], c["ktb"]):
+            lines.append(f"  미국금리 {c['ffr']:.2f}% > 한국 {c['ktb']:.2f}%")
+        lines.append("  → 미국달러 단기채 편입 검토 가능 (승인 필요)")
+    else:
+        lines.append("\U0001f6ab 달러 단기채 제외 (조건 미충족)")
+        why = []
+        if not c["cond2"] and None not in (c["ffr"], c["ktb"]):
+            why.append(f"한국 단기채가 높음 (한국 {c['ktb']:.2f}% ≥ 미국 {c['ffr']:.2f}%)")
+        if not c["cond1"]:
+            if None not in (c["m3"], c["m0"]) and c["m0"] < c["m3"]:
+                why.append(f"환율 하락 중 ({c['m3']:.0f}→{c['m0']:.0f})")
+            else:
+                why.append("환율 순차상승 아님")
+        for w in why:
+            lines.append(f"  · {w}")
+        lines.append("  → 지금은 원화 4개만 (달러는 유리해지면 안내)")
+
+    return "\n".join(lines)
+
+
+def _cmd_alloc(user: dict, account: str = None) -> str:
     """자금 배분(금액) 조회 + 설정 버튼. moderate/free 지정, cash 자동."""
-    acc_name, al = _alloc_load(user)
+    acc_name, al = _alloc_load(user, account)
     if al is None:
         return "계좌 배분 정보를 찾을 수 없어요. allocations.yaml 확인 필요."
     te = _alloc_snapshot_equity()
@@ -1072,13 +1221,9 @@ def _free_budget(user: dict):
     try:
         from mytrading.portfolio import load_portfolio
         pf = load_portfolio()
-        accts = pf.allocations.get(user["key"], {}) or {}
-        # free 금액 > 0 인 첫 계좌
-        acc_name, alloc = None, None
-        for _an, _al in accts.items():
-            if getattr(_al, "free", 0) and _al.free > 0:
-                acc_name, alloc = _an, _al
-                break
+        mode = _cur_mode()
+        acc_name = _resolve_alloc_account(user.get("_alloc_acc"))
+        alloc = pf.allocation_for(user["key"], acc_name, mode)
         if alloc is None:
             return (0.0, None, 0.0)
         from mytrading.common import get_brokerage

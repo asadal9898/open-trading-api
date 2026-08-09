@@ -1,80 +1,31 @@
-# 계좌별 자금 비중 (%) — 현금/공격/보수/안전/자유(free)
-# kis_devlp.yaml 의 users > 계좌 'name' 과 이름으로 연결됩니다.
-# 각 계좌의 비중 합은 100 이어야 합니다 (로더가 검증).
-#
-# 분류:
-#   cash       : 현금 보유 (투자 안 함)
-#   aggressive : 공격 — universe.yaml 공격 종목풀 (공용)
-#   moderate   : 보수 — universe.yaml 보수 종목풀 (공용)
-#   safe       : 안전 — universe.yaml 안전 종목풀 (공용)
-#   free       : 자유 — 각자 재량 종목 (개인별, 아래 free_holdings 에 직접 지정)
-#
-# free 는 사람마다 다른 자유 투자 영역입니다 (자율성 보장).
-# free 비중을 두면 free_holdings 에 그 사람이 원하는 종목을 직접 넣습니다.
-
 users:
   Owner:
     accounts:
-      일반증권1: { cash: 20, aggressive: 30, moderate: 20, safe: 20, free: 10 } # 자유 투자 10% (합 100)
-      # ISA: { cash: 20, aggressive: 30, moderate: 20, safe: 20, free: 10 } # 자유 투자 10% (합 100)
-      # IRP: { cash: 0, aggressive: 0, moderate: 0, safe: 0, free: 0 }   # 조회 전용 (합 0)
-
-  # brother:
-  #   accounts:
-      # 일반증권1: { cash: 20, aggressive: 30, moderate: 20, safe: 20, free: 10 } # 자유 투자 10% (합 100)
-      # ISA: { cash: 20, aggressive: 30, moderate: 20, safe: 20, free: 10 } # 자유 투자 10% (합 100)
-      # IRP: { cash: 0, aggressive: 0, moderate: 0, safe: 0, free: 0 }   # 조회 전용 (합 0)
-
-# ────────────────────────────────────────────────────────────
-# [예제] free_holdings 종목의 전체 필드 구조 (주석 — 실제 아님)
-#
-# /add 로 추가 시 (confirm: Waiting, buy_plan 없음):
-# free_holdings:
-#   Owner:
-#     일반증권1:
-#       - code: '005930'
-#         name: 삼성전자
-#         style: free
-#         added_by: telegram        # 추가 경로 (telegram / 수동)
-#         confirm: Waiting          # Waiting=관찰 / Approval=매수승인
-#         added_date: '2026-07-01'
-#         dividend: 1               # 배당 있음(1) / 없음(0)
-#         sector: 전기·전자          # 업종전망→종목 주의알림용
-#         industry: 통신 및 방송 장비 제조업   # 표준산업분류 (부채해석·전망). 모의추가 시 '모의추가' 마커 → prod에서 보완
-#         note: 자유투자
-#
-# /approve 로 매수 승인 시 (confirm: Approval, buy_plan 추가):
-#       - code: '005930'
-#         name: 삼성전자
-#         style: free
-#         added_by: telegram
-#         confirm: Approval         # 매수 승인됨
-#         added_date: '2026-07-01'
-#         dividend: 1
-#         sector: 전기·전자
-#         industry: 통신 및 방송 장비 제조업
-#         note: 자유투자
-#         buy_plan:                 # 매수 계획 (approve 때 지정)
-#           onetime: 5              # 일시매수 5주 (0=일시매수 없이 분할만)
-#           split:                  # 분할매수
-#             every: weekly         # daily(매일) / weekly(주1회) / biweekly(격주) / monthly(매월)
-#             qty: 1                # 매 회 1주씩
-#
-#  brother:
-#    일반증권1:
-#         ....
-# ────────────────────────────────────────────────────────────
-
+      일반증권:
+        vps: {moderate: 5000000, free: 3000000}
+        prod: {moderate: 0, free: 0}
+      ISA:
+        prod: {moderate: 0, free: 0}
 free_holdings:
   Owner:
     일반증권1:
-    - code: '000660'
-      name: SK하이닉스
-      style: free
-      added_by: telegram
-      confirm: Waiting
-      added_date: '2026-06-28'
-      dividend: 1
-      sector: 전기·전자
-      industry: 반도체 제조업
-      note: 자유투자
+      - code: '000660'
+        name: SK하이닉스
+        style: free
+        added_by: telegram
+        confirm: Waiting
+        added_date: '2026-06-28'
+        dividend: 1
+        sector: 전기·전자
+        industry: 반도체 제조업
+        note: 자유투자
+      - code: 049720
+        name: 고려신용정보
+        style: free
+        added_by: telegram
+        confirm: Approval
+        added_date: '2026-08-02'
+        sector: ''
+        industry: 신용조사 및 추심 대행업
+        note: 자유투자
+        buy_plan: {}
