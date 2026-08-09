@@ -10,11 +10,11 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from mytrading.gmail_client import read_label
+from mytrading.reports.gmail_client import read_label
 from mytrading.telegram import notify
 
 
@@ -176,7 +176,7 @@ def check_kis_maintenance() -> bool:
 
     # 라벨 메일 읽기 (본문 원본 HTML 필요 → gmail_client 저수준 재사용)
     import imaplib, email
-    from mytrading.gmail_client import _creds, _utf7_encode, _dec_header
+    from mytrading.reports.gmail_client import _creds, _utf7_encode, _dec_header
     try:
         addr, pw = _creds()
         M = imaplib.IMAP4_SSL("imap.gmail.com", 993)

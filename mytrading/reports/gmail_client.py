@@ -7,7 +7,7 @@ Gmail 연동 클라이언트 (IMAP 읽기 + SMTP 발송).
     my_GMAIL_app_password: "앱비밀번호16자리"
 
 사용:
-    from mytrading.gmail_client import read_label, send_mail, list_labels
+    from mytrading.reports.gmail_client import read_label, send_mail, list_labels
     mails = read_label("경제/한국은행", limit=10)   # 최근 10개
     for m in mails:
         print(m["date"], m["subject"], m["from"])

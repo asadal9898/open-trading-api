@@ -33,7 +33,7 @@ from urllib.parse import urljoin
 import requests
 
 # ── 경로: 이 파일은 mytrading/ 안에 있다 ──────────────────────────
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -43,7 +43,7 @@ if _BACKTESTER.exists() and str(_BACKTESTER) not in sys.path:
 
 try:
     from mytrading.common import init, CONFIG_PATH as COMMON_CFG_PATH
-    from mytrading.gmail_client import read_label, list_labels
+    from mytrading.reports.gmail_client import read_label, list_labels
     from mytrading.order_pace import compute_slice
     from mytrading.telegram import notify
 except ImportError as e:
