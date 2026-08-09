@@ -46,6 +46,24 @@ from mytrading.portfolio import load_portfolio
 
 # 대기 상태 저장 (종목 선택 중) — chat_id별
 _PENDING_FILE = notify.CONFIG_PATH.parent / ".telegram_pending"
+_MODE_FILE = notify.CONFIG_PATH.parent / ".telegram_mode"
+
+
+def _bot_mode_load():
+    """봇 모드 파일 읽기 → 'prod'/'vps'/None. 없으면 None."""
+    try:
+        if _MODE_FILE.exists():
+            v = _MODE_FILE.read_text(encoding="utf-8").strip().lower()
+            if v in ("prod", "vps"):
+                return v
+    except Exception:
+        pass
+    return None
+
+
+def _bot_mode_save(mode: str):
+    """봇 모드 파일 쓰기 (prod/vps)."""
+    _MODE_FILE.write_text(mode.strip().lower(), encoding="utf-8")
 
 # notify 의 설정/토큰 재사용
 _cfg = notify._load_config()
@@ -111,6 +129,7 @@ def handle_command(user: dict, text: str) -> str:
         "/매수": "/buy", "/분할매수": "/splitbuy", "/매도": "/sell",
         "/재부팅": "/reboot", "/도움": "/help", "/시작": "/start",
         "/상태": "/status", "/계좌": "/account", "/비중": "/alloc",
+        "/모드": "/mode",
     }
     cmd = _KO.get(cmd, cmd)
 
@@ -126,7 +145,8 @@ def handle_command(user: dict, text: str) -> str:
                 "/splitbuy(/분할매수) 종목명 - 승인 종목 분할매수\n"
                 "/sell(/매도) 종목명 - 보유 종목 매도\n"
                 "/list(/목록 /종목) - 내 종목\n"
-                "/status(/상태) - 모드·계좌·등록종목\n"                "/account(/계좌) - 계좌 상세(예산·보유종목)\n"                "/alloc(/비중) - 자금배분(자유·보수 금액 설정)\n"
+                "/status(/상태) - 모드·계좌·등록종목\n"
+                "/mode(/모드) 실전|모의 - 계좌 조회 모드 전환\n"                "/account(/계좌) - 계좌 상세(예산·보유종목)\n"                "/alloc(/비중) - 자금배분(자유·보수 금액 설정)\n"
                 "/reboot(/재부팅) - 재부팅 (owner)")
     if cmd == "/add":
         if not args:
@@ -161,15 +181,38 @@ def handle_command(user: dict, text: str) -> str:
         return "취소했어요."
     if cmd == "/list":
         return _cmd_list(user, args)
+    if cmd == "/mode":
+        return _cmd_mode(user, args)
     if cmd == "/status":
         return _cmd_status(user)
     if cmd == "/account":
-        return _cmd_account(user)
+        return _cmd_account(user, args)
     if cmd == "/alloc":
         if args:
             return _cmd_alloc_set_line(user, args)
         return _cmd_alloc(user)
     return f"모르는 명령: {cmd}"
+
+
+def _cmd_mode(user: dict, args=None) -> str:
+    """/모드 — 실전/모의 전환 (봇 표시 모드). 인자 없으면 현재 모드."""
+    cur = "모의투자 (vps)" if _is_paper() else "실전투자 (prod)"
+    if not args:
+        return (f"\U0001f501 현재 모드: {cur}\n"
+                "─────\n"
+                "/모드 실전  → 실전 계좌\n"
+                "/모드 모의  → 모의 계좌")
+    arg = args[0].strip().lower()
+    if arg in ("실전", "prod", "실전투자"):
+        _bot_mode_save("prod")
+        return ("\U0001f6a8 실전투자(prod)로 전환했습니다.\n"
+                "이제 /계좌 는 실전 계좌를 조회합니다.\n"
+                "\u26a0\ufe0f 실제 주문 시 실제 자금이 사용됩니다.")
+    if arg in ("모의", "vps", "모의투자"):
+        _bot_mode_save("vps")
+        return ("\u2705 모의투자(vps)로 전환했습니다.\n"
+                "이제 /계좌 는 모의 계좌를 조회합니다.")
+    return f"'{args[0]}' 는 몰라요. /모드 실전 또는 /모드 모의 로 쓰세요."
 
 
 def _cmd_status(user: dict) -> str:
@@ -211,43 +254,82 @@ def _cmd_status(user: dict) -> str:
             f"자세히: /계좌")
 
 
-def _cmd_account(user: dict) -> str:
-    """자세한 계좌 정보 — 자유예산·주문가능현금·보유종목 상세·등록종목."""
-    paper = _is_paper()
-    mode_line = "✅ 모의투자 (vps)" if paper else "🚨 실전투자 (prod)"
-    lines = [f"\U0001f4bc 계좌 상세", "\u2500\u2500\u2500\u2500", f"모드: {mode_line}"]
-    # 평가금액·현금·보유
+def _cmd_account(user: dict, args=None) -> str:
+    """계좌 목록 (유형별) + 맨 아래 모의계좌 잔고 상세."""
+    arg = (args[0] if args else "전체").strip()
+    type_map = {
+        "전체": None,
+        "일반계좌": "일반", "일반": "일반",
+        "연금": "연금", "퇴직연금": "연금", "IRP": "연금", "irp": "연금",
+        "개인종합자산관리": "ISA", "개인": "ISA", "종합자산": "ISA",
+        "ISA": "ISA", "isa": "ISA",
+    }
+    if arg not in type_map:
+        return ("'" + arg + "' 유형을 몰라요.\n"
+                "/계좌 전체 · 일반 · 연금 · ISA 중 하나로 조회하세요.")
+    target = type_map[arg]
+
+    # 계좌 로드 + 유형별 분류
     try:
-        from mytrading.common import get_brokerage
-        from mytrading.account_snapshot import get_snapshot
-        snap = get_snapshot(get_brokerage())
-        lines.append(f"총평가금액: {snap.total_equity:,.0f}원")
-        _cash = float(snap.total_equity) - float(snap.holdings_value)
-        lines.append(f"주문가능현금: {_cash:,.0f}원")
-        # 자유예산
-        budget, acc_name, free_pct = _free_budget(user)
-        if acc_name:
-            lines.insert(3, f"계좌: {acc_name}")
-        if budget >= 0:
-            lines.append(f"자유예산: {budget:,.0f}원 (한도 {free_pct:,.0f}원, 보유 차감후)")
-        # 보유종목 상세
-        lines.append("\u2500\u2500\u2500\u2500")
-        if snap.holdings:
-            lines.append(f"\U0001f4e6 보유종목 {len(snap.holdings)}개")
-            for h in snap.holdings:
-                pnl = f"{h.pnl_percent:+.1f}%" if h.pnl_percent is not None else ""
-                lines.append(f"  {h.name}({h.symbol}) {h.quantity}주 "
-                             f"{h.market_value:,.0f}원 {pnl}")
-                # 집중도: free 한도 대비 이 종목 보유 비중 (한도>0일 때만)
-                if free_pct and free_pct > 0:
-                    _conc = float(h.market_value) / float(free_pct) * 100.0
-                    _warn = "  \u26a0\ufe0f 집중 경고 (50% 초과)" if _conc > 50 else ""
-                    lines.append(f"    \u2514 free 한도의 {_conc:.0f}%{_warn}")
-        else:
-            lines.append("\U0001f4e6 보유종목 없음")
+        from mytrading.accounts import load_accounts, account_type
+        accs = [a for u in load_accounts().users
+                if u.key == user["key"] for a in u.accounts]
     except Exception as e:
-        lines.append(f"계좌 조회 실패: {e}")
-    # 등록종목
+        return f"계좌 로드 실패: {e}"
+    grouped = {"일반": [], "연금": [], "ISA": []}
+    for a in accs:
+        grouped.setdefault(account_type(a), []).append(a)
+
+    # 특정 유형 조회인데 없으면
+    if target and not grouped.get(target):
+        have = ", ".join(f"{a.name}({account_type(a)})" for a in accs) or "없음"
+        return f"'{arg}' 계좌가 없습니다.\n등록된 계좌: {have}"
+
+    lines = ["\U0001f4bc 계좌 목록"]
+    show_types = [target] if target else ["일반", "연금", "ISA"]
+    for t in show_types:
+        accts = grouped.get(t, [])
+        lines.append("\u2500\u2500\u2500\u2500")
+        lines.append(f"\u25a0 {t} ({len(accts)}개)")
+        if accts:
+            for a in accts:
+                order = "주문가능 \u2705" if getattr(a, "can_order", True) else "조회전용 \U0001f512"
+                lines.append(f"   {a.name} — {order}")
+        else:
+            lines.append("   (없음)")
+
+    # 맨 아래: 모의계좌 잔고 상세 (있을 때만)
+    if _is_paper():
+        lines.append("\u2500\u2500\u2500\u2500")
+        lines.append("\U0001f9ea 모의계좌")
+        try:
+            from mytrading.common import get_brokerage
+            from mytrading.account_snapshot import get_snapshot
+            snap = get_snapshot(get_brokerage())
+            budget, acc_name, free_pct = _free_budget(user)
+            if acc_name:
+                lines.append(f"계좌: {acc_name} (모의)")
+            lines.append(f"총평가금액: {snap.total_equity:,.0f}원")
+            _cash = float(snap.total_equity) - float(snap.holdings_value)
+            lines.append(f"주문가능현금: {_cash:,.0f}원")
+            if budget >= 0:
+                lines.append(f"자유예산: {budget:,.0f}원 (한도 {free_pct:,.0f}원, 보유 차감후)")
+            if snap.holdings:
+                lines.append(f"\U0001f4e6 보유종목 {len(snap.holdings)}개")
+                for h in snap.holdings:
+                    pnl = f"{h.pnl_percent:+.1f}%" if h.pnl_percent is not None else ""
+                    lines.append(f"  {h.name}({h.symbol}) {h.quantity}주 "
+                                 f"{h.market_value:,.0f}원 {pnl}")
+                    if free_pct and free_pct > 0:
+                        _conc = float(h.market_value) / float(free_pct) * 100.0
+                        _warn = "  \u26a0\ufe0f 집중 경고 (50% 초과)" if _conc > 50 else ""
+                        lines.append(f"    \u2514 free 한도의 {_conc:.0f}%{_warn}")
+            else:
+                lines.append("\U0001f4e6 보유종목 없음")
+        except Exception as e:
+            lines.append(f"모의계좌 조회 실패: {e}")
+
+    # 자유 등록종목 수
     n_free = 0
     try:
         from pathlib import Path as _P
@@ -261,6 +343,7 @@ def _cmd_account(user: dict) -> str:
         pass
     lines.append("\u2500\u2500\u2500\u2500")
     lines.append(f"자유 등록종목: {n_free}개 (/목록 으로 상세)")
+    return "\n".join(lines)
     return "\n".join(lines)
 
 
@@ -937,7 +1020,10 @@ def _cmd_approve(user: dict, query: str) -> str:
 
 
 def _is_paper() -> bool:
-    """현재 모의투자(vps) 모드인가. common.resolve_mode 재사용."""
+    """현재 모의투자(vps) 모드인가. 봇 /모드 설정 우선, 없으면 resolve_mode."""
+    saved = _bot_mode_load()
+    if saved:
+        return saved == "vps"
     try:
         from mytrading.common import resolve_mode
         return resolve_mode() == "vps"
