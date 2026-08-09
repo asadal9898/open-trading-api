@@ -61,7 +61,7 @@ def _print_account_once(acc: dict):
         _account_printed = key
 
 
-def _resolve_account(is_paper: bool) -> dict:
+def _resolve_account(is_paper: bool, account_name: str = None) -> dict:
     """
     현재 사용할 계좌의 키/계좌번호를 결정.
     - kis_devlp.yaml 에 users 섹션이 있으면: 선택된 계좌(기본 Owner 첫 주문가능 계좌) 사용
@@ -82,7 +82,7 @@ def _resolve_account(is_paper: bool) -> dict:
 
     if adata and adata.enabled:
         user_key = os.environ.get("KIS_USER", "").strip()
-        acct_name = os.environ.get("KIS_ACCOUNT", "").strip()
+        acct_name = (account_name or os.environ.get("KIS_ACCOUNT", "")).strip()
 
         user = adata.get_user(user_key) if user_key else (adata.owner or adata.users[0])
         if user is None:
@@ -119,7 +119,7 @@ def _resolve_account(is_paper: bool) -> dict:
                 "source": "단일계정(실전)", "can_order": True, "prod": str(cfg.get("my_prod", "01"))}
 
 
-def _invalidate_token_if_mode_changed(is_paper: bool):
+def _invalidate_token_if_mode_changed(is_paper: bool, account_name: str = None):
     """
     모의/실전 모드가 직전과 다르면 토큰 캐시를 비운다.
     kis_auth 는 모의/실전이 같은 날짜 파일(KIS{YYYYMMDD})을 공유하므로,
@@ -144,7 +144,12 @@ def _invalidate_token_if_mode_changed(is_paper: bool):
     if last_mode is not None and last_mode != mode:
         try:
             if hasattr(ka, "token_tmp") and Path(ka.token_tmp).exists():
-                Path(ka.token_tmp).write_text("", encoding="utf-8")
+                Path(ka.token_tmp).unlink()
+            # kis_auth 전역 인증도 리셋 (계좌 전환 시 이전 _TRENV 잔존 방지)
+            try:
+                ka._TRENV = tuple()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -163,7 +168,18 @@ def _inject_auth_cfg(acc: dict, is_paper: bool):
     """
     import kis_auth as ka
     # 모드 전환 시 토큰 무효화 (모의↔실전 충돌 방지)
-    _invalidate_token_if_mode_changed(is_paper)
+    # 계좌별 토큰 파일 분리 — 같은 날짜 토큰을 계좌끼리 공유하지 않게
+    try:
+        import kis_auth as _ka
+        from datetime import datetime as _dt
+        _tag = (acc.get("source") or "_default").replace("/", "_")
+        _m = "vps" if is_paper else "prod"
+        _dirn = os.path.dirname(_ka.token_tmp)
+        _ka.token_tmp = os.path.join(
+            _dirn, f"KIS{_dt.today().strftime('%Y%m%d')}_{_m}_{_tag}")
+    except Exception:
+        pass
+    _invalidate_token_if_mode_changed(is_paper, acc.get('source'))
     if is_paper:
         ka._cfg["paper_app"] = acc["app_key"]
         ka._cfg["paper_sec"] = acc["app_secret"]
@@ -192,6 +208,16 @@ def resolve_mode() -> str:
             print(f"[FAIL] KIS_MODE 값이 잘못됨: '{env_mode}' (vps 또는 prod만 가능)")
             sys.exit(1)
         return env_mode
+
+    # 봇 /모드 파일 (.telegram_mode) — 봇에서 실전/모의 전환 (prod 허용)
+    try:
+        _mode_file = Path.home() / "KIS" / "config" / ".telegram_mode"
+        if _mode_file.exists():
+            _bm = _mode_file.read_text(encoding="utf-8").strip().lower()
+            if _bm in _VALID_MODES:
+                return _bm
+    except Exception:
+        pass
 
     yaml_mode = (CONFIG.get("kis_mode") or "").strip().lower()
     if yaml_mode == "prod":
@@ -342,7 +368,7 @@ def get_data_provider():
     return KISDataProvider(auth)
 
 
-def get_brokerage():
+def get_brokerage(account_name: str = None):
     """
     주문/잔고용 KISBrokerageProvider 생성.
     현재 모드(vps/prod)에 맞는 계좌(멀티계좌 users 또는 단일계정)를 자동 선택.
@@ -355,7 +381,7 @@ def get_brokerage():
 
     mode = resolve_mode()
     is_paper = (mode == "vps")
-    acc = _resolve_account(is_paper)
+    acc = _resolve_account(is_paper, account_name)
     _print_account_once(acc)
     if not acc.get("can_order", True):
         print(f"  ⚠️ [account] {acc['source']} 는 주문 불가 계좌(IRP 등)입니다. 조회만 가능.")

@@ -4,7 +4,7 @@
 
 설계:
   - 앱키는 계좌 종류마다 따로 (일반/ISA/IRP 각각). KIS 정책.
-  - IRP 는 주문 불가 → can_order=false (로더가 강제).
+  - IRP(퇴직연금)는 거래·조회 모두 불가 → 앱키 발급 자체가 안 됨(KIS API 미지원). 시스템에서 제외.
   - users 아래 사람 단위(Owner + 기타). 최대 max_users 명.
   - users 섹션이 없으면 → 멀티계좌 미사용 상태(빈 구조). 기존 kis_devlp.yaml 단일계정 흐름과 공존.
 
@@ -27,8 +27,30 @@ ACCOUNTS_PATH = Path.home() / "KIS" / "config" / "kis_devlp.yaml"
 
 # 필수 필드 (yaml 키 기준: kis_devlp 와 통일된 my_app/my_sec)
 _ACCOUNT_REQUIRED = ("name", "my_app", "my_sec", "my_acct_stock", "prod")
-# IRP 판별 키워드 (이름에 IRP/연금 들어가거나 prod 가 연금계열이면 주문 차단 권고)
+# 연금 판별 (prod 22=개인연금, 29=퇴직연금/IRP). IRP는 거래·조회 모두 불가라 앱키 없음 → API로 못 다룸
 _PENSION_PRODS = {"22", "29"}  # 22=개인연금, 29=퇴직연금
+_ISA_KEYWORDS = ("ISA", "종합자산", "개인종합")
+_PENSION_KEYWORDS = ("IRP", "연금", "퇴직")
+
+
+def account_type(acc) -> str:
+    """계좌 유형 판별: '연금' | 'ISA' | '일반'.
+    - 연금: prod 22/29 또는 이름에 IRP/연금/퇴직. IRP는 거래·조회 모두 불가(API 미지원)
+    - ISA: 이름에 ISA/종합자산/개인종합 (prod는 01일 수 있어 이름 기반)
+    - 일반: 그 외
+    Account 객체 또는 dict 둘 다 받음.
+    """
+    if hasattr(acc, "prod"):
+        prod = str(getattr(acc, "prod", "")).strip()
+        name = str(getattr(acc, "name", "")).upper()
+    else:
+        prod = str(acc.get("prod", "")).strip()
+        name = str(acc.get("name", "")).upper()
+    if prod in _PENSION_PRODS or any(k in name for k in ("IRP", "연금", "퇴직")):
+        return "연금"
+    if any(k.upper() in name for k in _ISA_KEYWORDS):
+        return "ISA"
+    return "일반"
 
 
 @dataclass
@@ -146,7 +168,7 @@ def load_accounts(path: Path = ACCOUNTS_PATH) -> AccountsData:
 
             prod = str(acc["prod"]).strip()
             can_order = bool(acc.get("can_order", True))
-            # IRP/연금 계열은 주문 불가 강제 (안전장치)
+            # 연금 계열은 주문 불가 강제 (안전장치). IRP는 거래·조회 모두 불가라 앱키 없어 애초에 로드 안 됨
             name = str(acc["name"]).strip()
             if ("IRP" in name.upper() or prod in _PENSION_PRODS) and can_order:
                 warnings.append(

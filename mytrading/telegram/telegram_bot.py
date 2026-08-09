@@ -254,8 +254,42 @@ def _cmd_status(user: dict) -> str:
             f"자세히: /계좌")
 
 
+def _acct_balance_lines(user, account_name, is_paper):
+    """지정 계좌의 잔고 표시 줄 리스트. 실패해도 안내만."""
+    out = []
+    try:
+        from mytrading.common import get_brokerage
+        from mytrading.account_snapshot import get_snapshot
+        snap = get_snapshot(get_brokerage(account_name=account_name))
+        out.append(f"   총평가금액: {snap.total_equity:,.0f}원")
+        _cash = float(snap.total_equity) - float(snap.holdings_value)
+        out.append(f"   주문가능현금: {_cash:,.0f}원")
+        # 자유예산은 모의(대표계좌)에서만 (allocations 기준)
+        if is_paper:
+            budget, acc_name, free_pct = _free_budget(user)
+            if budget >= 0:
+                out.append(f"   자유예산: {budget:,.0f}원 (한도 {free_pct:,.0f}원, 보유 차감후)")
+        else:
+            free_pct = 0
+        if snap.holdings:
+            out.append(f"   \U0001f4e6 보유종목 {len(snap.holdings)}개")
+            for h in snap.holdings:
+                pnl = f"{h.pnl_percent:+.1f}%" if h.pnl_percent is not None else ""
+                out.append(f"     {h.name}({h.symbol}) {h.quantity}주 "
+                           f"{h.market_value:,.0f}원 {pnl}")
+                if is_paper and free_pct and free_pct > 0:
+                    _conc = float(h.market_value) / float(free_pct) * 100.0
+                    _warn = "  \u26a0\ufe0f 집중 경고 (50% 초과)" if _conc > 50 else ""
+                    out.append(f"       \u2514 free 한도의 {_conc:.0f}%{_warn}")
+        else:
+            out.append("   \U0001f4e6 보유종목 없음")
+    except Exception as e:
+        out.append(f"   조회 실패: {e}")
+    return out
+
+
 def _cmd_account(user: dict, args=None) -> str:
-    """계좌 목록 (유형별) + 맨 아래 모의계좌 잔고 상세."""
+    """모드별 계좌: 모의=모의계좌만, 실전=일반·ISA 각각 잔고."""
     arg = (args[0] if args else "전체").strip()
     type_map = {
         "전체": None,
@@ -269,7 +303,6 @@ def _cmd_account(user: dict, args=None) -> str:
                 "/계좌 전체 · 일반 · 연금 · ISA 중 하나로 조회하세요.")
     target = type_map[arg]
 
-    # 계좌 로드 + 유형별 분류
     try:
         from mytrading.accounts import load_accounts, account_type
         accs = [a for u in load_accounts().users
@@ -280,54 +313,41 @@ def _cmd_account(user: dict, args=None) -> str:
     for a in accs:
         grouped.setdefault(account_type(a), []).append(a)
 
-    # 특정 유형 조회인데 없으면
-    if target and not grouped.get(target):
-        have = ", ".join(f"{a.name}({account_type(a)})" for a in accs) or "없음"
-        return f"'{arg}' 계좌가 없습니다.\n등록된 계좌: {have}"
+    paper = _is_paper()
+    mode_txt = "모의투자" if paper else "실전투자"
+    lines = [f"\U0001f4bc 계좌 ({mode_txt})"]
 
-    lines = ["\U0001f4bc 계좌 목록"]
-    show_types = [target] if target else ["일반", "연금", "ISA"]
-    for t in show_types:
-        accts = grouped.get(t, [])
-        lines.append("\u2500\u2500\u2500\u2500")
-        lines.append(f"\u25a0 {t} ({len(accts)}개)")
-        if accts:
-            for a in accts:
-                order = "주문가능 \u2705" if getattr(a, "can_order", True) else "조회전용 \U0001f512"
-                lines.append(f"   {a.name} — {order}")
-        else:
-            lines.append("   (없음)")
-
-    # 맨 아래: 모의계좌 잔고 상세 (있을 때만)
-    if _is_paper():
+    if paper:
+        # 모의 모드: 모의계좌만 (일반증권 모의)
         lines.append("\u2500\u2500\u2500\u2500")
         lines.append("\U0001f9ea 모의계좌")
-        try:
-            from mytrading.common import get_brokerage
-            from mytrading.account_snapshot import get_snapshot
-            snap = get_snapshot(get_brokerage())
-            budget, acc_name, free_pct = _free_budget(user)
-            if acc_name:
-                lines.append(f"계좌: {acc_name} (모의)")
-            lines.append(f"총평가금액: {snap.total_equity:,.0f}원")
-            _cash = float(snap.total_equity) - float(snap.holdings_value)
-            lines.append(f"주문가능현금: {_cash:,.0f}원")
-            if budget >= 0:
-                lines.append(f"자유예산: {budget:,.0f}원 (한도 {free_pct:,.0f}원, 보유 차감후)")
-            if snap.holdings:
-                lines.append(f"\U0001f4e6 보유종목 {len(snap.holdings)}개")
-                for h in snap.holdings:
-                    pnl = f"{h.pnl_percent:+.1f}%" if h.pnl_percent is not None else ""
-                    lines.append(f"  {h.name}({h.symbol}) {h.quantity}주 "
-                                 f"{h.market_value:,.0f}원 {pnl}")
-                    if free_pct and free_pct > 0:
-                        _conc = float(h.market_value) / float(free_pct) * 100.0
-                        _warn = "  \u26a0\ufe0f 집중 경고 (50% 초과)" if _conc > 50 else ""
-                        lines.append(f"    \u2514 free 한도의 {_conc:.0f}%{_warn}")
-            else:
-                lines.append("\U0001f4e6 보유종목 없음")
-        except Exception as e:
-            lines.append(f"모의계좌 조회 실패: {e}")
+        # 모의 키 있는 계좌 (보통 일반증권)
+        paper_accs = [a for a in accs
+                      if (a.has_paper() if callable(getattr(a, "has_paper", None))
+                          else False)]
+        if paper_accs:
+            for a in paper_accs:
+                lines.append(f"   {a.name} (모의)")
+                lines += _acct_balance_lines(user, a.name, is_paper=True)
+        else:
+            lines += _acct_balance_lines(user, None, is_paper=True)
+    else:
+        # 실전 모드: 조회할 유형 (연금/IRP 제외 — 조회 불가)
+        show_types = [target] if target else ["일반", "ISA"]
+        for t in show_types:
+            accts = grouped.get(t, [])
+            lines.append("\u2500\u2500\u2500\u2500")
+            lines.append(f"\u25a0 {t} ({len(accts)}개)")
+            if not accts:
+                lines.append("   (없음)")
+                continue
+            for a in accts:
+                lines.append(f"   {a.name}")
+                lines += _acct_balance_lines(user, a.name, is_paper=False)
+        # 특정 유형인데 없으면
+        if target and not grouped.get(target):
+            have = ", ".join(f"{a.name}({account_type(a)})" for a in accs) or "없음"
+            return f"'{arg}' 계좌가 없습니다.\n등록된 계좌: {have}"
 
     # 자유 등록종목 수
     n_free = 0
@@ -344,9 +364,6 @@ def _cmd_account(user: dict, args=None) -> str:
     lines.append("\u2500\u2500\u2500\u2500")
     lines.append(f"자유 등록종목: {n_free}개 (/목록 으로 상세)")
     return "\n".join(lines)
-    return "\n".join(lines)
-
-
 def _looks_like_amount(text: str) -> bool:
     """금액 입력처럼 보이나 (숫자/콤마/원 허용)."""
     t = text.replace(",", "").replace("원", "").replace(" ", "").strip()
