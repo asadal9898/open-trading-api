@@ -374,12 +374,13 @@ def _looks_like_amount(text: str) -> bool:
     return t.isdigit()
 
 
-def _alloc_snapshot_equity():
-    """총자산 조회. 실패 시 None."""
+def _alloc_snapshot_equity(account: str = None):
+    """총자산 조회 (계좌 지정 가능). 실패 시 None."""
     try:
         from mytrading.common import get_brokerage
         from mytrading.account_snapshot import get_snapshot
-        snap = get_snapshot(get_brokerage())
+        brk = get_brokerage(account_name=account) if account else get_brokerage()
+        snap = get_snapshot(brk)
         return float(snap.total_equity)
     except Exception as e:
         print(f"[bot] alloc 총자산 조회 실패: {e}")
@@ -483,7 +484,7 @@ def _cmd_cash(user: dict, account: str = None) -> str:
     acc_name, al = _alloc_load(user, account)
     if al is None:
         return "계좌 배분 정보를 찾을 수 없어요. 먼저 /비중 으로 확인하세요."
-    te = _alloc_snapshot_equity()
+    te = _alloc_snapshot_equity(acc_name)
     mod = float(getattr(al, "moderate", 0) or 0)
     free = float(getattr(al, "free", 0) or 0)
 
@@ -549,7 +550,7 @@ def _cmd_alloc(user: dict, account: str = None) -> str:
     acc_name, al = _alloc_load(user, account)
     if al is None:
         return "계좌 배분 정보를 찾을 수 없어요. allocations.yaml 확인 필요."
-    te = _alloc_snapshot_equity()
+    te = _alloc_snapshot_equity(acc_name)
     mod = float(getattr(al, "moderate", 0) or 0)
     free = float(getattr(al, "free", 0) or 0)
     lines = ["💰 자금 배분 (금액)", "─────"]
@@ -1228,7 +1229,7 @@ def _free_budget(user: dict):
             return (0.0, None, 0.0)
         from mytrading.common import get_brokerage
         from mytrading.account_snapshot import get_snapshot
-        snap = get_snapshot(get_brokerage())
+        snap = get_snapshot(get_brokerage(account_name=acc_name) if acc_name else get_brokerage())
         total_eq = float(snap.total_equity)
         # cash 음수 검증: moderate+free 가 총자산 초과면 설정 오류
         if alloc.cash(total_eq) < 0:
