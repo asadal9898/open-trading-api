@@ -565,8 +565,8 @@ def _cmd_alloc(user: dict, account: str = None) -> str:
         lines.append(f"cash(여유, 자동): {cash:,.0f}원{mark}")
     lines.append("─────")
     lines.append("설정할 항목을 고르세요 (숫자로 금액 입력).")
-    # 버튼 마커 (콜백에서 처리)
-    lines.append("\x00ALLOCUI")
+    # 버튼 마커 (콜백에서 처리) — 계좌·모드 포함
+    lines.append(f"\x00ALLOCUI:{acc_name}:{_cur_mode()}")
     return "\n".join(lines)
 
 
@@ -574,8 +574,12 @@ def _alloc_set_amount(user: dict, pending, text: str) -> str:
     """숫자 입력받아 moderate/free 금액 저장. cash 음수면 거부."""
     # pending: [["field"]] 형태 (moderate 또는 free)
     field = None
+    _pacc = None
+    _pmode = None
     try:
         field = pending[0][0]
+        _pacc = pending[0][1] if len(pending[0]) > 1 else None
+        _pmode = pending[0][2] if len(pending[0]) > 2 else None
     except Exception:
         pass
     if field not in ("moderate", "free"):
@@ -584,12 +588,13 @@ def _alloc_set_amount(user: dict, pending, text: str) -> str:
 
     amt = int(text.replace(",", "").replace("원", "").replace(" ", "").strip())
 
-    acc_name, al = _alloc_load(user)
+    acc_name, al = _alloc_load(user, _pacc)
     if al is None:
         _set_pending("alloc_input:" + user["key"], None)
         return "계좌 배분 정보를 찾을 수 없어요."
 
-    te = _alloc_snapshot_equity()
+    _mode = _pmode or _cur_mode()
+    te = _alloc_snapshot_equity(acc_name)
     mod = float(getattr(al, "moderate", 0) or 0)
     free = float(getattr(al, "free", 0) or 0)
     # 새 값 적용해서 cash 음수 검증
@@ -607,10 +612,15 @@ def _alloc_set_amount(user: dict, pending, text: str) -> str:
     _repo = _P(__file__).resolve().parents[2]
     ypath = _repo / "mytrading" / "configs" / "allocations.yaml"
     data = _rt_load(ypath)
-    accts = ((data.get("users") or {}).get(user["key"]) or {}).get("accounts") or {}
-    if acc_name in accts:
-        accts[acc_name][field] = amt
-        _rt_dump(ypath, data)
+    _users = data.setdefault("users", {})
+    _ub = _users.setdefault(user["key"], {})
+    _accts = _ub.setdefault("accounts", {})
+    _acc_block = _accts.setdefault(acc_name, {})
+    # 3단 구조 (계좌 > 모드 > field). 기존 평면 값이 있으면 모드 아래로 승격
+    if _mode not in _acc_block or not isinstance(_acc_block.get(_mode), dict):
+        _acc_block[_mode] = _acc_block.get(_mode) if isinstance(_acc_block.get(_mode), dict) else {}
+    _acc_block[_mode][field] = amt
+    _rt_dump(data, ypath)
     _set_pending("alloc_input:" + user["key"], None)
 
     cash_txt = ""
@@ -1584,11 +1594,18 @@ def _split_marker(reply: str):
         ]]}
         return reply.replace("\x00REBOOT_CONFIRM", ""), kb
     if "\x00ALLOCUI" in reply:
+        head, _, rest = reply.partition("\x00ALLOCUI")
+        # rest = ":계좌:모드" (없으면 빈 문자열)
+        _am = rest.split(":") if rest.startswith(":") else []
+        _acc = _am[1] if len(_am) > 1 else "일반증권"
+        _mode = _am[2] if len(_am) > 2 else "vps"
+        # rest 뒤에 개행 등 남을 수 있으니 첫 줄만 제거
+        _tail = rest.split("\n", 1)[1] if "\n" in rest else ""
         kb = {"inline_keyboard": [[
-            {"text": "moderate 설정", "callback_data": "alloc_set:moderate"},
-            {"text": "free 설정", "callback_data": "alloc_set:free"},
+            {"text": "moderate 설정", "callback_data": f"alloc_set:moderate:{_acc}:{_mode}"},
+            {"text": "free 설정", "callback_data": f"alloc_set:free:{_acc}:{_mode}"},
         ]]}
-        return reply.replace("\x00ALLOCUI", ""), kb
+        return head + _tail, kb
     if "\x00BUYUI:" in reply:
         head, _, rest = reply.partition("\x00BUYUI:")
         parts = rest.split(":")
@@ -1704,8 +1721,11 @@ def poll_once():
                     notify._send_raw(chat_id, body, reply_markup=markup)
                     continue
                 if data.startswith("alloc_set:"):
-                    _field = data.split(":", 1)[1]
-                    _set_pending("alloc_input:" + user["key"], [[_field]])
+                    _p = data.split(":")
+                    _field = _p[1] if len(_p) > 1 else ""
+                    _acc = _p[2] if len(_p) > 2 else "일반증권"
+                    _mode = _p[3] if len(_p) > 3 else "vps"
+                    _set_pending("alloc_input:" + user["key"], [[_field, _acc, _mode]])
                     _te = _alloc_snapshot_equity()
                     _label = "moderate(보수)" if _field == "moderate" else "free(자유)"
                     _hint = f" (총자산 {_te:,.0f}원)" if _te is not None else ""
