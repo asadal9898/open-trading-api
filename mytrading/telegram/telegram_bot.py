@@ -479,6 +479,23 @@ def _usd_bond_cond() -> dict:
     return out
 
 
+def _load_cash_plan() -> dict:
+    """allocations.yaml 최상위 cash_plan (유저·계좌 공통). 없으면 기본값."""
+    try:
+        from pathlib import Path as _P
+        _repo = _P(__file__).resolve().parents[2]
+        data = _rt_load(_repo / "mytrading" / "configs" / "allocations.yaml")
+        cp = data.get("cash_plan") or {}
+        return {
+            "krw_ratio": int(cp.get("krw_ratio", 80)),
+            "krw_etfs": [dict(e) for e in (cp.get("krw_etfs") or [])],
+            "usd_bond": dict(cp.get("usd_bond") or {}),
+        }
+    except Exception as e:
+        print(f"[bot] cash_plan 로드 실패: {e}")
+        return {"krw_ratio": 80, "krw_etfs": [], "usd_bond": {}}
+
+
 def _cmd_cash(user: dict, account: str = None) -> str:
     """/비중 현금 — cash 분할 안내. 4개(현금+원화ETF) 기본, 조건 충족 시 5개(+달러)."""
     acc_name, al = _alloc_load(user, account)
@@ -505,16 +522,22 @@ def _cmd_cash(user: dict, account: str = None) -> str:
             lines.append(f"→ 여유현금(cash): {cash:,.0f}원{mk}")
     lines.append("─────")
 
-    # 기본: 4개 구성 (현금 + 원화 ETF)
-    lines.append("\U0001f4e6 기본 구성 (4개)")
+    # cash_plan 읽기 (유저·계좌 공통)
+    cp = _load_cash_plan()
+    ratio = cp["krw_ratio"]  # 원화 ETF 비중 (%)
+    lines.append(f"\U0001f4e6 기본 구성 (현금 + 원화 ETF {ratio}%)")
     if cash is not None and cash > 0:
-        one5 = cash / 5.0
-        lines.append(f"  1/5 현금: {one5:,.0f}원 (직접 채권 매수용)")
-        lines.append(f"  4/5 원화 단기채 ETF: {cash - one5:,.0f}원")
+        krw_amt = cash * ratio / 100.0
+        cash_amt = cash - krw_amt
+        lines.append(f"  현금 {100-ratio}%: {cash_amt:,.0f}원 (직접 채권 매수용)")
+        lines.append(f"  원화 단기채 {ratio}%: {krw_amt:,.0f}원")
     else:
-        lines.append("  1/5 현금 (직접 채권 매수용)")
-        lines.append("  4/5 원화 단기채 ETF")
-    lines.append("     예: KODEX 단기채권 · SOL 초단기채권액티브 · TIGER 단기통안채")
+        lines.append(f"  현금 {100-ratio}% (직접 채권 매수용)")
+        lines.append(f"  원화 단기채 {ratio}%")
+    for e in cp["krw_etfs"]:
+        lines.append(f"     · {e.get('name','')} ({e.get('code','')})")
+    if not cp["krw_etfs"]:
+        lines.append("     (원화 ETF 미설정)")
 
     # 달러 조건 판정 → 5개 안내 여부
     c = _usd_bond_cond()
@@ -527,7 +550,14 @@ def _cmd_cash(user: dict, account: str = None) -> str:
             lines.append(f"    (3년평균 {c['avg3y']:.0f}원)")
         if None not in (c["ffr"], c["ktb"]):
             lines.append(f"  미국금리 {c['ffr']:.2f}% > 한국 {c['ktb']:.2f}%")
-        lines.append("  → 미국달러 단기채 편입 검토 가능 (승인 필요)")
+        _ub = cp["usd_bond"]
+        if _ub.get("name"):
+            lines.append(f"  · {_ub['name']} ({_ub.get('code','')})")
+        if _ub.get("enabled"):
+            lines.append("  ✅ 이미 편입 승인됨")
+        else:
+            lines.append("  → 아래 버튼으로 편입 승인")
+            lines.append("\x00USDBONDAPPROVE")
     else:
         lines.append("\U0001f6ab 달러 단기채 제외 (조건 미충족)")
         why = []
@@ -542,6 +572,9 @@ def _cmd_cash(user: dict, account: str = None) -> str:
             lines.append(f"  · {w}")
         lines.append("  → 지금은 원화 4개만 (달러는 유리해지면 안내)")
 
+    # 원화 ETF 비율 조정 스테퍼 (if/else 밖, 항상 표시)
+    lines.append(f"\u2500\u2500\u2500\u2500\u2500\n\U0001f527 원화 ETF 비율 조정 (현재 {ratio}%)")
+    lines.append(f"\x00CASHRATIO:{ratio}")
     return "\n".join(lines)
 
 
@@ -1593,6 +1626,28 @@ def _split_marker(reply: str):
             {"text": "❌ 취소", "callback_data": "reboot_no"},
         ]]}
         return reply.replace("\x00REBOOT_CONFIRM", ""), kb
+    if "\x00CASHRATIO:" in reply:
+        head, _, rest = reply.partition("\x00CASHRATIO:")
+        _r = rest.split("\n", 1)
+        try:
+            _ratio = int(_r[0])
+        except Exception:
+            _ratio = 80
+        _tail = _r[1] if len(_r) > 1 else ""
+        _lo = max(0, _ratio - 5)
+        _hi = min(100, _ratio + 5)
+        kb = {"inline_keyboard": [
+            [{"text": f"원화 ETF 비율: {_ratio}%", "callback_data": "noop"}],
+            [{"text": "\u2212 5%", "callback_data": f"cashratio:{_lo}"},
+             {"text": "+ 5%", "callback_data": f"cashratio:{_hi}"}],
+            [{"text": "\u2705 저장", "callback_data": f"cashratio_save:{_ratio}"}],
+        ]}
+        return head + _tail, kb
+    if "\x00USDBONDAPPROVE" in reply:
+        kb = {"inline_keyboard": [[
+            {"text": "✅ 달러 단기채 편입 승인", "callback_data": "usdbond_approve"},
+        ]]}
+        return reply.replace("\x00USDBONDAPPROVE", ""), kb
     if "\x00ALLOCUI" in reply:
         head, _, rest = reply.partition("\x00ALLOCUI")
         # rest = ":계좌:모드" (없으면 빈 문자열)
@@ -1719,6 +1774,56 @@ def poll_once():
                     reply = _cmd_approve(user, nm)
                     body, markup = _split_marker(reply)
                     notify._send_raw(chat_id, body, reply_markup=markup)
+                    continue
+                if data.startswith("cashratio:"):
+                    _p = data.split(":")
+                    try:
+                        _nr = max(0, min(100, int(_p[1])))
+                    except Exception:
+                        _nr = 80
+                    _lo = max(0, _nr - 5)
+                    _hi = min(100, _nr + 5)
+                    kb = {"inline_keyboard": [
+                        [{"text": f"원화 ETF 비율: {_nr}%", "callback_data": "noop"}],
+                        [{"text": "\u2212 5%", "callback_data": f"cashratio:{_lo}"},
+                         {"text": "+ 5%", "callback_data": f"cashratio:{_hi}"}],
+                        [{"text": "\u2705 저장", "callback_data": f"cashratio_save:{_nr}"}],
+                    ]}
+                    _mid = cb_msg.get("message_id")
+                    if _mid:
+                        _edit_markup(chat_id, _mid, kb)
+                    continue
+                if data.startswith("cashratio_save:"):
+                    _p = data.split(":")
+                    try:
+                        _nr = max(0, min(100, int(_p[1])))
+                    except Exception:
+                        _nr = 80
+                    from pathlib import Path as _P
+                    _yp = _P(__file__).resolve().parents[2] / "mytrading" / "configs" / "allocations.yaml"
+                    _d = _rt_load(_yp)
+                    _cp = _d.setdefault("cash_plan", {})
+                    _cp["krw_ratio"] = _nr
+                    _rt_dump(_d, _yp)
+                    print(f"[bot] {user['name']} 원화 ETF 비율 {_nr}% 저장")
+                    notify._send_raw(chat_id,
+                        f"\u2705 원화 ETF 비율을 {_nr}%로 저장했습니다.\n"
+                        f"(현금 {100-_nr}% / 원화 단기채 {_nr}%)")
+                    continue
+                if data == "usdbond_approve":
+                    from pathlib import Path as _P
+                    _repo = _P(__file__).resolve().parents[2]
+                    _yp = _repo / "mytrading" / "configs" / "allocations.yaml"
+                    _d = _rt_load(_yp)
+                    _cp = _d.setdefault("cash_plan", {})
+                    _ub = _cp.setdefault("usd_bond", {})
+                    _ub["enabled"] = True
+                    _rt_dump(_d, _yp)
+                    print(f"[bot] {user['name']} 달러 단기채 편입 승인")
+                    notify._send_raw(chat_id,
+                        "✅ 미국달러 단기채 편입을 승인했습니다.\n"
+                        "이후 /비중 현금 에서 5개 구성으로 표시됩니다.\n"
+                        "(실제 매수는 별도 — 설정만 저장됨)")
                     continue
                 if data.startswith("alloc_set:"):
                     _p = data.split(":")
