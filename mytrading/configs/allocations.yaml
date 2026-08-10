@@ -8,24 +8,24 @@ users:
         prod: {moderate: 0, free: 0}
 free_holdings:
   Owner:
-    일반증권1:
-      - code: '000660'
-        name: SK하이닉스
-        style: free
-        added_by: telegram
-        confirm: Waiting
-        added_date: '2026-06-28'
-        dividend: 1
-        sector: 전기·전자
-        industry: 반도체 제조업
-        note: 자유투자
-      - code: 049720
-        name: 고려신용정보
-        style: free
-        added_by: telegram
-        confirm: Approval
-        added_date: '2026-08-02'
-        sector: ''
-        industry: 신용조사 및 추심 대행업
-        note: 자유투자
-        buy_plan: {}
+    일반증권:
+    - code: '000660'
+      name: SK하이닉스
+      style: free
+      added_by: telegram
+      confirm: Waiting
+      added_date: '2026-06-28'
+      dividend: 1
+      sector: 전기·전자
+      industry: 반도체 제조업
+      note: 자유투자
+    - code: 049720
+      name: 고려신용정보
+      style: free
+      added_by: telegram
+      confirm: Approval
+      added_date: '2026-08-02'
+      sector: ''
+      industry: 신용조사 및 추심 대행업
+      note: 자유투자
+      buy_plan: {}
