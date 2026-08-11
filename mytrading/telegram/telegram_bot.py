@@ -534,8 +534,20 @@ def _cmd_cash(user: dict, account: str = None) -> str:
     else:
         lines.append(f"  현금 {100-ratio}% (직접 채권 매수용)")
         lines.append(f"  원화 단기채 {ratio}%")
-    for e in cp["krw_etfs"]:
-        lines.append(f"     · {e.get('name','')} ({e.get('code','')})")
+    # 종목별 비중(weight) 순으로 정렬해 표시 (큰 것부터)
+    _etfs = sorted(cp["krw_etfs"], key=lambda x: x.get("weight", 0), reverse=True)
+    _wsum = sum(e.get("weight", 0) for e in _etfs) or 100
+    for e in _etfs:
+        _w = e.get("weight", 0)
+        _nm = e.get("name", "")
+        _cd = e.get("code", "")
+        if cash is not None and cash > 0 and _w:
+            _amt = krw_amt * _w / _wsum
+            lines.append(f"     · {_nm} {_w}%: {_amt:,.0f}원 ({_cd})")
+        elif _w:
+            lines.append(f"     · {_nm} {_w}% ({_cd})")
+        else:
+            lines.append(f"     · {_nm} ({_cd})")
     if not cp["krw_etfs"]:
         lines.append("     (원화 ETF 미설정)")
 

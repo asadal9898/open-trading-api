@@ -29,3 +29,19 @@ free_holdings:
       industry: 신용조사 및 추심 대행업
       note: 자유투자
       buy_plan: {}
+cash_plan:
+  krw_ratio: 60
+  krw_etfs:
+  - code: '469830'
+    name: SOL 초단기채권액티브
+    weight: 30
+  - code: '157450'
+    name: TIGER 단기통안채
+    weight: 40
+  - code: '214980'
+    name: KODEX 단기채권PLUS
+    weight: 30
+  usd_bond:
+    code: '329750'
+    name: TIGER 미국달러단기채권액티브
+    enabled: false
