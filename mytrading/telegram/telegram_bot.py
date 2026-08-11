@@ -129,6 +129,7 @@ def handle_command(user: dict, text: str) -> str:
         "/매수": "/buy", "/분할매수": "/splitbuy", "/매도": "/sell",
         "/재부팅": "/reboot", "/도움": "/help", "/시작": "/start",
         "/상태": "/status", "/계좌": "/account", "/비중": "/alloc",
+        "/현금매수": "/cashbuy",
         "/모드": "/mode",
     }
     cmd = _KO.get(cmd, cmd)
@@ -139,14 +140,23 @@ def handle_command(user: dict, text: str) -> str:
         return _cmd_reboot(user)
     if cmd == "/start" or cmd == "/help":
         return ("자유투자 봇 (한글 명령도 됨)\n"
+                "\n"
+                "■ 모드·계좌·배분\n"
+                "/mode(/모드) 실전|모의 - 계좌 조회 모드 전환\n"
+                "/alloc(/비중) [일반|ISA] - 자금배분(보수·자유 금액 설정)\n"
+                "/alloc(/비중) 현금 - 현금 운용 (현금+원화 ETF 분할, 비율 조정, 달러 조건)\n"
+                "/cashbuy(/현금매수) - cash_plan 기반 ETF 매수 (계획→승인→주문)\n"
+                "/account(/계좌) [일반|ISA] - 계좌 상세(예산·보유종목)\n"
+                "/list(/목록 /종목) - 내 종목\n"
+                "/status(/상태) - 모드·계좌·등록종목\n"
+                "\n"
+                "■ 종목·매매\n"
                 "/add(/추가) 종목명 - 종목 추가\n"
                 "/approve(/승인) 종목명 - 매수 승인\n"
                 "/buy(/매수) 종목명 - 승인 종목 일시매수\n"
                 "/splitbuy(/분할매수) 종목명 - 승인 종목 분할매수\n"
                 "/sell(/매도) 종목명 - 보유 종목 매도\n"
-                "/list(/목록 /종목) - 내 종목\n"
-                "/status(/상태) - 모드·계좌·등록종목\n"
-                "/mode(/모드) 실전|모의 - 계좌 조회 모드 전환\n"                "/account(/계좌) - 계좌 상세(예산·보유종목)\n"                "/alloc(/비중) - 자금배분(자유·보수 금액 설정)\n"
+                "\n"
                 "/reboot(/재부팅) - 재부팅 (owner)")
     if cmd == "/add":
         if not args:
@@ -187,6 +197,9 @@ def handle_command(user: dict, text: str) -> str:
         return _cmd_status(user)
     if cmd == "/account":
         return _cmd_account(user, args)
+    if cmd == "/cashbuy":
+        _cb_acc = args[0].strip() if args else None
+        return _cmd_cash_buy(user, _cb_acc)
     if cmd == "/alloc":
         _a0 = args[0].strip() if args else None
         if _a0 in ("현금", "cash", "캐시"):
@@ -419,6 +432,116 @@ def _alloc_load(user: dict, account: str = None):
     except Exception as e:
         print(f"[bot] alloc 로드 실패: {e}")
     return None, None
+
+
+def _cash_buy_plan(user: dict, account: str = None) -> dict:
+    """cash_plan 기반 ETF 매수 계획 생성. 실제 주문 안 함(계획만).
+    반환: {ok, acc_name, cash, krw_amt, items:[{code,name,weight,amount,price,qty,held}], usd}
+    """
+    acc_name, al = _alloc_load(user, account)
+    if al is None:
+        return {"ok": False, "msg": "계좌 배분 정보를 찾을 수 없어요. 먼저 /비중 으로 확인하세요."}
+    te = _alloc_snapshot_equity(acc_name)
+    if te is None:
+        return {"ok": False, "msg": "총자산 조회 실패."}
+    mod = float(getattr(al, "moderate", 0) or 0)
+    free = float(getattr(al, "free", 0) or 0)
+    cash = te - mod - free
+    if cash <= 0:
+        return {"ok": False, "msg": f"여유현금이 없어요 (cash {cash:,.0f}원). /비중 에서 보수·자유를 조정하세요."}
+
+    cp = _load_cash_plan()
+    ratio = cp["krw_ratio"]
+    krw_amt = cash * ratio / 100.0
+
+    # 보유 수량 조회 (중복 매수 정보용)
+    held_map = {}
+    try:
+        from mytrading.common import get_brokerage
+        from mytrading.account_snapshot import get_snapshot
+        snap = get_snapshot(get_brokerage(account_name=acc_name) if acc_name else get_brokerage())
+        for h in (snap.holdings or []):
+            held_map[str(h.symbol)] = int(h.quantity)
+    except Exception as e:
+        print(f"[bot] cash_buy 보유조회 실패: {e}")
+
+    etfs = sorted(cp["krw_etfs"], key=lambda x: x.get("weight", 0), reverse=True)
+    wsum = sum(e.get("weight", 0) for e in etfs) or 100
+    items = []
+    for e in etfs:
+        code = str(e.get("code", ""))
+        name = e.get("name", "")
+        w = e.get("weight", 0)
+        amt = krw_amt * w / wsum
+        price = _price_now(code)
+        qty = int(amt // price) if price and price > 0 else 0
+        items.append({"code": code, "name": name, "weight": w,
+                      "amount": amt, "price": price, "qty": qty,
+                      "held": held_map.get(code, 0)})
+
+    # 달러 편입 (enabled=true 이고 조건 충족 시)
+    usd = None
+    ub = cp.get("usd_bond") or {}
+    if ub.get("enabled") and ub.get("code"):
+        c = _usd_bond_cond()
+        if c.get("ok"):
+            usd_amt = cash * (100 - ratio) / 100.0 * 0.0  # 현금 몫에서 별도 배정 안 함(설계상 원화 몫만 ETF)
+            # 달러는 원화 ETF와 별도 취급 — 여기선 정보만 표시 (배분 규칙 확정 시 확장)
+            price = _price_now(str(ub["code"]))
+            usd = {"code": str(ub["code"]), "name": ub.get("name", ""),
+                   "price": price, "held": held_map.get(str(ub["code"]), 0)}
+
+    return {"ok": True, "acc_name": acc_name, "cash": cash,
+            "ratio": ratio, "krw_amt": krw_amt, "items": items, "usd": usd}
+
+
+def _cmd_cash_buy(user: dict, account: str = None) -> str:
+    """/현금매수 — cash_plan 기반 원화 ETF 매수 계획 표시 + 승인 버튼."""
+    plan = _cash_buy_plan(user, account)
+    if not plan.get("ok"):
+        return plan.get("msg", "매수 계획을 만들 수 없어요.")
+
+    lines = ["💰 현금 ETF 매수 계획", "─────"]
+    mode_txt = "모의" if _is_paper() else "🚨실전"
+    lines.append(f"[{mode_txt}] {plan['acc_name']} · 여유현금 {plan['cash']:,.0f}원")
+    lines.append(f"원화 단기채 {plan['ratio']}%: {plan['krw_amt']:,.0f}원")
+    lines.append("─────")
+
+    total_buy = 0
+    valid = []
+    for it in plan["items"]:
+        if it["price"] <= 0:
+            lines.append(f"  ⚠️ {it['name']} ({it['code']}): 현재가 조회 실패")
+            continue
+        cost = it["qty"] * it["price"]
+        total_buy += cost
+        held_txt = f" · 보유 {it['held']}주" if it["held"] else ""
+        if it["qty"] >= 1:
+            lines.append(f"  · {it['name']} {it['weight']}%")
+            lines.append(f"     {it['qty']}주 × {it['price']:,.0f} = {cost:,.0f}원{held_txt}")
+            valid.append(it)
+        else:
+            lines.append(f"  · {it['name']} {it['weight']}%: 금액 부족(1주 미만){held_txt}")
+
+    if plan.get("usd"):
+        u = plan["usd"]
+        lines.append(f"  💵 (달러 편입 승인됨) {u['name']} ({u['code']})")
+        lines.append("     달러 배분 규칙 확정 후 매수 (지금은 정보만)")
+
+    lines.append("─────")
+    lines.append(f"매수 합계: {total_buy:,.0f}원")
+    if not valid:
+        lines.append("매수할 종목이 없어요 (전부 1주 미만).")
+        return "\n".join(lines)
+
+    lines.append("아래 버튼으로 전체 매수를 승인하세요.")
+    # 승인 pending 저장 (승인 시 이 계획대로 주문)
+    _set_pending("cashbuy:" + user["key"],
+                 [{"acc": plan["acc_name"],
+                   "items": [{"code": it["code"], "name": it["name"], "qty": it["qty"]}
+                             for it in valid]}])
+    lines.append("\x00CASHBUYAPPROVE")
+    return "\n".join(lines)
 
 
 def _usd_bond_cond() -> dict:
@@ -1105,8 +1228,14 @@ def _build_buy_ui(user: dict, code: str, name: str, kind: str) -> str:
     """매수 UI 화면 (일시/분할 공용). kind='buy'(일시)/'split'(분할)."""
     budget, acc_name, free_pct = _free_budget(user)
     price = _price_now(code)
-    if budget <= 0 or price <= 0:
-        return f"{name}({code}) 예산/현재가 조회 실패. 잠시 후 다시 시도하세요."
+    if price <= 0:
+        return f"{name}({code}) 현재가 조회 실패. 잠시 후 다시 시도하세요."
+    if budget <= 0:
+        _mode_txt = "모의" if _is_paper() else "실전"
+        _acc_hint = f" ({acc_name})" if acc_name else ""
+        return (f"\U0001f4b0 {name}({code}) 매수 불가 — 자유투자 예산이 없어요{_acc_hint}\n"
+                f"[{_mode_txt}] 현재 free(자유) 금액이 0원이에요.\n"
+                f"/비중{' 일반' if not _is_paper() else ''} 에서 free(자유) 금액을 먼저 설정하세요.")
     full = int(budget // price)
     half = full // 2
     _set_pending("pbuy_ctx:" + user["key"],
@@ -1414,7 +1543,67 @@ def _save_sell_plan(user: dict, code: str, name: str, qty: int) -> str:
     return f"\u2705 {name}({code}) 매도 {qty}주 기록 (다음 매매 시점 반영)."
 
 
-def _execute_order_now(code: str, name: str, qty: int, is_sell: bool) -> str:
+def _orderable_accounts(user: dict) -> list:
+    """현재 모드에서 주문 가능한 계좌명 목록.
+    모의(vps): 모의계좌 1개. 실전(prod): can_order=True 인 계좌들(일반·ISA 등)."""
+    try:
+        from mytrading.accounts import load_accounts
+        ad = load_accounts()
+        u = ad.get_user(user["key"]) if hasattr(ad, "get_user") else None
+        if u is None:
+            for _u in ad.users:
+                if _u.key == user["key"]:
+                    u = _u
+                    break
+        if u is None:
+            return []
+        def _has_paper(a):
+            hp = getattr(a, "has_paper", None)
+            try:
+                return hp() if callable(hp) else bool(hp)
+            except Exception:
+                # 폴백: paper_stock 존재로 판정
+                return bool(getattr(a, "paper_stock", None))
+        if _is_paper():
+            # 모의는 모의 앱키(paper_stock) 있는 계좌만 (보통 1개)
+            paper = [a.name for a in u.accounts if _has_paper(a)]
+            return paper or [a.name for a in u.accounts[:1]]
+        # 실전: 주문 가능 계좌
+        return [a.name for a in u.accounts if getattr(a, "can_order", True)]
+    except Exception as e:
+        print(f"[bot] _orderable_accounts 실패: {e}")
+        return []
+
+
+def _need_account_pick(user: dict) -> list:
+    """주문 가능 계좌가 2개 이상이면 그 목록 반환(선택 필요), 아니면 빈 리스트."""
+    accts = _orderable_accounts(user)
+    return accts if len(accts) >= 2 else []
+
+
+def _order_with_pick(user: dict, chat_id, code: str, name: str, qty: int, is_sell: bool):
+    """계좌 선택이 필요하면 선택 UI를 보내고 pending 저장, 아니면 바로 주문.
+    반환: 주문 결과 문자열 또는 None(선택 UI를 보냈으니 콜백 대기)."""
+    picks = _need_account_pick(user)
+    if not picks:
+        # 계좌 1개(또는 모의) → 그 계좌로 바로
+        accts = _orderable_accounts(user)
+        acc = accts[0] if accts else None
+        return _execute_order_now(code, name, qty, is_sell, account_name=acc)
+    # 2개 이상 → 계좌 선택 pending 저장 + 버튼
+    _set_pending("orderpick:" + user["key"],
+                 [{"code": code, "name": name, "qty": int(qty), "is_sell": is_sell}])
+    side_txt = "매도" if is_sell else "매수"
+    rows = [[{"text": f"💳 {a}", "callback_data": f"orderpick:{a}"}] for a in picks]
+    rows.append([{"text": "❌ 취소", "callback_data": "orderpick_cancel"}])
+    kb = {"inline_keyboard": rows}
+    notify._send_raw(chat_id,
+        f"📍 {name}({code}) {qty}주 {side_txt}\n어느 계좌로 주문할까요?",
+        reply_markup=kb)
+    return None
+
+
+def _execute_order_now(code: str, name: str, qty: int, is_sell: bool, account_name: str = None) -> str:
     """정규장에서 즉시 시장가 주문. 성공/실패 메시지 문자열 반환.
     정규장 아니면 주문 안 하고 안내만."""
     side_txt = "매도" if is_sell else "매수"
@@ -1432,7 +1621,7 @@ def _execute_order_now(code: str, name: str, qty: int, is_sell: bool) -> str:
     # 3. 즉시 시장가 주문
     try:
         from kis_backtest.providers.base import OrderSide, OrderType
-        brk = get_brokerage()
+        brk = get_brokerage(account_name=account_name) if account_name else get_brokerage()
         side = OrderSide.SELL if is_sell else OrderSide.BUY
         order = brk.submit_order(symbol=str(code), side=side,
                                  quantity=int(qty), order_type=OrderType.MARKET)
@@ -1655,6 +1844,12 @@ def _split_marker(reply: str):
             [{"text": "\u2705 저장", "callback_data": f"cashratio_save:{_ratio}"}],
         ]}
         return head + _tail, kb
+    if "\x00CASHBUYAPPROVE" in reply:
+        kb = {"inline_keyboard": [[
+            {"text": "✅ 전체 매수 승인", "callback_data": "cashbuy_approve"},
+            {"text": "❌ 취소", "callback_data": "cashbuy_cancel"},
+        ]]}
+        return reply.replace("\x00CASHBUYAPPROVE", ""), kb
     if "\x00USDBONDAPPROVE" in reply:
         kb = {"inline_keyboard": [[
             {"text": "✅ 달러 단기채 편입 승인", "callback_data": "usdbond_approve"},
@@ -1822,6 +2017,41 @@ def poll_once():
                         f"\u2705 원화 ETF 비율을 {_nr}%로 저장했습니다.\n"
                         f"(현금 {100-_nr}% / 원화 단기채 {_nr}%)")
                     continue
+                if data == "cashbuy_cancel":
+                    _set_pending("cashbuy:" + user["key"], None)
+                    notify._send_raw(chat_id, "현금 ETF 매수를 취소했어요.")
+                    continue
+                if data == "cashbuy_approve":
+                    _cbp = _get_pending("cashbuy:" + user["key"])
+                    if not _cbp:
+                        notify._send_raw(chat_id, "매수 대기가 만료됐어요. /현금매수 를 다시 실행하세요.")
+                        continue
+                    _ctx = _cbp[0]
+                    _set_pending("cashbuy:" + user["key"], None)
+                    _results = []
+                    for _it in _ctx.get("items", []):
+                        _r = _execute_order_now(_it["code"], _it["name"], int(_it["qty"]), is_sell=False)
+                        _results.append(_r)
+                    print(f"[bot] {user['name']} 현금 ETF 매수 {len(_results)}건 실행")
+                    notify._send_raw(chat_id, "\n".join(_results) if _results else "매수할 종목이 없었어요.")
+                    continue
+                if data == "orderpick_cancel":
+                    _set_pending("orderpick:" + user["key"], None)
+                    notify._send_raw(chat_id, "주문을 취소했어요.")
+                    continue
+                if data.startswith("orderpick:"):
+                    _acc = data.split(":", 1)[1]
+                    _opp = _get_pending("orderpick:" + user["key"])
+                    if not _opp:
+                        notify._send_raw(chat_id, "주문 대기가 만료됐어요. 다시 시도하세요.")
+                        continue
+                    _o = _opp[0]
+                    _set_pending("orderpick:" + user["key"], None)
+                    print(f"[bot] {user['name']} [계좌선택] {_acc} → {_o['name']} {_o['qty']}주")
+                    _r = _execute_order_now(_o["code"], _o["name"], int(_o["qty"]),
+                                            is_sell=_o["is_sell"], account_name=_acc)
+                    notify._send_raw(chat_id, f"[{_acc}] " + _r)
+                    continue
                 if data == "usdbond_approve":
                     from pathlib import Path as _P
                     _repo = _P(__file__).resolve().parents[2]
@@ -1905,8 +2135,9 @@ def poll_once():
                             continue
                         _set_pending("pbuy_ctx:" + user["key"], None)
                         print(f"[bot] {user['name']} [/매수 즉시] {ctx['name']} {sel}주")
-                        result = _execute_order_now(ctx["code"], ctx["name"], sel, is_sell=False)
-                        notify._send_raw(chat_id, result)
+                        result = _order_with_pick(user, chat_id, ctx["code"], ctx["name"], sel, is_sell=False)
+                        if result is not None:
+                            notify._send_raw(chat_id, result)
                         continue
                     amt = sel * ctx["price"]
                     if sel >= 1:
@@ -2026,8 +2257,9 @@ def poll_once():
                         continue
                     _set_pending("pbuy_ctx:" + user["key"], None)
                     print(f"[bot] {user['name']} [/매도 즉시] {ctx['name']} {sel}주")
-                    result = _execute_order_now(ctx["code"], ctx["name"], sel, is_sell=True)
-                    notify._send_raw(chat_id, result)
+                    result = _order_with_pick(user, chat_id, ctx["code"], ctx["name"], sel, is_sell=True)
+                    if result is not None:
+                        notify._send_raw(chat_id, result)
                     continue
                 if data.startswith("sell_cancel:"):
                     _set_pending("pbuy_ctx:" + user["key"], None)
