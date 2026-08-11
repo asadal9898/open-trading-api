@@ -126,6 +126,7 @@ def handle_command(user: dict, text: str) -> str:
     # 한글 명령 -> 영어 매핑
     _KO = {
         "/추가": "/add", "/목록": "/list", "/종목": "/list", "/승인": "/approve",
+        "/거절": "/reject", "/멈춤": "/pause",
         "/매수": "/buy", "/분할매수": "/splitbuy", "/매도": "/sell",
         "/재부팅": "/reboot", "/도움": "/help", "/시작": "/start",
         "/상태": "/status", "/계좌": "/account", "/비중": "/alloc",
@@ -153,6 +154,8 @@ def handle_command(user: dict, text: str) -> str:
                 "■ 종목·매매\n"
                 "/add(/추가) 종목명 - 종목 추가\n"
                 "/approve(/승인) 종목명 - 매수 승인\n"
+                "/reject(/거절) 종목명 - 매수 거절(매수 안 됨)\n"
+                "/pause(/멈춤) 종목명 - 매수 멈춤(잠시 안 삼)\n"
                 "/buy(/매수) 종목명 - 승인 종목 일시매수\n"
                 "/splitbuy(/분할매수) 종목명 - 승인 종목 분할매수\n"
                 "/sell(/매도) 종목명 - 보유 종목 매도\n"
@@ -173,6 +176,14 @@ def handle_command(user: dict, text: str) -> str:
         if not args:
             return "사용법: /승인 종목명  (예: /승인 카카오)"
         return _cmd_approve(user, " ".join(args))
+    if cmd == "/reject":
+        if not args:
+            return "사용법: /거절 종목명  (예: /거절 모토닉)"
+        return _cmd_set_state(user, " ".join(args), "Rejected")
+    if cmd == "/pause":
+        if not args:
+            return "사용법: /멈춤 종목명  (예: /멈춤 모토닉)"
+        return _cmd_set_state(user, " ".join(args), "Paused")
     if cmd == "/buy":
         if not args: return "종목명을 입력하세요. 예: /매수 삼성전자"
         return _cmd_buy(user, " ".join(args))
@@ -889,6 +900,7 @@ def _cmd_list(user: dict, args=None) -> str:
         lines.append(f"  승인 {counts.get('Approval',0)} · 대기 {counts.get('Waiting',0)} · "
                      f"거절 {counts.get('Rejected',0)} · 멈춤 {counts.get('Paused',0)}")
         _BTN_LIMIT = 10
+        _has_note = False
         for state in ("Approval", "Paused", "Rejected", "Waiting"):
             items = buckets.get(state, [])
             if not items:
@@ -896,17 +908,15 @@ def _cmd_list(user: dict, args=None) -> str:
             label = _CONFIRM_LABELS.get(state, state)
             note = " (매매 대상)" if state == "Approval" else ""
             lines.append("\u2500\u2500\u2500\u2500")
+            lines.append(f"{label}{note} {len(items)}개:")
             if len(items) <= _BTN_LIMIT:
-                lines.append(f"{label}{note} {len(items)}개:")
                 for nm, cd in items:
-                    # 종목별 버튼 마커 (렌더가 전이 버튼으로 변환)
-                    lines.append(f"  {nm}({cd})\x00CFBTN:{cd}:{state}")
+                    lines.append(f"  {nm}({cd})")
             else:
-                lines.append(f"{label}{note} {len(items)}개 (많아 이름만):")
                 names = ", ".join(nm for nm, _cd in items)
                 lines.append(f"  {names}")
-                if state == "Waiting":
-                    lines.append("  승인: /승인 종목명")
+        lines.append("\u2500\u2500\u2500\u2500")
+        lines.append("상태 변경: /승인 · /거절 · /멈춤  종목명")
         return "\n".join(lines)
 
     # 전체 (보수 요약 + 자유 전체)
@@ -1405,6 +1415,53 @@ def _cmd_approve(user: dict, query: str) -> str:
         return f"승인 실패(쓰기): {e}"
     return (f"✅ {cur_name}({code}) 매수 승인 완료 (Approval)\n"
             f"이제 /매수 {cur_name} 또는 /분할매수 {cur_name} 로 매수할 수 있어요.")
+
+
+def _cmd_set_state(user: dict, query: str, new_state: str) -> str:
+    """종목명→코드 후 confirm 을 new_state 로 변경. moderate(universe)·free 둘 다."""
+    import sys as _sys
+    from pathlib import Path as _P
+    _repo = _P(__file__).resolve().parents[2]
+    fdir = _repo / "mytrading"
+    if str(fdir) not in _sys.path:
+        _sys.path.insert(0, str(fdir))
+    from find_stock_code import find_by_name
+    q = query.strip()
+    if q.isdigit():
+        code, name = q, q
+    else:
+        matches = find_by_name(q)
+        if not matches:
+            return f"'{q}' 종목을 못 찾았어요."
+        code, name, _m = matches[0]
+
+    label = _CONFIRM_LABELS.get(new_state, new_state)
+    done = False
+
+    # 1) moderate (universe_ko.yaml)
+    if _set_confirm_state(code, new_state):
+        done = True
+
+    # 2) free (free_holdings, allocations.yaml)
+    try:
+        alloc_path = _repo / "mytrading" / "configs" / "allocations.yaml"
+        data = _rt_load(alloc_path)
+        fh = (data.get("free_holdings") or {}).get(user["key"], {})
+        for _acc, lst in fh.items():
+            if not isinstance(lst, list):
+                continue
+            for it in lst:
+                if isinstance(it, dict) and str(it.get("code")) == str(code):
+                    it["confirm"] = new_state
+                    done = True
+        if done:
+            _rt_dump(data, alloc_path)
+    except Exception as e:
+        print(f"[bot] free 상태변경 실패: {e}")
+
+    if not done:
+        return f"{name}({code}) 은(는) 목록에 없어요. 먼저 /추가 하세요."
+    return f"{label}(으)로 변경했어요: {name}({code})"
 
 
 def _is_paper() -> bool:
