@@ -147,7 +147,7 @@ def handle_command(user: dict, text: str) -> str:
                 "/alloc(/비중) 현금 - 현금 운용 (현금+원화 ETF 분할, 비율 조정, 달러 조건)\n"
                 "/cashbuy(/현금매수) - cash_plan 기반 ETF 매수 (계획→승인→주문)\n"
                 "/account(/계좌) [일반|ISA] - 계좌 상세(예산·보유종목)\n"
-                "/list(/목록 /종목) - 내 종목\n"
+                "/list(/종목 /목록) - 내 종목\n"
                 "/status(/상태) - 모드·계좌·등록종목\n"
                 "\n"
                 "■ 종목·매매\n"
@@ -799,31 +799,70 @@ def _alloc_set_amount(user: dict, pending, text: str) -> str:
 
 
 def _list_free(pf, ukey) -> list:
-    """자유 종목 라인들."""
+    """자유 종목 라인들. 계좌|모드 순회 시 종목 코드 기준 중복 제거."""
     out = []
+    seen = set()
     for acc_name, al in (pf.allocations.get(ukey, {}) or {}).items():
         for sym in al.free_symbols:
+            code = str(sym.get("code", ""))
+            if code in seen:
+                continue
+            seen.add(code)
             conf = sym.get("confirm", "?")
-            out.append(f"  {sym.get('name','')}({sym['code']}) [{conf}]")
+            out.append(f"  {sym.get('name','')}({code}) [{conf}]")
     return out
 
 
+_CONFIRM_LABELS = {
+    "Approval": "✅ 승인", "Waiting": "⏳ 대기",
+    "Rejected": "🚫 거절", "Paused": "⏸ 매수멈춤",
+}
+# 현재 상태 → 표시할 전이 버튼 [(라벨, action)]
+_CONFIRM_BUTTONS = {
+    "Waiting":  [("승인", "a"), ("거절", "r")],
+    "Approval": [("거절", "r"), ("매수멈춤", "p")],
+    "Rejected": [("승인", "a")],
+    "Paused":   [("승인", "a"), ("거절", "r")],
+    "?":        [("승인", "a"), ("거절", "r")],
+}
+_ACTION_TO_STATE = {"a": "Approval", "r": "Rejected", "p": "Paused"}
+
+
+def _set_confirm_state(code: str, new_state: str) -> bool:
+    """universe_ko.yaml 에서 종목 confirm 을 new_state 로 변경 (형식 보존)."""
+    try:
+        from pathlib import Path as _P
+        _repo = _P(__file__).resolve().parents[2]
+        yp = _repo / "mytrading" / "configs" / "universe_ko.yaml"
+        data = _rt_load(yp)
+        changed = False
+        for cat in ("moderate",):
+            for it in (data.get(cat) or []):
+                if str(it.get("code", "")).zfill(6) == str(code).zfill(6):
+                    it["confirm"] = new_state
+                    changed = True
+        if changed:
+            _rt_dump(data, yp)
+        return changed
+    except Exception as e:
+        print(f"[bot] _set_confirm_state 실패: {e}")
+        return False
+
+
 def _list_moderate(pf) -> tuple:
-    """보수(moderate) 종목 — (승인, 대기, 기타 라인들, 상태별 개수 dict)."""
+    """보수(moderate) 종목 — 상태별 {상태: [(name, code)]} dict + counts."""
     from collections import Counter
-    approved, waiting, other, counts = [], [], [], Counter()
+    buckets = {"Approval": [], "Waiting": [], "Rejected": [], "Paused": []}
+    counts = Counter()
     for cat in ("moderate",):
         for item in pf.universe.get(cat, []):
             conf = item.get("confirm", "?")
+            if conf == "?":
+                conf = "Waiting"
             counts[conf] += 1
-            line = f"  {item.get('name','')}({item.get('code','')})"
-            if conf == "Approval":
-                approved.append(line)
-            elif conf in ("Waiting", "?"):
-                waiting.append(line)
-            else:
-                other.append(f"  {item.get('name','')}({item.get('code','')}) [{conf}]")
-    return approved, waiting, other, counts
+            buckets.setdefault(conf, []).append(
+                (item.get("name", ""), str(item.get("code", ""))))
+    return buckets, counts
 
 
 def _cmd_list(user: dict, args=None) -> str:
@@ -842,32 +881,36 @@ def _cmd_list(user: dict, args=None) -> str:
         lines += fl if fl else ["  (없음)"]
         return "\n".join(lines)
 
-    # 보수만
+    # 보수만 — 상태별, 10개 이하면 버튼 / 초과면 이름만
     if arg in ("보수", "배당", "moderate"):
-        approved, waiting, other, counts = _list_moderate(pf)
+        buckets, counts = _list_moderate(pf)
         total = sum(counts.values())
         lines = [f"\U0001f4cb 보수(배당) 종목 — {total}개"]
-        lines.append(f"  승인 {counts.get('Approval',0)} · "
-                     f"대기 {counts.get('Waiting',0)} · "
-                     f"기타 {total - counts.get('Approval',0) - counts.get('Waiting',0)}")
-        lines.append("\u2500\u2500\u2500\u2500")
-        if approved:
-            lines.append(f"\u2705 승인 (매매 대상) {len(approved)}개:")
-            lines += approved
-        else:
-            lines.append("\u2705 승인된 종목 없음")
-        if waiting:
+        lines.append(f"  승인 {counts.get('Approval',0)} · 대기 {counts.get('Waiting',0)} · "
+                     f"거절 {counts.get('Rejected',0)} · 멈춤 {counts.get('Paused',0)}")
+        _BTN_LIMIT = 10
+        for state in ("Approval", "Paused", "Rejected", "Waiting"):
+            items = buckets.get(state, [])
+            if not items:
+                continue
+            label = _CONFIRM_LABELS.get(state, state)
+            note = " (매매 대상)" if state == "Approval" else ""
             lines.append("\u2500\u2500\u2500\u2500")
-            lines.append(f"\u23f3 대기 {len(waiting)}개 (/승인 하면 매매 대상):")
-            lines += waiting
-        if other:
-            lines.append("\u2500\u2500\u2500\u2500")
-            lines.append(f"\u26aa 기타 {len(other)}개 (멈춤/거절 등):")
-            lines += other
+            if len(items) <= _BTN_LIMIT:
+                lines.append(f"{label}{note} {len(items)}개:")
+                for nm, cd in items:
+                    # 종목별 버튼 마커 (렌더가 전이 버튼으로 변환)
+                    lines.append(f"  {nm}({cd})\x00CFBTN:{cd}:{state}")
+            else:
+                lines.append(f"{label}{note} {len(items)}개 (많아 이름만):")
+                names = ", ".join(nm for nm, _cd in items)
+                lines.append(f"  {names}")
+                if state == "Waiting":
+                    lines.append("  승인: /승인 종목명")
         return "\n".join(lines)
 
     # 전체 (보수 요약 + 자유 전체)
-    approved, waiting, other, counts = _list_moderate(pf)
+    buckets, counts = _list_moderate(pf)
     total = sum(counts.values())
     lines = [f"\U0001f4cb {user['name']} 종목 목록", ""]
     lines.append(f"\u25a0 보수(배당) {total}개 — 승인 {counts.get('Approval',0)}, "
@@ -1228,14 +1271,8 @@ def _build_buy_ui(user: dict, code: str, name: str, kind: str) -> str:
     """매수 UI 화면 (일시/분할 공용). kind='buy'(일시)/'split'(분할)."""
     budget, acc_name, free_pct = _free_budget(user)
     price = _price_now(code)
-    if price <= 0:
-        return f"{name}({code}) 현재가 조회 실패. 잠시 후 다시 시도하세요."
-    if budget <= 0:
-        _mode_txt = "모의" if _is_paper() else "실전"
-        _acc_hint = f" ({acc_name})" if acc_name else ""
-        return (f"\U0001f4b0 {name}({code}) 매수 불가 — 자유투자 예산이 없어요{_acc_hint}\n"
-                f"[{_mode_txt}] 현재 free(자유) 금액이 0원이에요.\n"
-                f"/비중{' 일반' if not _is_paper() else ''} 에서 free(자유) 금액을 먼저 설정하세요.")
+    if budget <= 0 or price <= 0:
+        return f"{name}({code}) 예산/현재가 조회 실패. 잠시 후 다시 시도하세요."
     full = int(budget // price)
     half = full // 2
     _set_pending("pbuy_ctx:" + user["key"],
@@ -1543,67 +1580,7 @@ def _save_sell_plan(user: dict, code: str, name: str, qty: int) -> str:
     return f"\u2705 {name}({code}) 매도 {qty}주 기록 (다음 매매 시점 반영)."
 
 
-def _orderable_accounts(user: dict) -> list:
-    """현재 모드에서 주문 가능한 계좌명 목록.
-    모의(vps): 모의계좌 1개. 실전(prod): can_order=True 인 계좌들(일반·ISA 등)."""
-    try:
-        from mytrading.accounts import load_accounts
-        ad = load_accounts()
-        u = ad.get_user(user["key"]) if hasattr(ad, "get_user") else None
-        if u is None:
-            for _u in ad.users:
-                if _u.key == user["key"]:
-                    u = _u
-                    break
-        if u is None:
-            return []
-        def _has_paper(a):
-            hp = getattr(a, "has_paper", None)
-            try:
-                return hp() if callable(hp) else bool(hp)
-            except Exception:
-                # 폴백: paper_stock 존재로 판정
-                return bool(getattr(a, "paper_stock", None))
-        if _is_paper():
-            # 모의는 모의 앱키(paper_stock) 있는 계좌만 (보통 1개)
-            paper = [a.name for a in u.accounts if _has_paper(a)]
-            return paper or [a.name for a in u.accounts[:1]]
-        # 실전: 주문 가능 계좌
-        return [a.name for a in u.accounts if getattr(a, "can_order", True)]
-    except Exception as e:
-        print(f"[bot] _orderable_accounts 실패: {e}")
-        return []
-
-
-def _need_account_pick(user: dict) -> list:
-    """주문 가능 계좌가 2개 이상이면 그 목록 반환(선택 필요), 아니면 빈 리스트."""
-    accts = _orderable_accounts(user)
-    return accts if len(accts) >= 2 else []
-
-
-def _order_with_pick(user: dict, chat_id, code: str, name: str, qty: int, is_sell: bool):
-    """계좌 선택이 필요하면 선택 UI를 보내고 pending 저장, 아니면 바로 주문.
-    반환: 주문 결과 문자열 또는 None(선택 UI를 보냈으니 콜백 대기)."""
-    picks = _need_account_pick(user)
-    if not picks:
-        # 계좌 1개(또는 모의) → 그 계좌로 바로
-        accts = _orderable_accounts(user)
-        acc = accts[0] if accts else None
-        return _execute_order_now(code, name, qty, is_sell, account_name=acc)
-    # 2개 이상 → 계좌 선택 pending 저장 + 버튼
-    _set_pending("orderpick:" + user["key"],
-                 [{"code": code, "name": name, "qty": int(qty), "is_sell": is_sell}])
-    side_txt = "매도" if is_sell else "매수"
-    rows = [[{"text": f"💳 {a}", "callback_data": f"orderpick:{a}"}] for a in picks]
-    rows.append([{"text": "❌ 취소", "callback_data": "orderpick_cancel"}])
-    kb = {"inline_keyboard": rows}
-    notify._send_raw(chat_id,
-        f"📍 {name}({code}) {qty}주 {side_txt}\n어느 계좌로 주문할까요?",
-        reply_markup=kb)
-    return None
-
-
-def _execute_order_now(code: str, name: str, qty: int, is_sell: bool, account_name: str = None) -> str:
+def _execute_order_now(code: str, name: str, qty: int, is_sell: bool) -> str:
     """정규장에서 즉시 시장가 주문. 성공/실패 메시지 문자열 반환.
     정규장 아니면 주문 안 하고 안내만."""
     side_txt = "매도" if is_sell else "매수"
@@ -1621,7 +1598,7 @@ def _execute_order_now(code: str, name: str, qty: int, is_sell: bool, account_na
     # 3. 즉시 시장가 주문
     try:
         from kis_backtest.providers.base import OrderSide, OrderType
-        brk = get_brokerage(account_name=account_name) if account_name else get_brokerage()
+        brk = get_brokerage()
         side = OrderSide.SELL if is_sell else OrderSide.BUY
         order = brk.submit_order(symbol=str(code), side=side,
                                  quantity=int(qty), order_type=OrderType.MARKET)
@@ -1813,6 +1790,27 @@ def _split_marker(reply: str):
     """응답 문자열에서 버튼 마커를 분리. (텍스트, reply_markup) 반환."""
     if not reply:
         return reply, None
+    if "\x00CFBTN:" in reply:
+        # 종목별 상태 전이 버튼 — 여러 종목을 한 키보드에 행으로
+        import re as _re
+        rows = []
+        clean_lines = []
+        for ln in reply.split("\n"):
+            m = _re.search(r"\x00CFBTN:([^:]+):(\w+)", ln)
+            if m:
+                _cd, _st = m.group(1), m.group(2)
+                # 마커 제거한 텍스트 줄
+                clean_lines.append(ln[:m.start()])
+                # 현재 상태에 맞는 전이 버튼 행
+                btns = []
+                for _lbl, _act in _CONFIRM_BUTTONS.get(_st, []):
+                    btns.append({"text": _lbl, "callback_data": f"cf:{_act}:{_cd}"})
+                if btns:
+                    rows.append(btns)
+            else:
+                clean_lines.append(ln)
+        kb = {"inline_keyboard": rows} if rows else None
+        return "\n".join(clean_lines), kb
     if "\x00ADDDONE:" in reply:
         head, _, rest = reply.partition("\x00ADDDONE:")
         code = rest.split(":", 1)[0]
@@ -2035,22 +2033,36 @@ def poll_once():
                     print(f"[bot] {user['name']} 현금 ETF 매수 {len(_results)}건 실행")
                     notify._send_raw(chat_id, "\n".join(_results) if _results else "매수할 종목이 없었어요.")
                     continue
-                if data == "orderpick_cancel":
-                    _set_pending("orderpick:" + user["key"], None)
-                    notify._send_raw(chat_id, "주문을 취소했어요.")
-                    continue
-                if data.startswith("orderpick:"):
-                    _acc = data.split(":", 1)[1]
-                    _opp = _get_pending("orderpick:" + user["key"])
-                    if not _opp:
-                        notify._send_raw(chat_id, "주문 대기가 만료됐어요. 다시 시도하세요.")
+                if data.startswith("cf:"):
+                    _p = data.split(":")
+                    _act = _p[1] if len(_p) > 1 else ""
+                    _cd = _p[2] if len(_p) > 2 else ""
+                    _new = _ACTION_TO_STATE.get(_act)
+                    if not _new or not _cd:
                         continue
-                    _o = _opp[0]
-                    _set_pending("orderpick:" + user["key"], None)
-                    print(f"[bot] {user['name']} [계좌선택] {_acc} → {_o['name']} {_o['qty']}주")
-                    _r = _execute_order_now(_o["code"], _o["name"], int(_o["qty"]),
-                                            is_sell=_o["is_sell"], account_name=_acc)
-                    notify._send_raw(chat_id, f"[{_acc}] " + _r)
+                    _ok = _set_confirm_state(_cd, _new)
+                    _lbl = _CONFIRM_LABELS.get(_new, _new)
+                    if _ok:
+                        print(f"[bot] {user['name']} [상태변경] {_cd} → {_new}")
+                        # 목록 새로 그려 갱신 (버튼도 새 상태 반영)
+                        _reply = _cmd_list(user, ["보수"])
+                        _body, _kb = _split_marker(_reply)
+                        _mid = cb_msg.get("message_id")
+                        if _mid:
+                            # 메시지 본문+키보드 모두 갱신
+                            try:
+                                import json as _json
+                                requests.post(f"{_API}/editMessageText", json={
+                                    "chat_id": str(chat_id),
+                                    "message_id": _mid,
+                                    "text": _body,
+                                    "reply_markup": _kb,
+                                }, timeout=5)
+                            except Exception as _e:
+                                print(f"[bot] cf 갱신 실패: {_e}")
+                        notify._send_raw(chat_id, f"{_lbl}(으)로 변경했어요: {_cd}")
+                    else:
+                        notify._send_raw(chat_id, f"상태 변경 실패: {_cd}")
                     continue
                 if data == "usdbond_approve":
                     from pathlib import Path as _P
@@ -2135,9 +2147,8 @@ def poll_once():
                             continue
                         _set_pending("pbuy_ctx:" + user["key"], None)
                         print(f"[bot] {user['name']} [/매수 즉시] {ctx['name']} {sel}주")
-                        result = _order_with_pick(user, chat_id, ctx["code"], ctx["name"], sel, is_sell=False)
-                        if result is not None:
-                            notify._send_raw(chat_id, result)
+                        result = _execute_order_now(ctx["code"], ctx["name"], sel, is_sell=False)
+                        notify._send_raw(chat_id, result)
                         continue
                     amt = sel * ctx["price"]
                     if sel >= 1:
@@ -2257,9 +2268,8 @@ def poll_once():
                         continue
                     _set_pending("pbuy_ctx:" + user["key"], None)
                     print(f"[bot] {user['name']} [/매도 즉시] {ctx['name']} {sel}주")
-                    result = _order_with_pick(user, chat_id, ctx["code"], ctx["name"], sel, is_sell=True)
-                    if result is not None:
-                        notify._send_raw(chat_id, result)
+                    result = _execute_order_now(ctx["code"], ctx["name"], sel, is_sell=True)
+                    notify._send_raw(chat_id, result)
                     continue
                 if data.startswith("sell_cancel:"):
                     _set_pending("pbuy_ctx:" + user["key"], None)
