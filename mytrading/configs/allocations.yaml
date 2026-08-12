@@ -4,6 +4,7 @@ users:
       일반증권:
         vps: {moderate: 5000000, free: 3000000}
         prod: {moderate: 0, free: 0}
+        trading_active: true
       ISA:
         prod: {moderate: 0, free: 0}
 free_holdings:
