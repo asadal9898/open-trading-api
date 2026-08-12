@@ -142,22 +142,22 @@ def handle_command(user: dict, text: str) -> str:
     if cmd == "/start" or cmd == "/help":
         return ("자유투자 봇 (한글 명령도 됨)\n"
                 "\n"
-                "■ 모드·계좌·배분\n"
-                "/mode(/모드) 실전|모의 - 계좌 조회 모드 전환\n"
-                "/alloc(/비중) [일반|ISA] - 자금배분(보수·자유 금액 설정)\n"
-                "/alloc(/비중) 현금 - 현금 운용 (현금+원화 ETF 분할, 비율 조정, 달러 조건)\n"
-                "/cashbuy(/현금매수) - cash_plan 기반 ETF 매수 (계획→승인→주문)\n"
-                "/account(/계좌) [일반|ISA] - 계좌 상세(예산·보유종목)\n"
+                "■ 상태·모드·계좌·배분\n"
+                "/status(/상태)\n - 모드 · 보수(배당) 투자 시작/중지\n\n"
+                "/mode(/모드) 실전|모의\n - 계좌 조회 모드 전환\n\n"
+                "/alloc(/비중) 일반|ISA\n - 자금배분(보수·자유 금액 설정)\n\n"
+                "/alloc(/비중) 현금\n - 현금 운용 (현금+원화 ETF 분할, 비율 조정, 달러 조건)\n\n"
+                "/cashbuy(/현금매수)\n - cash_plan 기반 ETF 매수 (계획→승인→주문)\n\n"
+                "/account(/계좌) 일반|ISA\n - 계좌 상세(예산·보유종목)\n\n"
                 "/list(/종목 /목록) - 내 종목\n"
-                "/status(/상태) - 모드·계좌·등록종목\n"
                 "\n"
                 "■ 종목·매매\n"
-                "/add(/추가) 종목명 - 종목 추가\n"
-                "/approve(/승인) 종목명 - 매수 승인\n"
-                "/reject(/거절) 종목명 - 매수 거절(매수 안 됨)\n"
-                "/pause(/멈춤) 종목명 - 매수 멈춤(잠시 안 삼)\n"
-                "/buy(/매수) 종목명 - 승인 종목 일시매수\n"
-                "/splitbuy(/분할매수) 종목명 - 승인 종목 분할매수\n"
+                "/add(/추가) 종목명 - 종목 추가\n\n"
+                "/approve(/승인) 종목명 - 매수 승인\n\n"
+                "/reject(/거절) 종목명 - 매수 거절\n\n"
+                "/pause(/멈춤) 종목명\n - 매수 멈춤(잠시 안 삼)\n\n"
+                "/buy(/매수) 종목명\n - 승인 종목 일시매수\n\n"
+                "/splitbuy(/분할매수) 종목명\n - 승인 종목 분할매수\n\n"
                 "/sell(/매도) 종목명 - 보유 종목 매도\n"
                 "\n"
                 "/reboot(/재부팅) - 재부팅 (owner)")
@@ -344,25 +344,17 @@ def _acct_balance_lines(user, account_name, is_paper):
         from mytrading.account_snapshot import get_snapshot
         snap = get_snapshot(get_brokerage(account_name=account_name))
         out.append(f"   총평가금액: {snap.total_equity:,.0f}원")
-        _cash = float(snap.total_equity) - float(snap.holdings_value)
-        out.append(f"   주문가능현금: {_cash:,.0f}원")
-        # 자유예산은 모의(대표계좌)에서만 (allocations 기준)
-        if is_paper:
-            budget, acc_name, free_pct = _free_budget(user)
-            if budget >= 0:
-                out.append(f"   자유예산: {budget:,.0f}원 (한도 {free_pct:,.0f}원, 보유 차감후)")
-        else:
-            free_pct = 0
+        # 자유예산: free 비중(금액)이 설정된 계좌만 표시 (모의·실전 동일)
+        budget, _acc_name, free_amt = _free_budget(user)
+        if free_amt and free_amt > 0:
+            out.append(f"   자유예산: {free_amt:,.0f}원")
+            out.append(f"   남은예산: {budget:,.0f}원")
         if snap.holdings:
             out.append(f"   \U0001f4e6 보유종목 {len(snap.holdings)}개")
             for h in snap.holdings:
                 pnl = f"{h.pnl_percent:+.1f}%" if h.pnl_percent is not None else ""
-                out.append(f"     {h.name}({h.symbol}) {h.quantity}주 "
-                           f"{h.market_value:,.0f}원 {pnl}")
-                if is_paper and free_pct and free_pct > 0:
-                    _conc = float(h.market_value) / float(free_pct) * 100.0
-                    _warn = "  \u26a0\ufe0f 집중 경고 (50% 초과)" if _conc > 50 else ""
-                    out.append(f"       \u2514 free 한도의 {_conc:.0f}%{_warn}")
+                out.append(f"   {h.name}({h.symbol})  {pnl}")
+                out.append(f"   {h.quantity}주 {h.market_value:,.0f}원")
         else:
             out.append("   \U0001f4e6 보유종목 없음")
     except Exception as e:
