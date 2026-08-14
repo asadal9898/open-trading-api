@@ -247,7 +247,7 @@ def add_to_universe(results: list, uni_path: Path = None) -> int:
             pass
         ind_field = f'industry: "{industry}", ' if industry else ''
         line = (f'  - {{ code: "{code}", name: "{name}", style: "value_range", '
-                f'added_by: "AI", confirm: "Waiting", added_date: "{today}", '
+                f'confirm: "Waiting", added_date: "{today}", '
                 f'{div_field}{sec_field}{ind_field}note: "{note}" }}\n')
         to_add.append((code, name, line))
 

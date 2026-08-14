@@ -74,13 +74,25 @@ class Portfolio:
         return self.universe.get(category, [])
 
     def tradable_symbols(self, category: str = None) -> List[str]:
-        """confirm == "Approval" 인 종목 코드만 (실제 매매 대상).
-        confirm 없으면 "Waiting" 취급 → 제외 (안전: 명시적 승인만 매매)."""
+        """매매 가능 종목 코드만 (confirm/auto_confirm 합성 판정).
+
+        confirm(사람) 이 설정돼 있으면 그 값만으로 판정한다(auto_confirm 은 무시 — 사람이 이김).
+        confirm 이 없거나 None 이면 auto_confirm(자동) 값으로 판정한다.
+        둘 다 없으면 매매 불가(기존 기본값 "Waiting" 과 동일하게 취급 — 안전: 명시적 승인만 매매).
+
+        auto_confirm 필드가 아직 없는 종목(현재 전부)은 그대로 confirm 하나로만 판정되므로
+        이 메서드 도입 자체로는 기존 동작이 바뀌지 않는다(하위호환).
+        """
         cats = [category] if category else _CATEGORIES
         out = []
         for cat in cats:
             for s in self.universe.get(cat, []):
-                if s.get("confirm", "Waiting") == "Approval":
+                confirm = s.get("confirm")
+                if confirm is not None:
+                    ok = (confirm == "Approval")
+                else:
+                    ok = (s.get("auto_confirm") == "Approval")
+                if ok:
                     out.append(s["code"])
         return out
 
@@ -176,9 +188,13 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
             if isinstance(it, dict) and str(it.get("code", "")).strip():
                 entry = {"code": str(it["code"]).strip(),
                          "name": str(it.get("name", "")).strip()}
-                # 선택 필드 보존 (style/note/cadence/slice — 1-b, confirm/added_by — 종목 상태)
+                # 선택 필드 보존 (style/note/cadence/slice — 1-b, confirm — 종목 상태,
+                #   auto_confirm — 자동판정 상태(confirm/auto_confirm 합성 게이트),
+                #   score/mcap_score/div_score/debt_score/scored_date — 배당 스코어링)
                 for k in ("style", "note", "cadence", "slice",
-                          "added_by", "confirm", "added_date", "dividend", "sector", "industry"):
+                          "confirm", "auto_confirm", "added_date",
+                          "dividend", "sector", "industry",
+                          "score", "mcap_score", "div_score", "debt_score", "scored_date"):
                     if it.get(k) is not None:
                         entry[k] = it[k]
                 clean.append(entry)

@@ -1,0 +1,484 @@
+# 공용 종목풀 — 모든 계좌가 참조하는 종목 분류 리스트
+# 계좌는 비중(allocations.yaml)만 다르고, 종목은 이 풀에서 공통으로 사용합니다.
+#
+# 분류 (공용 — 모두가 같은 종목):
+#   moderate   (보수) : 안정적 개별주 (떨어진 우량 배당주 등)
+# ※ 자유 투자(free)는 사람마다 다르므로 여기(공용)가 아니라
+#    allocations.yaml 의 각 계좌 free_symbols 에 개인별로 둡니다.
+#
+# 형식: { code: "종목코드6자리", name: "표시이름" }
+# ※ 자동매매에 쓰려면 각 종목/전략을 반드시 백테스트로 검증한 뒤 추가하세요.
+
+# ETF 리츠 펀드 ETN은 보수적 투자에 넣지 않습니다.
+# 종목 상태 : 승인(Approval) 시 매수 또는 매도, 멈춤 (Paused) 매수 매도 중단
+# AI 추천 종목 : 승인 대기(Waiting) 시 매수 또는 매도 아무것도 하지 않음. 거절 (Rejected) 시 승인 되지 않음, 앞으로 추천하지 않아도 됩니다.
+# dividend : 연배당 1, 반기 배당 2, 분기배당 4 
+
+moderate:
+  - {code: "049720", name: "고려신용정보", style: "value_range", added_date: "2026-06-28",
+    dividend: 2, sector: "일반서비스", industry: "기타 사업지원 서비스업", note: "배당주 채권추심", 
+      auto_confirm: Paused, score: 58.3, mcap_score: 47.0, div_score: 2.6, 
+      debt_score: 8.7, scored_date: '2026-08-14'}
+  - {code: "009680", name: "모토닉", style: "value_range", added_date: "2026-06-28",
+    dividend: 1, sector: "운송장비·부품", industry: "자동차 부품 제조업", note: "배당주 자동차부품", 
+      auto_confirm: Approval, score: 256.5, mcap_score: 67.8, div_score: 93.0, 
+      debt_score: 95.7, scored_date: '2026-08-14'}
+  - {code: "002100", name: "경농", style: "value_range", added_date: "2026-06-29", 
+      dividend: 2, sector: "화학", industry: "합성고무 및 플라스틱 물질 제조업", note: "배당 7.6% 부채
+      77% (필터통과)", auto_confirm: Paused, score: 76.5, mcap_score: 58.3, 
+      div_score: 4.3, debt_score: 13.9, scored_date: '2026-08-14'}
+  - {code: "035250", name: "강원랜드", style: "value_range", added_date: "2026-06-29",
+    dividend: 1, sector: "오락·문화", industry: "유원지 및 기타 오락관련 서비스업", note: "배당 6.5% 부채
+      23% (필터통과)", auto_confirm: Approval, score: 266.1, mcap_score: 97.4, 
+      div_score: 88.7, debt_score: 80.0, scored_date: '2026-08-14'}
+  - {code: "001230", name: "동국홀딩스", style: "value_range", added_date: "2026-06-29",
+    dividend: 1, sector: "금융", industry: "기타 금융업", note: "배당 5.7% 부채 41% (필터통과)",
+    auto_confirm: Rejected, scored_date: '2026-08-14'}
+  - {code: "092790", name: "넥스틸", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "금속", industry: "기타 1차 철강 제조업", note: "배당 10.5% 부채 59% (필터통과)",
+    auto_confirm: Approval, score: 207.8, mcap_score: 78.3, div_score: 94.8, 
+      debt_score: 34.8, scored_date: '2026-08-14'}
+  - {code: "339770", name: "교촌에프앤비", style: "value_range", added_date: "2026-07-11",
+    dividend: 2, sector: "유통", industry: "수산물 도매업", note: "배당 9.4% 부채 99% (필터통과)",
+    auto_confirm: Approval, score: 158.3, mcap_score: 62.6, div_score: 95.7, 
+      debt_score: 0.0, scored_date: '2026-08-14'}
+  - {code: "000480", name: "CR홀딩스", style: "value_range", added_date: "2026-07-11",
+    dividend: 2, sector: "비금속", industry: "일반도자기 제조업", note: "배당 8.3% 부채 93% (필터통과)",
+    auto_confirm: Approval, score: 114.8, mcap_score: 67.0, div_score: 43.5, 
+      debt_score: 4.3, scored_date: '2026-08-14'}
+  - {code: "010640", name: "진양폴리", style: "value_range", added_date: "2026-07-11",
+    dividend: 2, sector: "화학", industry: "플라스틱 발포 성형제품 제조업", note: "배당 8.1% 부채 75%
+      (필터통과)", auto_confirm: Paused, score: 21.7, mcap_score: 0.9, div_score: 
+      5.2, debt_score: 15.7, scored_date: '2026-08-14'}
+  - {code: "069730", name: "DSR제강", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "금속", industry: "철강선 제조업", note: "배당 7.8% 부채 37% (필터통과)",
+    auto_confirm: Approval, score: 185.2, mcap_score: 29.6, div_score: 92.2, 
+      debt_score: 63.5, scored_date: '2026-08-14'}
+  - {code: "003780", name: "진양산업", style: "value_range", added_date: "2026-07-11",
+    dividend: 2, sector: "화학", industry: "플라스틱 발포 성형제품 제조업", note: "배당 7.4% 부채 77%
+      (필터통과)", auto_confirm: Paused, score: 23.5, mcap_score: 10.4, div_score: 
+      0.0, debt_score: 13.0, scored_date: '2026-08-14'}
+  - {code: "002460", name: "HS화성", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "건설", industry: "아파트 건설업", note: "배당 6.8% 부채 69% (필터통과)",
+    auto_confirm: Approval, score: 153.0, mcap_score: 43.5, div_score: 87.0, 
+      debt_score: 22.6, scored_date: '2026-08-14'}
+  - {code: "300720", name: "한일시멘트", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "비금속", industry: "시멘트 제조업", note: "배당 6.8% 부채 65% (필터통과)",
+    auto_confirm: Approval, score: 208.7, mcap_score: 92.2, div_score: 89.6, 
+      debt_score: 27.0, scored_date: '2026-08-14'}
+  - {code: "123890", name: "한국자산신탁", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "금융", industry: "투자기관", note: "배당 6.6% 부채 62% (필터통과)", 
+      auto_confirm: Approval, score: 188.7, mcap_score: 73.9, div_score: 84.3, 
+      debt_score: 30.4, scored_date: '2026-08-14'}
+  - {code: "031210", name: "서울보증보험", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "보험", industry: "보증 보험업", note: "배당 6.6% 부채 90% (필터통과)",
+    auto_confirm: Approval, score: 191.3, mcap_score: 98.3, div_score: 87.8, 
+      debt_score: 5.2, scored_date: '2026-08-14'}
+  - {code: "100250", name: "진양홀딩스", style: "value_range", added_date: "2026-07-11",
+    dividend: 2, sector: "화학", industry: "플라스틱제품 제조업", note: "배당 6.5% 부채 60% (필터통과)",
+    auto_confirm: Approval, score: 98.3, mcap_score: 64.3, div_score: 0.9, 
+      debt_score: 33.0, scored_date: '2026-08-14'}
+  - {code: "069260", name: "TKG휴켐스", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "화학", industry: "그외 기타 화학제품 제조업", note: "배당 6.5% 부채 33% (필터통과)",
+    auto_confirm: Approval, score: 242.6, mcap_score: 89.6, div_score: 82.6, 
+      debt_score: 70.4, scored_date: '2026-08-14'}
+  - {code: "016380", name: "KG스틸", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "금속", industry: "냉간 압연 및 압출 제품 제조업", note: "배당 5.8% 부채 61%
+      (필터통과)", auto_confirm: Approval, score: 186.1, mcap_score: 87.8, div_score: 
+      67.0, debt_score: 31.3, scored_date: '2026-08-14'}
+  - {code: "000390", name: "SP삼화", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "화학", industry: "가정용 살균 및 살충제 제조업", note: "배당 5.6% 부채 89%
+      (필터통과)", auto_confirm: Approval, score: 130.4, mcap_score: 54.8, div_score: 
+      69.6, debt_score: 6.1, scored_date: '2026-08-14'}
+  - {code: "155660", name: "DSR", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "금속", industry: "1차 비철금속 제조업", note: "배당 5.6% 부채 59% (필터통과)",
+    auto_confirm: Approval, score: 123.5, mcap_score: 23.5, div_score: 66.1, 
+      debt_score: 33.9, scored_date: '2026-08-14'}
+  - {code: "015890", name: "태경산업", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "화학", industry: "기타 기초무기화학물질 제조업", note: "배당 5.3% 부채 69%
+      (필터통과)", auto_confirm: Approval, score: 134.8, mcap_score: 47.8, div_score: 
+      65.2, debt_score: 21.7, scored_date: '2026-08-14'}
+  - {code: "090350", name: "노루페인트", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "화학", industry: "가정용 살균 및 살충제 제조업", note: "배당 5.3% 부채 70%
+      (필터통과)", auto_confirm: Approval, score: 135.7, mcap_score: 50.4, div_score: 
+      64.3, debt_score: 20.9, scored_date: '2026-08-14'}
+  - {code: "097520", name: "엠씨넥스", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "전기·전자", industry: "비디오 및 기타 영상기기 제조업", note: "배당 5.2% 부채
+      54% (필터통과)", auto_confirm: Approval, score: 175.7, mcap_score: 80.0, 
+      div_score: 56.5, debt_score: 39.1, scored_date: '2026-08-14'}
+  - {code: "005850", name: "에스엘", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "운송장비·부품", industry: "자동차 부품 제조업", note: "배당 5.0% 부채 62%
+      (필터통과)", auto_confirm: Approval, score: 175.7, mcap_score: 95.7, div_score: 
+      50.4, debt_score: 29.6, scored_date: '2026-08-14'}
+  - {code: "004490", name: "세방전지", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "전기·전자", industry: "축전지 제조업", note: "배당 4.9% 부채 42% (필터통과)",
+    auto_confirm: Approval, score: 197.4, mcap_score: 91.3, div_score: 51.3, 
+      debt_score: 54.8, scored_date: '2026-08-14'}
+  - {code: "049520", name: "유아이엘", style: "value_range", added_date: "2026-07-11",
+    dividend: 2, sector: "전기·전자", industry: "기타 전자부품 제조업", note: "배당 11.2% 부채 40%
+      (필터통과)", auto_confirm: Approval, score: 134.8, mcap_score: 41.7, div_score: 
+      33.9, debt_score: 59.1, scored_date: '2026-08-14'}
+  - {code: "072870", name: "메가스터디", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "오락·문화", industry: "서적, 잡지 및 기타 인쇄물 출판업", note: "배당 10.1%
+      부채 56% (필터통과)", auto_confirm: Approval, score: 185.2, mcap_score: 51.3, 
+      div_score: 98.3, debt_score: 35.7, scored_date: '2026-08-14'}
+  - {code: "215000", name: "골프존", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "IT 서비스", industry: "기타 게임 소프트웨어 개발 및 공급업", note: "배당 9.9%
+      부채 48% (필터통과)", auto_confirm: Approval, score: 213.9, mcap_score: 68.7, 
+      div_score: 99.1, debt_score: 46.1, scored_date: '2026-08-14'}
+  - {code: "461300", name: "아이스크림미디어", style: "value_range", added_date: "2026-07-11",
+    dividend: 2, sector: "IT 서비스", industry: "소프트웨어 개발 및 공급업", note: "배당 9.8% 부채 22%
+      (필터통과)", auto_confirm: Approval, score: 228.7, mcap_score: 70.4, div_score: 
+      76.5, debt_score: 81.7, scored_date: '2026-08-14'}
+  - {code: "073560", name: "우리손에프앤지", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "음식료·담배", industry: "도축, 육류 가공 및 저장 처리업", note: "배당 9.7%
+      부채 67% (필터통과)", auto_confirm: Approval, score: 158.3, mcap_score: 37.4, 
+      div_score: 97.4, debt_score: 23.5, scored_date: '2026-08-14'}
+  - {code: "040420", name: "정상제이엘에스", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "일반서비스", industry: "일반 교습 학원", note: "배당 9.1% 부채 34% (필터통과)",
+    auto_confirm: Approval, score: 196.5, mcap_score: 31.3, div_score: 96.5, 
+      debt_score: 68.7, scored_date: '2026-08-14'}
+  - {code: "208140", name: "정다운", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "음식료·담배", industry: "도축, 육류 가공 및 저장 처리업", note: "배당 8.9%
+      부채 75% (필터통과)", auto_confirm: Approval, score: 130.4, mcap_score: 20.0, 
+      div_score: 93.9, debt_score: 16.5, scored_date: '2026-08-14'}
+  - {code: "042500", name: "링네트", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "IT 서비스", industry: "컴퓨터시스템 통합 자문 및 구축 서비스업", note: "배당 7.4%
+      부채 40% (필터통과)", auto_confirm: Approval, score: 180.9, mcap_score: 33.0, 
+      div_score: 91.3, debt_score: 56.5, scored_date: '2026-08-14'}
+  - {code: "002290", name: "삼일기업공사", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "건설", industry: "건물 건설업", note: "배당 6.8% 부채 25% (필터통과)",
+    auto_confirm: Approval, score: 173.0, mcap_score: 7.0, div_score: 90.4, 
+      debt_score: 75.7, scored_date: '2026-08-14'}
+  - {code: "041930", name: "SY동아", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "화학", industry: "기타 고무제품 제조업", note: "배당 6.6% 부채 67% (필터통과)",
+    auto_confirm: Approval, score: 125.2, mcap_score: 21.7, div_score: 78.3, 
+      debt_score: 25.2, scored_date: '2026-08-14'}
+  - {code: "025880", name: "케이씨피드", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "음식료·담배", note: "배당 6.5% 부채 46% (필터통과)", auto_confirm: 
+      Approval, score: 140.9, mcap_score: 7.8, div_score: 85.2, debt_score: 47.8,
+    scored_date: '2026-08-14'}
+  - {code: "004650", name: "창해에탄올", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "음식료·담배", industry: "주정 제조업", note: "배당 6.4% 부채 37% (필터통과)",
+    auto_confirm: Approval, score: 179.1, mcap_score: 30.4, div_score: 86.1, 
+      debt_score: 62.6, scored_date: '2026-08-14'}
+  - {code: "017480", name: "삼현철강", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "금속", industry: "기타 1차 철강 제조업", note: "배당 6.4% 부채 11% (필터통과)",
+    auto_confirm: Approval, score: 200.9, mcap_score: 22.6, div_score: 80.0, 
+      debt_score: 98.3, scored_date: '2026-08-14'}
+  - {code: "036640", name: "HRS", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "화학", industry: "질소, 인산 및 칼리질 비료 제조업", note: "배당 6.3% 부채
+      21% (필터통과)", auto_confirm: Approval, score: 192.2, mcap_score: 27.8, 
+      div_score: 81.7, debt_score: 82.6, scored_date: '2026-08-14'}
+  - {code: "170030", name: "현대공업", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "운송장비·부품", industry: "자동차 부품 제조업", note: "배당 6.2% 부채 72%
+      (필터통과)", auto_confirm: Approval, score: 115.7, mcap_score: 24.3, div_score: 
+      73.9, debt_score: 17.4, scored_date: '2026-08-14'}
+  - {code: "046440", name: "KG파이낸셜", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "IT 서비스", industry: "소프트웨어 개발 및 공급업", note: "배당 6.1% 부채 66%
+      (필터통과)", auto_confirm: Approval, score: 153.9, mcap_score: 52.2, div_score: 
+      75.7, debt_score: 26.1, scored_date: '2026-08-14'}
+  - {code: "054040", name: "한국컴퓨터", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "전기·전자", industry: "기타 전자부품 제조업", note: "배당 5.9% 부채 78% (필터통과)",
+    auto_confirm: Approval, score: 116.5, mcap_score: 27.0, div_score: 79.1, 
+      debt_score: 10.4, scored_date: '2026-08-14'}
+  - {code: "069080", name: "웹젠", style: "value_range", added_date: "2026-07-11", 
+      dividend: 1, sector: "IT 서비스", industry: "게임 소프트웨어 개발 및 공급업", note: "배당 5.8%
+      부채 16% (필터통과)", auto_confirm: Approval, score: 248.7, mcap_score: 80.9, 
+      div_score: 74.8, debt_score: 93.0, scored_date: '2026-08-14'}
+  - {code: "053980", name: "오상자이엘", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "IT 서비스", industry: "소프트웨어 개발 및 공급업", note: "배당 5.8% 부채 46%
+      (필터통과)", auto_confirm: Approval, score: 131.3, mcap_score: 9.6, div_score: 
+      72.2, debt_score: 49.6, scored_date: '2026-08-14'}
+  - {code: "487580", name: "폴레드", style: "value_range", added_date: "2026-07-11",
+    dividend: 1, sector: "전기·전자", industry: "기타 가정용 전기기기 제조업", note: "배당 5.7% 부채 42%
+      (필터통과)", auto_confirm: Approval, score: 156.5, mcap_score: 33.9, div_score: 
+      68.7, debt_score: 53.9, scored_date: '2026-08-14'}
+  - {code: "001130", name: "대한제분", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "음식료·담배", industry: "낙농제품 및 식용빙과류 제조업", note: "배당 36.2% 부채
+      51% (필터통과)", auto_confirm: Approval, score: 206.1, mcap_score: 63.5, 
+      div_score: 100.0, debt_score: 42.6, scored_date: '2026-08-14'}
+  - {code: "010960", name: "삼호개발", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "건설", industry: "기반조성 및 시설물 축조관련 전문공사업", note: "배당 5.9% 부채
+      50% (필터통과)", auto_confirm: Approval, score: 150.4, mcap_score: 26.1, 
+      div_score: 80.9, debt_score: 43.5, scored_date: '2026-08-14'}
+  - {code: "129260", name: "인터지스", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "운송·창고", industry: "도로 화물 운송업", note: "배당 5.1% 부채 76% (필터통과)",
+    auto_confirm: Approval, score: 93.9, mcap_score: 15.7, div_score: 63.5, 
+      debt_score: 14.8, scored_date: '2026-08-14'}
+  - {code: "210540", name: "디와이파워", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "기계·장비", industry: "토목공사 및 유사용 기계장비 제조업", note: "배당 4.6%
+      부채 24% (필터통과)", auto_confirm: Approval, score: 163.5, mcap_score: 45.2, 
+      div_score: 40.9, debt_score: 77.4, scored_date: '2026-08-14'}
+  - {code: "000270", name: "기아", style: "value_range", added_date: "2026-07-18", 
+      dividend: 1, sector: "운송장비·부품", industry: "승용차 및 기타 여객용 자동차 제조업", note: "배당
+      4.5% 부채 71% (필터통과)", auto_confirm: Approval, score: 177.4, mcap_score: 
+      100.0, div_score: 58.3, debt_score: 19.1, scored_date: '2026-08-14'}
+  - {code: "035510", name: "신세계 I&C", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "IT 서비스", industry: "컴퓨터시스템 통합 자문 및 구축 서비스업", note: "배당 4.5%
+      부채 35% (필터통과)", auto_confirm: Approval, score: 166.1, mcap_score: 61.7, 
+      div_score: 37.4, debt_score: 67.0, scored_date: '2026-08-14'}
+  - {code: "026960", name: "동서", style: "value_range", added_date: "2026-07-18", 
+      dividend: 2, sector: "유통", industry: "가공식품 도매업", note: "배당 4.5% 부채 4% (필터통과)",
+    auto_confirm: Approval, score: 240.0, mcap_score: 94.8, div_score: 45.2, 
+      debt_score: 100.0, scored_date: '2026-08-14'}
+  - {code: "012750", name: "에스원", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "일반서비스", industry: "보안시스템 서비스업", note: "배당 4.4% 부채 46% (필터통과)",
+    auto_confirm: Approval, score: 184.3, mcap_score: 96.5, div_score: 39.1, 
+      debt_score: 48.7, scored_date: '2026-08-14'}
+  - {code: "013570", name: "디와이", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "금융", industry: "금융지주회사", note: "배당 4.4% 부채 77% (필터통과)",
+    auto_confirm: Paused, score: 80.9, mcap_score: 42.6, div_score: 26.1, 
+      debt_score: 12.2, scored_date: '2026-08-14'}
+  - {code: "058850", name: "KTcs", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "IT 서비스", industry: "데이터베이스 및 온라인정보 제공업", note: "배당 4.4%
+      부채 93% (필터통과)", auto_confirm: Paused, score: 81.7, mcap_score: 32.2, 
+      div_score: 46.1, debt_score: 3.5, scored_date: '2026-08-14'}
+  - {code: "002450", name: "삼익악기", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "제조", industry: "피아노 제조업", note: "배당 4.4% 부채 82% (필터통과)",
+    auto_confirm: Approval, score: 92.2, mcap_score: 35.7, div_score: 48.7, 
+      debt_score: 7.8, scored_date: '2026-08-14'}
+  - {code: "005750", name: "대림바스", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "비금속", industry: "내화 요업제품 제조업", note: "배당 4.3% 부채 96% (필터통과)",
+    auto_confirm: Paused, score: 52.2, mcap_score: 25.2, div_score: 25.2, 
+      debt_score: 1.7, scored_date: '2026-08-14'}
+  - {code: "126720", name: "수산인더스트리", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "건설", industry: "일반전기 공사업", note: "배당 4.3% 부채 25% (필터통과)",
+    auto_confirm: Approval, score: 186.1, mcap_score: 77.4, div_score: 32.2, 
+      debt_score: 76.5, scored_date: '2026-08-14'}
+  - {code: "004150", name: "한솔홀딩스", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "금융", industry: "금융지주회사", note: "배당 4.3% 부채 40% (필터통과)",
+    auto_confirm: Approval, score: 131.3, mcap_score: 48.7, div_score: 24.3, 
+      debt_score: 58.3, scored_date: '2026-08-14'}
+  - {code: "089470", name: "HDC현대EP", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "화학", industry: "기타 화학제품 제조업", note: "배당 4.3% 부채 94% (필터통과)",
+    auto_confirm: Paused, score: 80.0, mcap_score: 44.3, div_score: 33.0, 
+      debt_score: 2.6, scored_date: '2026-08-14'}
+  - {code: "001800", name: "오리온홀딩스", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "금융", industry: "기타 금융업", note: "배당 4.2% 부채 23% (필터통과)",
+    auto_confirm: Approval, score: 257.4, mcap_score: 93.0, div_score: 83.5, 
+      debt_score: 80.9, scored_date: '2026-08-14'}
+  - {code: "239890", name: "피엔에이치테크", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "화학", industry: "기타 기초유기화학물질 제조업", note: "배당 5.7% 부채 36%
+      (필터통과)", auto_confirm: Approval, score: 139.1, mcap_score: 4.3, div_score: 
+      70.4, debt_score: 64.3, scored_date: '2026-08-14'}
+  - {code: "010470", name: "오리콤", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "일반서비스", industry: "광고 대행업", note: "배당 5.7% 부채 77% (필터통과)",
+    auto_confirm: Approval, score: 97.4, mcap_score: 14.8, div_score: 71.3, 
+      debt_score: 11.3, scored_date: '2026-08-14'}
+  - {code: "190510", name: "나무가", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "전기·전자", industry: "전자부품 제조업", note: "배당 5.6% 부채 56% (필터통과)",
+    auto_confirm: Approval, score: 162.6, mcap_score: 65.2, div_score: 60.0, 
+      debt_score: 37.4, scored_date: '2026-08-14'}
+  - {code: "263920", name: "휴엠앤씨", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "기타제조", industry: "그외 기타 달리 분류되지 않은 제품 제조업", note: "배당 5.6%
+      부채 45% (필터통과)", auto_confirm: Approval, score: 129.6, mcap_score: 1.7, 
+      div_score: 77.4, debt_score: 50.4, scored_date: '2026-08-14'}
+  - {code: "091700", name: "파트론", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "전기·전자", industry: "기타 전자부품 제조업", note: "배당 5.4% 부채 49% (필터통과)",
+    auto_confirm: Approval, score: 185.2, mcap_score: 73.0, div_score: 67.8, 
+      debt_score: 44.3, scored_date: '2026-08-14'}
+  - {code: "075130", name: "플랜티넷", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "IT 서비스", industry: "컴퓨터 프로그래밍, 시스템 통합 및 관리업", note: "배당
+      5.2% 부채 20% (필터통과)", auto_confirm: Approval, score: 142.6, mcap_score: 2.6,
+    div_score: 54.8, debt_score: 85.2, scored_date: '2026-08-14'}
+  - {code: "036620", name: "감성코퍼레이션", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "유통", industry: "기타 전문 도매업", note: "배당 5.1% 부채 37% (필터통과)",
+    auto_confirm: Approval, score: 197.4, mcap_score: 82.6, div_score: 53.9, 
+      debt_score: 60.9, scored_date: '2026-08-14'}
+  - {code: "415380", name: "스튜디오삼익", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "유통", industry: "가구 소매업", note: "배당 5.1% 부채 36% (필터통과)",
+    auto_confirm: Paused, score: 67.8, mcap_score: 0.0, div_score: 1.7, 
+      debt_score: 66.1, scored_date: '2026-08-14'}
+  - {code: "035890", name: "서희건설", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "건설", industry: "비주거용 건물 건설업", note: "배당 5.0% 부채 51% (필터통과)",
+    auto_confirm: Approval, score: 182.6, mcap_score: 85.2, div_score: 55.7, 
+      debt_score: 41.7, scored_date: '2026-08-14'}
+  - {code: "264450", name: "유비쿼스", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "전기·전자", industry: "유선 통신장비 제조업", note: "배당 4.9% 부채 13% (필터통과)",
+    auto_confirm: Approval, score: 190.4, mcap_score: 53.9, div_score: 40.0, 
+      debt_score: 96.5, scored_date: '2026-08-14'}
+  - {code: "171120", name: "라이온켐텍", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "화학", industry: "그외 기타 화학제품 제조업", note: "배당 4.9% 부채 19% (필터통과)",
+    auto_confirm: Approval, score: 166.1, mcap_score: 20.9, div_score: 57.4, 
+      debt_score: 87.8, scored_date: '2026-08-14'}
+  - {code: "036120", name: "서울평가정보", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "IT 서비스", industry: "데이터베이스 및 온라인정보 제공업", note: "배당 4.9%
+      부채 24% (필터통과)", auto_confirm: Approval, score: 152.2, mcap_score: 13.9, 
+      div_score: 59.1, debt_score: 79.1, scored_date: '2026-08-14'}
+  - {code: "187870", name: "디바이스", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "기계·장비", industry: "반도체 제조용 기계 제조업", note: "배당 4.9% 부채 34%
+      (필터통과)", auto_confirm: Approval, score: 189.6, mcap_score: 57.4, div_score: 
+      62.6, debt_score: 69.6, scored_date: '2026-08-14'}
+  - {code: "309960", name: "LB인베스트먼트", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "금융", industry: "기금 운영업", note: "배당 4.9% 부채 14% (필터통과)",
+    auto_confirm: Approval, score: 179.1, mcap_score: 36.5, div_score: 47.8, 
+      debt_score: 94.8, scored_date: '2026-08-14'}
+  - {code: "053300", name: "한국정보인증", style: "value_range", added_date: "2026-07-18",
+    dividend: 1, sector: "IT 서비스", industry: "시스템  소프트웨어 개발 및 공급업", note: "배당 4.7%
+      부채 71% (필터통과)", auto_confirm: Approval, score: 125.2, mcap_score: 60.9, 
+      div_score: 44.3, debt_score: 20.0, scored_date: '2026-08-14'}
+  - {code: "033920", name: "무학", style: "value_range", added_date: "2026-07-25", 
+      dividend: 3, sector: "음식료·담배", industry: "소주 제조업", note: "배당 6.3% 부채 24% (필터통과)",
+    auto_confirm: Approval, score: 220.9, mcap_score: 69.6, div_score: 73.0, 
+      debt_score: 78.3, scored_date: '2026-08-14'}
+  - {code: "271560", name: "오리온", style: "value_range", added_date: "2026-07-25",
+    dividend: 2, sector: "음식료·담배", industry: "동물용 사료 및 조제식품 제조업", note: "배당 4.0% 부채
+      20% (필터통과)", auto_confirm: Approval, score: 215.7, mcap_score: 99.1, 
+      div_score: 30.4, debt_score: 86.1, scored_date: '2026-08-14'}
+  - {code: "108320", name: "LX세미콘", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "전기·전자", industry: "다이오드, 트랜지스터 및 유사 반도체소자 제조업", note: "배당
+      3.9% 부채 35% (필터통과)", auto_confirm: Approval, score: 176.5, mcap_score: 
+      90.4, div_score: 18.3, debt_score: 67.8, scored_date: '2026-08-14'}
+  - {code: "014580", name: "태경비케이", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "비금속", industry: "석회 및 플라스터 제조업", note: "배당 3.7% 부채 53% (필터통과)",
+    auto_confirm: Approval, score: 100.9, mcap_score: 40.0, div_score: 20.9, 
+      debt_score: 40.0, scored_date: '2026-08-14'}
+  - {code: "057030", name: "YBM넷", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "일반서비스", industry: "교육지원 서비스업", note: "배당 4.7% 부채 61% (필터통과)",
+    auto_confirm: Paused, score: 87.8, mcap_score: 6.1, div_score: 49.6, 
+      debt_score: 32.2, scored_date: '2026-08-14'}
+  - {code: "119610", name: "인터로조", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "의료·정밀기기", industry: "의료용 기기 제조업", note: "배당 4.6% 부채 65%
+      (필터통과)", auto_confirm: Approval, score: 127.0, mcap_score: 56.5, div_score: 
+      42.6, debt_score: 27.8, scored_date: '2026-08-14'}
+  - {code: "204610", name: "티쓰리", style: "value_range", added_date: "2026-07-25",
+    dividend: 2, sector: "IT 서비스", industry: "게임 소프트웨어 개발 및 공급업", note: "배당 4.5% 부채
+      17% (필터통과)", auto_confirm: Approval, score: 179.1, mcap_score: 59.1, 
+      div_score: 28.7, debt_score: 91.3, scored_date: '2026-08-14'}
+  - {code: "419120", name: "산돌", style: "value_range", added_date: "2026-07-25", 
+      dividend: 1, sector: "IT 서비스", industry: "응용소프트웨어 개발 및 공급업", note: "배당 4.4%
+      부채 30% (필터통과)", auto_confirm: Approval, score: 114.8, mcap_score: 3.5, 
+      div_score: 38.3, debt_score: 73.0, scored_date: '2026-08-14'}
+  - {code: "013120", name: "동원개발", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "건설", industry: "아파트 건설업", note: "배당 4.2% 부채 41% (필터통과)",
+    auto_confirm: Approval, score: 153.0, mcap_score: 66.1, div_score: 31.3, 
+      debt_score: 55.7, scored_date: '2026-08-14'}
+  - {code: "042110", name: "에스씨디", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "전기·전자", industry: "기타 가정용 전기기기 제조업", note: "배당 4.1% 부채 31%
+      (필터통과)", auto_confirm: Approval, score: 131.3, mcap_score: 12.2, div_score: 
+      47.0, debt_score: 72.2, scored_date: '2026-08-14'}
+  - {code: "065530", name: "와이어블", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "통신", industry: "그외 기타 전기 통신업", note: "배당 4.1% 부채 78% (필터통과)",
+    auto_confirm: Paused, score: 49.6, mcap_score: 16.5, div_score: 23.5, 
+      debt_score: 9.6, scored_date: '2026-08-14'}
+  - {code: "013030", name: "하이록코리아", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "금속", industry: "1차 철강 제조업", note: "배당 4.1% 부채 10% (필터통과)",
+    auto_confirm: Approval, score: 217.4, mcap_score: 83.5, div_score: 34.8, 
+      debt_score: 99.1, scored_date: '2026-08-14'}
+  - {code: "046940", name: "우원개발", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "건설", industry: "기반조성 및 시설물 축조관련 전문공사업", note: "배당 4.1% 부채
+      64% (필터통과)", auto_confirm: Paused, score: 68.7, mcap_score: 13.0, 
+      div_score: 27.0, debt_score: 28.7, scored_date: '2026-08-14'}
+  - {code: "408920", name: "메쎄이상", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "일반서비스", industry: "기타 사업지원 서비스업", note: "배당 4.1% 부채 37%
+      (필터통과)", auto_confirm: Approval, score: 133.9, mcap_score: 46.1, div_score: 
+      27.8, debt_score: 60.0, scored_date: '2026-08-14'}
+  - {code: "092730", name: "네오팜", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "화학", industry: "인쇄잉크 제조업", note: "배당 4.0% 부채 11% (필터통과)",
+    auto_confirm: Approval, score: 185.2, mcap_score: 81.7, div_score: 6.1, 
+      debt_score: 97.4, scored_date: '2026-08-14'}
+  - {code: "004590", name: "한국가구", style: "value_range", added_date: "2026-07-25",
+    dividend: 2, sector: "유통", industry: "기타 상품 전문 소매업", note: "배당 4.0% 부채 32% (필터통과)",
+    auto_confirm: Approval, score: 117.4, mcap_score: 28.7, div_score: 17.4, 
+      debt_score: 71.3, scored_date: '2026-08-14'}
+  - {code: "039420", name: "케이엘넷", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "통신", industry: "그외 기타 전기 통신업", note: "배당 3.8% 부채 15% (필터통과)",
+    auto_confirm: Approval, score: 124.3, mcap_score: 19.1, div_score: 11.3, 
+      debt_score: 93.9, scored_date: '2026-08-14'}
+  - {code: "121440", name: "골프존홀딩스", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "유통", industry: "상품 중개업", note: "배당 3.8% 부채 47% (필터통과)",
+    auto_confirm: Approval, score: 133.0, mcap_score: 75.7, div_score: 10.4, 
+      debt_score: 47.0, scored_date: '2026-08-14'}
+  - {code: "025770", name: "한국정보통신", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "통신", industry: "그외 기타 전기 통신업", note: "배당 3.7% 부채 72% (필터통과)",
+    auto_confirm: Approval, score: 109.6, mcap_score: 74.8, div_score: 16.5, 
+      debt_score: 18.3, scored_date: '2026-08-14'}
+  - {code: "060720", name: "KH바텍", style: "value_range", added_date: "2026-07-25",
+    dividend: 2, sector: "전기·전자", industry: "기타 전자부품 제조업", note: "배당 3.7% 부채 48% (필터통과)",
+    auto_confirm: Approval, score: 120.9, mcap_score: 72.2, div_score: 3.5, 
+      debt_score: 45.2, scored_date: '2026-08-14'}
+  - {code: "004780", name: "대륙제관", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "금속", industry: "금속캔 및 기타 포장용기 제조업", note: "배당 3.7% 부채 36%
+      (필터통과)", auto_confirm: Approval, score: 105.2, mcap_score: 18.3, div_score: 
+      21.7, debt_score: 65.2, scored_date: '2026-08-14'}
+  - {code: "092460", name: "한라IMS", style: "value_range", added_date: "2026-07-25",
+    dividend: 1, sector: "운송장비·부품", industry: "선박 구성부분품 제조업", note: "배당 3.7% 부채 54%
+      (필터통과)", auto_confirm: Approval, score: 123.5, mcap_score: 76.5, div_score: 
+      8.7, debt_score: 38.3, scored_date: '2026-08-14'}
+  - {code: "002810", name: "삼영무역", style: "value_range", added_date: "2026-08-01",
+    dividend: 1, sector: "유통", industry: "기타 화학물질 및 화학제품 도매업", note: "배당 4.5% 부채 19%
+      (필터통과)", auto_confirm: Approval, score: 213.0, mcap_score: 84.3, div_score: 
+      41.7, debt_score: 87.0, scored_date: '2026-08-14'}
+  - {code: "005810", name: "풍산홀딩스", style: "value_range", added_date: "2026-08-01",
+    dividend: 1, sector: "금융", industry: "금융지주회사", note: "배당 4.5% 부채 17% (필터통과)",
+    auto_confirm: Approval, score: 213.9, mcap_score: 87.0, div_score: 36.5, 
+      debt_score: 90.4, scored_date: '2026-08-14'}
+  - {code: "004250", name: "NPC", style: "value_range", added_date: "2026-08-01",
+    dividend: 1, sector: "화학", industry: "포장용 플라스틱 성형용기 제조업", note: "배당 3.8% 부채 43%
+      (필터통과)", auto_confirm: Approval, score: 106.1, mcap_score: 38.3, div_score: 
+      14.8, debt_score: 53.0, scored_date: '2026-08-14'}
+  - {code: "020000", name: "한섬", style: "value_range", added_date: "2026-08-01", 
+      dividend: 1, sector: "섬유·의류", industry: "여자용 정장 제조업", note: "배당 3.8% 부채 19%
+      (필터통과)", auto_confirm: Approval, score: 221.7, mcap_score: 79.1, div_score: 
+      53.0, debt_score: 89.6, scored_date: '2026-08-14'}
+  - {code: "016740", name: "두올", style: "value_range", added_date: "2026-08-01", 
+      dividend: 1, sector: "운송장비·부품", industry: "자동차 부품 제조업", note: "배당 3.8% 부채 98%
+      (필터통과)", auto_confirm: Paused, score: 48.7, mcap_score: 34.8, div_score: 
+      13.0, debt_score: 0.9, scored_date: '2026-08-14'}
+  - {code: "383800", name: "LX홀딩스", style: "value_range", added_date: "2026-08-01",
+    dividend: 1, sector: "금융", industry: "금융지주회사", note: "배당 3.8% 부채 19% (필터통과)",
+    auto_confirm: Approval, score: 189.6, mcap_score: 88.7, div_score: 12.2, 
+      debt_score: 88.7, scored_date: '2026-08-14'}
+  - {code: "004830", name: "덕성", style: "value_range", added_date: "2026-08-01", 
+      dividend: 1, sector: "화학", industry: "1차 플라스틱제품 제조업", note: "배당 3.7% 부채 56%
+      (필터통과)", auto_confirm: Paused, score: 57.4, mcap_score: 11.3, div_score: 
+      9.6, debt_score: 36.5, scored_date: '2026-08-14'}
+  - {code: "117580", name: "대성에너지", style: "value_range", added_date: "2026-08-01",
+    dividend: 1, sector: "전기·가스", industry: "가스 제조 및 배관공급업", note: "배당 3.7% 부채 87%
+      (필터통과)", auto_confirm: Paused, score: 87.0, mcap_score: 60.0, div_score: 
+      20.0, debt_score: 7.0, scored_date: '2026-08-14'}
+  - {code: "010240", name: "흥국", style: "value_range", added_date: "2026-08-01", 
+      dividend: 1, sector: "기계·장비", industry: "토목공사 및 유사용 기계장비 제조업", note: "배당 5.2%
+      부채 20% (필터통과)", auto_confirm: Approval, score: 162.6, mcap_score: 17.4, 
+      div_score: 61.7, debt_score: 83.5, scored_date: '2026-08-14'}
+  - {code: "114840", name: "아이패밀리에스씨", style: "value_range", added_date: "2026-08-01",
+    dividend: 2, sector: "화학", industry: "기타 화학제품 제조업", note: "배당 4.0% 부채 40% (필터통과)",
+    auto_confirm: Approval, score: 114.8, mcap_score: 49.6, div_score: 7.8, 
+      debt_score: 57.4, scored_date: '2026-08-14'}
+  - {code: "054050", name: "NH농우바이오", style: "value_range", added_date: "2026-08-01",
+    dividend: 1, industry: "종자 및 묘목 생산업", note: "배당 3.7% 부채 27% (필터통과)", 
+      auto_confirm: Approval, score: 133.0, mcap_score: 39.1, div_score: 19.1, 
+      debt_score: 74.8, scored_date: '2026-08-14'}
+  - {code: "093190", name: "빅솔론", style: "value_range", added_date: "2026-08-01",
+    dividend: 1, sector: "전기·전자", industry: "컴퓨터 및 주변장치 제조업", note: "배당 3.7% 부채 20%
+      (필터통과)", auto_confirm: Approval, score: 155.7, mcap_score: 55.7, div_score: 
+      15.7, debt_score: 84.3, scored_date: '2026-08-14'}
+  - {code: "260970", name: "에스앤디", style: "value_range", added_date: "2026-08-01",
+    dividend: 1, sector: "음식료·담배", industry: "동물용 사료 및 조제식품 제조업", note: "배당 3.7% 부채
+      37% (필터통과)", auto_confirm: Approval, score: 121.7, mcap_score: 53.0, 
+      div_score: 7.0, debt_score: 61.7, scored_date: '2026-08-14'}
+  - {code: "083420", name: "그린케미칼", style: "value_range", added_date: "2026-08-08",
+    dividend: 2, sector: "화학", industry: "일반용 도료 및 관련제품 제조업", note: "배당 4.8% 부채 67%
+      (필터통과)", auto_confirm: Approval, score: 126.1, mcap_score: 40.9, div_score: 
+      60.9, debt_score: 24.3, scored_date: '2026-08-14'}
+  - {code: "079900", name: "전진건설로봇", style: "value_range", added_date: "2026-08-08",
+    dividend: 2, sector: "기계·장비", industry: "특수 목적용 기계 제조업", note: "배당 4.2% 부채 52%
+      (필터통과)", auto_confirm: Approval, score: 156.5, mcap_score: 86.1, div_score: 
+      29.6, debt_score: 40.9, scored_date: '2026-08-14'}
+  - {code: "383220", name: "F&F", style: "value_range", added_date: "2026-08-08",
+    dividend: 1, sector: "섬유·의류", industry: "남자용 정장 제조업", note: "배당 4.0% 부채 43% (필터통과)",
+    auto_confirm: Approval, score: 181.7, mcap_score: 93.9, div_score: 35.7, 
+      debt_score: 52.2, scored_date: '2026-08-14'}
+  - {code: "397810", name: "애드포러스", style: "value_range", added_date: "2026-08-08",
+    dividend: 1, sector: "일반서비스", industry: "광고업", note: "배당 4.9% 부채 28% (필터통과)",
+    auto_confirm: Approval, score: 93.0, mcap_score: 5.2, div_score: 13.9, 
+      debt_score: 73.9, scored_date: '2026-08-14'}
+  - {code: "340570", name: "티앤엘", style: "value_range", added_date: "2026-08-08",
+    dividend: 1, sector: "제약", industry: "의료용품 및 기타 의약관련제품 제조업", note: "배당 4.5% 부채
+      16% (필터통과)", auto_confirm: Approval, score: 215.7, mcap_score: 71.3, 
+      div_score: 52.2, debt_score: 92.2, scored_date: '2026-08-14'}
+  - {code: "066130", name: "하츠", style: "value_range", added_date: "2026-08-08", 
+      dividend: 1, sector: "전기·전자", industry: "기타 가정용 전기기기 제조업", note: "배당 4.0% 부채
+      44% (필터통과)", auto_confirm: Paused, score: 82.6, mcap_score: 8.7, div_score: 
+      22.6, debt_score: 51.3, scored_date: '2026-08-14'}

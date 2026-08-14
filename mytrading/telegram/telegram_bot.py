@@ -1323,7 +1323,7 @@ def _cmd_confirm_add(user: dict) -> str:
     from datetime import date
     lst.append({
         "code": _SQStr(str(code).zfill(6)), "name": name, "style": "free",
-        "added_by": "telegram", "confirm": "Waiting",
+        "confirm": "Waiting",
         "added_date": date.today().isoformat(),
         "sector": sector or "",
         "industry": industry or "",
