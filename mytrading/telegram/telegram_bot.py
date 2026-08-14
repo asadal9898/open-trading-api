@@ -1478,7 +1478,7 @@ def _cmd_approve(user: dict, query: str) -> str:
     """종목명 -> free_holdings에서 confirm을 Approval 로 변경 (승인만).
     매수 방식은 /매수 또는 /분할매수 로 별도 지정.
     query 가 '모두'/'전체' 면 일괄 승인 (Waiting → Approval)."""
-    if query.strip() in ("모두", "전체", "all"):
+    if query.strip() in ("모두", "전체", "전부", "all"):
         return _bulk_set_state(user, "Approval")
     import sys as _sys
     from pathlib import Path as _P
@@ -1531,7 +1531,7 @@ def _cmd_approve(user: dict, query: str) -> str:
 def _cmd_set_state(user: dict, query: str, new_state: str) -> str:
     """종목명→코드 후 confirm 을 new_state 로 변경. moderate(universe)·free 둘 다.
     query 가 '모두'/'전체' 면 일괄 변경 (Waiting·Approval → new_state)."""
-    if query.strip() in ("모두", "전체", "all"):
+    if query.strip() in ("모두", "전체", "전부", "all"):
         return _bulk_set_state(user, new_state)
     import sys as _sys
     from pathlib import Path as _P
