@@ -1,10 +1,11 @@
 """
-배당(moderate) 종목 스코어링 — 시가총액·배당률·부채비율 순위 기반 100점 만점 3항목
+배당(moderate) 종목 스코어링 — 시가총액·배당률·부채비율 순위 기반 채점(가중치 비대칭)
 + auto_confirm(자동 판정) 산출.
 
 universe_ko.yaml 의 moderate 종목 전체를 순회하며
-  시가총액 / 배당률(배당액÷현재가) / 부채비율
-세 항목을 각각 순위 기반으로 채점(1등=100, 꼴등=0)해 합산(0~300)한다.
+  시가총액(만점 100) / 배당률(배당액÷현재가, 만점 150) / 부채비율(만점 100)
+세 항목을 각각 순위 기반으로 채점(1등=만점, 꼴등=0)해 합산(0~350)한다.
+배당을 다른 두 항목보다 1.5배 우대(만점 100→150) — 배당주 취지를 반영한 가중치.
 
 배당률 0%(최근 1년 배당 이력 없음)인 종목은 순위 계산에서 제외하고
 auto_confirm="Rejected"로 따로 처리한다(배당주 취지에 안 맞으므로).
@@ -47,6 +48,9 @@ if str(_ROOT) not in sys.path:
 
 UNIVERSE_PATH = _ROOT / "mytrading" / "configs" / "universe_ko.yaml"
 TOP_N = 100  # 상위 N 종목까지 auto_confirm="Approval"
+MCAP_MAX_SCORE = 100.0  # 시총 항목 만점
+DIV_MAX_SCORE = 150.0   # 배당 항목 만점 (배당주 취지로 1.5배 우대)
+DEBT_MAX_SCORE = 100.0  # 부채 항목 만점
 OBSERVE_LOG_DIR = Path.home() / "dividend_score_log"
 OBSERVE_BOUNDARY_LO = 90
 OBSERVE_BOUNDARY_HI = 110
@@ -141,30 +145,30 @@ def categorize(rows):
     return rankable, div_zero, fetch_failed
 
 
-def _rank_score(values, reverse: bool):
-    """values: [(idx, value), ...] value 로 정렬해 순위 기반 점수(1등=100, 꼴등=0) 산출.
+def _rank_score(values, reverse: bool, max_score: float = 100.0):
+    """values: [(idx, value), ...] value 로 정렬해 순위 기반 점수(1등=max_score, 꼴등=0) 산출.
     반환: {idx: score}"""
     n = len(values)
     if n <= 1:
-        return {idx: 100.0 for idx, _ in values}
+        return {idx: max_score for idx, _ in values}
     ordered = sorted(values, key=lambda x: x[1], reverse=reverse)
     scores = {}
     for rank, (idx, _v) in enumerate(ordered, start=1):  # 1등부터
-        scores[idx] = 100.0 * (n - rank) / (n - 1)
+        scores[idx] = max_score * (n - rank) / (n - 1)
     return scores
 
 
 def compute_scores(rows):
     """rows: 전부 mcap/div/debt 유효값 보유(호출 전 categorize 로 걸러진 상태 가정).
-    순위 기반 3항목 채점 후 총점 내림차순 정렬해 반환."""
+    순위 기반 3항목 채점(시총 100 / 배당 150 / 부채 100, 합 0~350) 후 총점 내림차순 정렬해 반환."""
     idxs = list(range(len(rows)))
     mcap_vals = [(i, rows[i]["mcap"]) for i in idxs]
     div_vals = [(i, rows[i]["div"]) for i in idxs]
     debt_vals = [(i, rows[i]["debt"]) for i in idxs]
 
-    mcap_scores = _rank_score(mcap_vals, reverse=True)   # 큰 시총이 좋음
-    div_scores = _rank_score(div_vals, reverse=True)     # 높은 배당률이 좋음
-    debt_scores = _rank_score(debt_vals, reverse=False)  # 낮은 부채비율이 좋음
+    mcap_scores = _rank_score(mcap_vals, reverse=True, max_score=MCAP_MAX_SCORE)   # 큰 시총이 좋음
+    div_scores = _rank_score(div_vals, reverse=True, max_score=DIV_MAX_SCORE)      # 높은 배당률이 좋음 (1.5배 가중)
+    debt_scores = _rank_score(debt_vals, reverse=False, max_score=DEBT_MAX_SCORE)  # 낮은 부채비율이 좋음
 
     scored = []
     for i in idxs:
