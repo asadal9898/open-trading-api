@@ -1,7 +1,9 @@
 # 국면별 분할주문 (1-b) 설계
 
-> 상태: **설계 확정, 구현 대기** (토큰 여유 있을 때 구현)
-> 작성: 2026-06-28 세션
+> 상태: **부분 구현** (2026-07-19, order_pace.py / trade_plan.py) — 매수 속도조절(cadence/slice)은 구현되어 실사용 중.
+> toppish 국면 기반 위험·안전자산 전량 분할매도(§3~5, §9)는 미구현 — 폐기 결정 기록 없음, 연결만 안 된 상태.
+> value_range 스타일의 매도는 국면과 무관하게 평단 손익 기준 position_action()(order_pace.py)으로 별도 구현됨.
+> 작성: 2026-06-28 세션 · 최종 확인: 2026-08-14
 > 핵심: 종목별 "매수/매도 리듬(속도)" × 시장 국면 → 천천히 실행. 큰 판단은 사람(국면 설정), 시스템은 그 상태를 속도 조절로 실행.
 
 ---
@@ -34,7 +36,7 @@ submit_order 실주문 (모의 먼저 검증 → 실전)
 
 ---
 
-## 2. 종목별 속도 — universe.yaml 확장
+## 2. 종목별 속도 — universe_ko.yaml 확장
 
 차영석 제안: 종목 뒤에 매수/매도 속도(리듬)를 붙인다.
 
@@ -93,10 +95,12 @@ market_regime:
 ### 국면별 동작
 | 국면 | 매수 | 매도 | 의미 |
 |------|------|------|------|
-| **bull** | 종목별 속도대로 매수 (목표까지) | 없음 | 정상 상승장 |
-| **toppish** | **신규 매수 0** | **위험·안전 모두 분할 매도** (cadence/slice 대로) → 현금↑ | 고점, 방어. 한 번에 안 팔고 천천히 |
-| **bear** | 분할 매수 (나눠 담기) | 없음(또는 보수적) | 하락장, 백테스트상 분할 우위 |
-| **sideways** | 종목 성격대로 | 종목 성격대로 | 횡보, ETF분할/개별주재량 |
+| **bull** | 종목별 속도대로 매수 (목표까지) — ✅ 구현 (regime_base.bull.buy=1.0) | 없음 | 정상 상승장 |
+| **toppish** | **신규 매수 0** — ✅ 구현 (buy=0.0) | **위험·안전 모두 분할 매도** — ⬜ 미구현 (regime_base.toppish.sell=1.0 값은 있으나 이를 호출하는 매도 로직이 없음) | 고점, 방어. 설계는 있으나 미연결 |
+| **bear** | 분할 매수 (나눠 담기) — ✅ 구현 (buy=1.3, 더 적극 매수) | 없음(또는 보수적) | 하락장, 백테스트상 분할 우위 |
+| **sideways** | 종목 성격대로 — ⬜ 미구현 (buy=1.0, bull과 동일값 취급 — sideways 전용 로직 없음) | 종목 성격대로 — ⬜ 미구현 | 횡보, ETF분할/개별주재량 |
+
+※ value_range 스타일의 매도는 이 표와 무관하게 평단 손익 기준 position_action()으로 별도 결정됨(§5 참고).
 
 ### toppish 핵심 (차영석 결정)
 - 고점은 정확히 못 맞히므로 **한 번에 다 팔지 않고 조금씩 비중 축소**.
@@ -106,9 +110,9 @@ market_regime:
 
 ---
 
-## 4. "어디까지 팔지" — 매도 목표
+## 4. "어디까지 팔지" — 매도 목표 (미구현 — 여전히 미정, 폐기 아님)
 
-toppish 분할 매도 시 목표(어디까지 줄일지)가 필요.
+toppish 분할 매도 시 목표(어디까지 줄일지)가 필요. 2026-08-14 현재 이 설계는 코드에 연결되지 않았다.
 
 ### 방식1 — cash 비중 올려 자동 계산 (추천)
 - allocations.yaml `cash` 를 일시 상향 (예: 20 → 50).
@@ -121,34 +125,33 @@ toppish 분할 매도 시 목표(어디까지 줄일지)가 필요.
 - config에 "toppish면 위험자산 매주 X%씩 감축, 현금 Y%까지" 별도 규칙.
 - 비중 구조 안 건드림. 더 유연하나 설정 증가.
 
-→ **방식1로 진행 추천** (구현 단순, 기존 재료 재사용). 차영석 최종 확정 대기.
+→ **방식1로 진행 추천** (구현 단순, 기존 재료 재사용). 차영석 최종 확정 대기. (2026-08-14: 구현 미착수 상태 지속)
 
 ---
 
-## 5. 매도 안전장치 (구현 시 결정)
+## 5. 매도 안전장치 (미구현 — toppish 국면 매도에 한정된 미해결 사항)
 
-매도는 매수보다 신중해야 함. 아래는 옵션:
+매도는 매수보다 신중해야 함. 아래는 §4(toppish 국면 기반 전량 분할매도)에 한정된 미해결 옵션:
 - **손익 구분**: 수익 종목만 덜어낼지 / 손익 구분 없이 비중대로 다 조절할지 — **미정(구현 때 결정)**.
   - 단, 차영석은 "안전자산도 비중 줄여 매도" 입장 → 전반적으로 비중대로 조절하는 쪽에 가까움.
 - **최소 매도 단위**: 너무 작은 수량(1주 미만 등)은 스킵.
 - **모의 우선**: 반드시 모의(vps)에서 검증 후 실전.
 
+※ 참고 — value_range 스타일은 이 설계와 무관하게 이미 별도로 매도 로직이 확정·구현됨:
+평단 대비 손익률 기준 position_action()(order_pace.py:134) — +15% 익절(전량) / -30% 물타기(1회) / -50% 손절(전량), 국면(regime)과는 무관.
+momentum/accumulate 스타일은 매도 로직 자체가 아직 없음(매수만 구현).
+
 ---
 
-## 6. 구현 순서 (다음 세션)
+## 6. 구현 순서 — 진행 현황 (2026-08-14 기준)
 
-1. **universe.yaml 확장**: 종목에 cadence/slice 필드 추가. portfolio.py 로더에 기본값 주입 + 파싱.
-2. **common.py 국면 확장**: get_regime 이 toppish 도 인식. regime_for_symbol 그대로 활용(해외추종 종목은 overseas 국면).
-3. **cadence 판정 함수**: 오늘 날짜(ISO week)로 "이 종목 오늘 거래일인가?" 판정. daily/weekly/biweekly_even/odd.
-4. **주문 계획 빌더** (allocation_plan 확장 또는 신규 split_order_plan):
-   - allocation_plan 의 종목별 차액(목표-보유) 받기.
-   - 국면별 방향 결정: bull→매수만, toppish→매도만(+신규매수0), bear→분할매수, sideways→성격대로.
-   - cadence 로 "오늘 거래 종목" 필터.
-   - slice 로 "이번에 거래할 금액" = 차액 × slice%.
-   - → 종목별 (BUY/SELL, 수량) 리스트 산출. **계산/출력만, 주문 안 함** (검증 단계).
-5. **모의 주문 연결**: 위 계획 → submit_order (모의 vps). bull 일시매수 / toppish 분할매도 / bear 분할매수 시나리오 테스트.
-6. **백테스트 반영**: 과한 분할 배제(이미 결론). cadence/slice 조합을 splitfill_sim 으로 검증 후 실제 종목에 적용.
-7. **cron 연결** (선택): 매일/매주 정해진 시각에 "오늘 거래 종목" 자동 실행. 단, 실주문 자동화는 충분한 모의 검증 후.
+1. ✅ cadence/slice: 설계 제안(종목별 universe_ko.yaml 필드가 기본)과 달리 실제로는 style(accumulate/momentum/value_range)별 기본값이 mytrading_config.yaml의 order_pace 섹션에 있고, universe_ko.yaml 종목별 필드는 선택적 override로만 남음.
+2. ✅ common.py 국면 확장: get_regime/_VALID_REGIMES가 toppish 인식.
+3. ✅ cadence 판정 함수: order_pace.is_trade_day() — daily/weekly/weekly_2x/biweekly_even/odd 구현(설계보다 weekly_2x 추가됨).
+4. ⚠️ 주문 계획 빌더: trade_plan.py로 구현됐으나 구조가 다름 — 매수만 구현(momentum/accumulate), toppish "신규 매수 0"은 반영됨(✅). "위험·안전자산 모두 분할 매도"는 미구현. value_range 매도는 diff 기반이 아니라 position_action()(평단 손익 기준)으로 대체.
+5. ⬜ 모의 주문 연결: 미착수. submit_order 연결 없음, "계산/출력만" 원칙 여전히 유효.
+6. ⬜ 백테스트 반영(cadence/slice 조합 splitfill_sim 검증): 미확인.
+7. ⬜ cron 연결: 미착수. 자동 발주 자체가 없음.
 
 ---
 
@@ -157,7 +160,7 @@ toppish 분할 매도 시 목표(어디까지 줄일지)가 필요.
 - `common.get_regime(market)` / `regime_for_symbol(symbol, overseas_symbols)` — 국면 (bull/bear/sideways → toppish 추가 예정)
 - `allocation_plan.build_plan(snapshot, portfolio, user, account)` — 목표 대비 차액(BUY/SELL/HOLD, diff_value)
 - `splitfill_sim` — 분할매수 방식 백테스트 (lump/dca, 횟수·간격)
-- `portfolio.py` — universe.yaml/allocations.yaml 로더 (cadence/slice 파싱 추가 예정)
+- `portfolio.py` — universe_ko.yaml/allocations.yaml 로더 (cadence/slice 파싱 추가 예정)
 - `account_snapshot.get_snapshot(brokerage)` — 현재 보유 (매도 대상 파악)
 - `KISBrokerageProvider.submit_order(symbol, side, qty, type, price)` — 실주문 (모의 검증됨)
 - 거시 데이터 (지수·금리·환율·원자재) — 국면 판단 **보조 참고** (자동 아님, 사람이 보고 판단)
@@ -170,7 +173,7 @@ toppish 분할 매도 시 목표(어디까지 줄일지)가 필요.
 ---
 
 ## 9. 미결정 (구현 때 차영석 확정)
-- [ ] 매도 목표: 방식1(cash 비중) vs 방식2(전용 감축률) — **방식1 추천**
-- [ ] toppish 매도 시 손익 구분: 수익 종목만 vs 비중대로 전부 — (차영석은 "안전자산도 줄여 매도" → 비중대로 쪽)
-- [ ] cadence 에 daily/weekly 외 추가 빈도(주2회 등) 필요한지
-- [ ] sideways 의 구체 동작(ETF만 분할? 개별주는?)
+- [ ] 매도 목표: 방식1(cash 비중) vs 방식2(전용 감축률) — **방식1 추천**. (여전히 미정·미구현, 폐기 아님)
+- [ ] toppish 매도 시 손익 구분: 수익 종목만 vs 비중대로 전부 — (차영석은 "안전자산도 줄여 매도" → 비중대로 쪽). (여전히 미정. value_range 스타일의 매도는 이 질문과 별개로 position_action()으로 이미 확정·구현됨 — toppish/momentum/accumulate에는 미적용)
+- [x] cadence 에 daily/weekly 외 추가 빈도(주2회 등) 필요한지 → weekly_2x로 구현됨(order_pace.is_trade_day)
+- [ ] sideways 의 구체 동작(ETF만 분할? 개별주는?) — 미구현. 현재 config상 buy=1.0으로 bull과 동일 취급(세분화 없음)

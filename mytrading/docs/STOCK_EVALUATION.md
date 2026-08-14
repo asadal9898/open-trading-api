@@ -290,9 +290,13 @@ _REPO_ROOT = Path(__file__)...        # ← 정의가 뒤에!
 
 ### 8-2. 전략 코드화 (검증 완료 → 구현)
 
-- [ ] **국면 판정을 코드로** — `evaluate_operating_profit` 에 5년평균 대비 추가
-- [ ] **매도를 "+15% 익절"로** — `value_range_signal` 의 52주 고점 기준은 롤링창 문제
-- [ ] **물타기 -30% (1회)** + **손절 -50%**
+- [x] **국면 판정을 코드로** → 구현 완료. 단 원문이 지목한 `evaluate_operating_profit`이 아니라
+  **별도 함수** `_judge_phase`/`_judge_phase_from_data`(finance_data.py)로 구현됨 —
+  5년평균 대비(`_PHASE_GROWTH_AVG=20.0`) 기준으로 국면 산출, 침체 판정 시 `is_buyable_phase()`가 매수 배제
+- [x] **매도를 "+15% 익절"로** → 구현 완료. `order_pace.py`의 `VR_TAKE_PROFIT=15.0`, `position_action()`.
+  `value_range_signal`의 52주 고점 기준 매도는 실제로 제거됨(order_pace.py 주석에 명시)
+- [x] **물타기 -30% (1회)** + **손절 -50%** → 구현 완료. `order_pace.py`의 `VR_AVERAGE_DOWN=-30.0` /
+  `VR_STOP_LOSS=-50.0`, `position_action()`이 1회 제한(`already_averaged`)까지 처리
 - [ ] 백테스트 스크립트를 정식 모듈로
 
 ### 8-3. 미결
@@ -305,10 +309,9 @@ _REPO_ROOT = Path(__file__)...        # ← 정의가 뒤에!
 ### 8-4. 미구현 (설계만)
 
 - [ ] ETF 섹터 전망 (KCIF·거시 활용)
-- [ ] 부채 동적 예외 (영업이익↑ & 부채↓)
-- [ ] 업종별 PER 해석 + 마진 해석 (영업 레버리지)
-- [ ] 점수 스케일 정규화 (영업이익 +31 vs 부채 +2)
-- [ ] 텔레그램 알림 (영업이익 |증가율| ≥ 25%)
+
+※ 부채 동적 예외·업종별 PER 해석·점수 스케일 정규화·텔레그램 알림은
+`FUNDAMENTAL_ANALYSIS_DESIGN.md` §7과 중복 — 그쪽에서 관리.
 
 ---
 

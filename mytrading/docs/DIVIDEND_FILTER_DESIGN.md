@@ -153,7 +153,7 @@ uv run python mytrading/find_dividend_stocks.py 종목들 --add        # 통과�
 
 ## 5b. 종목 상태(confirm) 4단계 ✅ (구현됨)
 
-universe.yaml 각 종목에 **confirm 필드**로 생애주기 표현.
+universe_ko.yaml 각 종목에 **confirm 필드**로 생애주기 표현.
 
 | confirm    | 의미                  | 매수 | 매도 | 누가 |
 |------------|-----------------------|------|------|------|
@@ -176,7 +176,7 @@ universe.yaml 각 종목에 **confirm 필드**로 생애주기 표현.
 ### 종목 생애주기 흐름
 
 ```
-AI 스캔 → universe moderate 에 자동 추가 (added_by:AI, confirm:Waiting)
+AI 스캔 → universe_ko moderate 에 자동 추가 (added_by:AI, confirm:Waiting)
         → 텔레그램 알림 "배당주 발견: XXX (Waiting)"
         → Owner 확인 (거래량·맥락·백테스트)
         ├─ 좋음   → confirm:Approval  (다음 거래일부터 매매)
@@ -186,7 +186,7 @@ AI 스캔 → universe moderate 에 자동 추가 (added_by:AI, confirm:Waiting)
 
 - **Rejected 의 효용**: AI 가 다음 스캔에서 같은 종목 재추천하지 않게 차단.
 
-### universe.yaml 예시
+### universe_ko.yaml 예시
 
 ```yaml
 moderate:

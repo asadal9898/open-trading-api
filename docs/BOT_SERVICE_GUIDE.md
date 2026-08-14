@@ -1,7 +1,7 @@
 # KIS 텔레그램 봇 서비스 가이드 (설치·운영)
 
 KIS 자동매매 텔레그램 봇을 systemd 서비스로 설치·운영하는 방법을 정리한 문서다.
-봇 사용법(명령어·기능)은 `mytrading/docs/TELEGRAM_BOT_DESIGN.md` 참고.
+봇 사용법(명령어·기능)은 `mytrading/docs/TELEGRAM_BOT.md` 참고.
 
 ## 개요
 
@@ -152,4 +152,4 @@ sudo systemctl restart kis-telegram-bot
 ## 관련 문서
 
 - 하드웨어 아이들 프리즈 트러블슈팅: `docs/TROUBLESHOOTING_IDLE_FREEZE.md`
-- 봇 사용법·명령어·설계: `mytrading/docs/TELEGRAM_BOT_DESIGN.md`
+- 봇 사용법·명령어·설계: `mytrading/docs/TELEGRAM_BOT.md`

@@ -4,7 +4,8 @@
 시작해 "배당 지속성이 실제 매매 수익으로 이어지나"까지 단계적으로 검증한 기록.
 
 관련 스크립트: `mytrading/research_backtest/` 의 dividend_persistence.py,
-core_dividend_backtest.py, collect_div_all_2021.py (+ /tmp 의 임시 분석 스크립트).
+core_dividend_backtest.py + `mytrading/collect_div_all_2021.py`(루트 위치, research_backtest/ 아님)
+(+ /tmp 의 임시 분석 스크립트).
 
 ---
 

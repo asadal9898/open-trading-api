@@ -65,16 +65,16 @@ PDF를 폴더에 넣은 뒤 파서를 **수동 실행**한다. (크론 미등록
 cd ~/workspace/open-trading-api
 
 # ① 인사이트 리포트 뒤쪽 주요지표 표들 (세계/아시아 전망, 주요지표, 실물경기, IB금리)
-uv run python -m mytrading.kcif_insight_parser
+uv run python -m mytrading.reports.kcif_insight_parser
 
 # ② 인사이트 앞쪽 동향&전망의 그림2 성장률 전망치 (값 + 전월대비 수정폭)
-uv run python mytrading/kcif_growth.py
+uv run python mytrading/reports/kcif_growth.py
 
 # ③ 인사이트 앞쪽 IB 정책금리 전망표 (미국/유로존/일본)
-uv run python mytrading/kcif_ib_rates.py
+uv run python mytrading/reports/kcif_ib_rates.py
 
 # ④ 리스크워치 리포트
-uv run python -m mytrading.kcif_risk_parser
+uv run python -m mytrading.reports.kcif_risk_parser
 ```
 
 각 파서는 `reports/investment_checklist/*.yaml`에 결과를 누적 저장한다
@@ -135,9 +135,9 @@ history:
 ## 5. 분석
 
 ```bash
-uv run python mytrading/report_trend.py            # 연도별 대조
-uv run python mytrading/report_trend.py --monthly  # 월별 상세
-uv run python mytrading/kcif_growth.py --show       # 월별 수정폭 합계
+uv run python mytrading/reports/report_trend.py            # 연도별 대조
+uv run python mytrading/reports/report_trend.py --monthly  # 월별 상세
+uv run python mytrading/reports/kcif_growth.py --show       # 월별 수정폭 합계
 ```
 
 `report_trend.py`는 리스크 총점, 전망 수정 방향을 전략 연간 수익률과 나란히

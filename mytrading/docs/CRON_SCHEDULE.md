@@ -12,8 +12,8 @@
 | 09:00 | 매일 | `newsletter_ai.py` | 경제 뉴스레터 Gmail 라벨 AI 분석 (Groq) | 국면·영향도 점수 JSON (참고용) |
 | 09:00 | 주말(토·일) | `index_data.py` | 지수·환율·금리·유가 등 17개 거시지표 수집 | 거시 데이터 CSV (국면 판단용) |
 | 11:00 | 일요일 | `newsletter_check.py` | 뉴스레터 만료·KCIF 미수신·한투 점검 감시 | 감지 시 텔레그램 알림 |
-| 14:00 | 주말(토·일) | `scan_dividend.py --market kospi` | 코스피 전체 배당주 스캔 | universe.yaml에 후보 추가 + 알림 |
-| 15:00 | 주말(토·일) | `scan_dividend.py --market kosdaq` | 코스닥 전체 배당주 스캔 | universe.yaml에 후보 추가 + 알림 |
+| 14:00 | 주말(토·일) | `scan_dividend.py --market kospi` | 코스피 전체 배당주 스캔 | universe_ko.yaml에 후보 추가 + 알림 |
+| 15:00 | 주말(토·일) | `scan_dividend.py --market kosdaq` | 코스닥 전체 배당주 스캔 | universe_ko.yaml에 후보 추가 + 알림 |
 | 05:00 | 매월 1일 | `dividend_calendar.py --update-universe` | 배당락일 캘린더 연간 갱신 | dividend_calendar.yaml |
 
 > **이름 주의** — `newsletter_check.py`(감시·알림)와 `newsletter_ai.py`(AI 분석)는
@@ -45,7 +45,7 @@ Gmail의 경제 라벨(국제금융·한국은행 등) 메일을 읽어 Groq LLM
 Gmail 기반 3종 감시: ①뉴스레터 만료 키워드 ②KCIF 리스크워치 미수신(마지막 주) ③한투 점검공지 OCR. 감지 시 텔레그램 알림. 설정: `mytrading_config.yaml`. 로그: `~/KIS/cache/newsletter.log`
 
 **scan_dividend.py** — 배당주 스캔 (주말 14·15시)
-코스피(14시)·코스닥(15시) 시장 전체에서 배당주 후보 발견. 필터 통과 종목을 universe.yaml에 `confirm:Waiting`으로 추가하고 텔레그램 알림(종목코드+종목명). 로그: `/tmp/scan_kospi.log`, `/tmp/scan_kosdaq.log`
+코스피(14시)·코스닥(15시) 시장 전체에서 배당주 후보 발견. 필터 통과 종목을 universe_ko.yaml에 `confirm:Waiting`으로 추가하고 텔레그램 알림(종목코드+종목명). 로그: `/tmp/scan_kospi.log`, `/tmp/scan_kosdaq.log`
 
 **dividend_calendar.py** — 배당락일 캘린더 (매월 1일 05:00)
 종목은 안 변해도 배당락일은 매년 변하므로 별도 관리. `dividend_calendar.yaml`에 저장.
