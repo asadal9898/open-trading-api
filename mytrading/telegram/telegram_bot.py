@@ -906,6 +906,64 @@ def _set_confirm_state(code: str, new_state: str) -> bool:
         return False
 
 
+def _bulk_set_state(user: dict, new_state: str) -> str:
+    """'모두/전체' 일괄 변경. universe_ko(moderate) + free_holdings 순회.
+    필터: Approval 은 Waiting 만 대상 / Rejected·Paused 는 Waiting·Approval 대상."""
+    from pathlib import Path as _P
+    _repo = _P(__file__).resolve().parents[2]
+    if new_state == "Approval":
+        _targets = ("Waiting",)
+    else:  # Rejected / Paused
+        _targets = ("Waiting", "Approval")
+    label = _CONFIRM_LABELS.get(new_state, new_state)
+    n_mod, n_free = 0, 0
+
+    # 1) universe_ko.yaml (보수·배당 = moderate)
+    try:
+        yp = _repo / "mytrading" / "configs" / "universe_ko.yaml"
+        udata = _rt_load(yp)
+        ch = False
+        for it in (udata.get("moderate") or []):
+            if not isinstance(it, dict):
+                continue
+            cur = it.get("confirm", "Waiting") or "Waiting"
+            if cur in _targets:
+                it["confirm"] = new_state
+                n_mod += 1
+                ch = True
+        if ch:
+            _rt_dump(udata, yp)
+    except Exception as e:
+        print(f"[bot] _bulk_set_state moderate 실패: {e}")
+
+    # 2) free_holdings (allocations.yaml)
+    try:
+        ap = _repo / "mytrading" / "configs" / "allocations.yaml"
+        data = _rt_load(ap)
+        fh = (data.get("free_holdings") or {}).get(user["key"], {})
+        ch = False
+        for _acc, lst in fh.items():
+            if not isinstance(lst, list):
+                continue
+            for it in lst:
+                if not isinstance(it, dict):
+                    continue
+                cur = it.get("confirm", "Waiting") or "Waiting"
+                if cur in _targets:
+                    it["confirm"] = new_state
+                    n_free += 1
+                    ch = True
+        if ch:
+            _rt_dump(data, ap)
+    except Exception as e:
+        print(f"[bot] _bulk_set_state free 실패: {e}")
+
+    total = n_mod + n_free
+    if total == 0:
+        return f"{label} 대상 종목이 없어요 (변경 없음)."
+    return f"✅ {total}개 {label}(으)로 변경 (보수·배당 {n_mod}, 자유 {n_free})"
+
+
 def _list_moderate(pf) -> tuple:
     """보수(moderate) 종목 — 상태별 {상태: [(name, code)]} dict + counts."""
     from collections import Counter
@@ -1418,7 +1476,10 @@ def _cmd_splitbuy(user: dict, query: str) -> str:
 
 def _cmd_approve(user: dict, query: str) -> str:
     """종목명 -> free_holdings에서 confirm을 Approval 로 변경 (승인만).
-    매수 방식은 /매수 또는 /분할매수 로 별도 지정."""
+    매수 방식은 /매수 또는 /분할매수 로 별도 지정.
+    query 가 '모두'/'전체' 면 일괄 승인 (Waiting → Approval)."""
+    if query.strip() in ("모두", "전체", "all"):
+        return _bulk_set_state(user, "Approval")
     import sys as _sys
     from pathlib import Path as _P
     _repo = _P(__file__).resolve().parents[2]
@@ -1453,18 +1514,25 @@ def _cmd_approve(user: dict, query: str) -> str:
                 it["confirm"] = "Approval"
                 cur_name = it.get("name", name)
                 updated = True
-    if not updated:
-        return f"{name}({code}) 은 자유 종목에 없어요. 먼저 /추가 하세요."
-    try:
-        _rt_dump(data, alloc_path)
-    except Exception as e:
-        return f"승인 실패(쓰기): {e}"
+    if updated:
+        try:
+            _rt_dump(data, alloc_path)
+        except Exception as e:
+            return f"승인 실패(쓰기): {e}"
+    # free_holdings 에 없으면 universe_ko.yaml (보수·배당 종목풀) 에서 승인
+    elif _set_confirm_state(code, "Approval"):
+        pass
+    else:
+        return f"{name}({code}) 은 종목풀에 없어요. 먼저 /추가 하세요."
     return (f"✅ {cur_name}({code}) 매수 승인 완료 (Approval)\n"
             f"이제 /매수 {cur_name} 또는 /분할매수 {cur_name} 로 매수할 수 있어요.")
 
 
 def _cmd_set_state(user: dict, query: str, new_state: str) -> str:
-    """종목명→코드 후 confirm 을 new_state 로 변경. moderate(universe)·free 둘 다."""
+    """종목명→코드 후 confirm 을 new_state 로 변경. moderate(universe)·free 둘 다.
+    query 가 '모두'/'전체' 면 일괄 변경 (Waiting·Approval → new_state)."""
+    if query.strip() in ("모두", "전체", "all"):
+        return _bulk_set_state(user, new_state)
     import sys as _sys
     from pathlib import Path as _P
     _repo = _P(__file__).resolve().parents[2]
