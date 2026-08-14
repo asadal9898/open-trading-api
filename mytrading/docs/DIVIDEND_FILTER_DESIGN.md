@@ -171,12 +171,12 @@ universe_ko.yaml 각 종목에 **confirm 필드**로 생애주기 표현.
 
 ### 추가 필드
 
-- `added_by`: "Owner" / "AI" · `added_date`: "YYYY-MM-DD" · `note`: 메모
+- `added_date`: "YYYY-MM-DD" · `note`: 메모
 
 ### 종목 생애주기 흐름
 
 ```
-AI 스캔 → universe_ko moderate 에 자동 추가 (added_by:AI, confirm:Waiting)
+AI 스캔 → universe_ko moderate 에 자동 추가 (confirm:Waiting)
         → 텔레그램 알림 "배당주 발견: XXX (Waiting)"
         → Owner 확인 (거래량·맥락·백테스트)
         ├─ 좋음   → confirm:Approval  (다음 거래일부터 매매)
@@ -191,9 +191,9 @@ AI 스캔 → universe_ko moderate 에 자동 추가 (added_by:AI, confirm:Waiti
 ```yaml
 moderate:
   - { code: "049720", name: "고려신용정보", style: "value_range",
-      added_by: "Owner", confirm: "Paused",  added_date: "2026-06-28", note: "배당주 채권추심" }
+      confirm: "Paused",  added_date: "2026-06-28", note: "배당주 채권추심" }
   - { code: "009680", name: "모토닉", style: "value_range",
-      added_by: "Owner", confirm: "Approval", added_date: "2026-06-28", note: "배당주 자동차부품" }
+      confirm: "Approval", added_date: "2026-06-28", note: "배당주 자동차부품" }
 ```
 
 ---
@@ -202,10 +202,10 @@ moderate:
 
 ### 완료 ✅
 
-1. ✅ KIS 재무·배당 API 확인 (finance_financial_ratio, ksdinfo_dividend). 둘 다 prod 전용.
+1. ✅ KIS 재무·배당 API 확인 (finance_financial_ratio, ksdinfo_dividend). 둘 다 vps에서도 정상 동작 확인됨(2026-08-14 실측, 고려신용정보 조회).
 2. ✅ `finance_data.py` 래퍼: get_financials, get_dividend_yield.
 3. ✅ `find_dividend_stocks.py` 스크리너: 3조건 판정, --universe/--add 옵션.
-4. ✅ portfolio.py 로더: confirm/added_by/added_date 필드 보존, 기본 "Waiting".
+4. ✅ portfolio.py 로더: confirm/added_date 필드 보존, 기본 "Waiting".
 5. ✅ `tradable_symbols()`: confirm=="Approval" 만 반환. trade_plan 이 사용.
 6. ✅ add_to_universe: 통과 종목 자동 추가(Waiting). Rejected 건너뜀.
 7. ✅ 텔레그램 알림: AI 추가 시 "배당주 발견" (종목코드+종목명).

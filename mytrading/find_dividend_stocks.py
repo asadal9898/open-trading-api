@@ -206,13 +206,13 @@ def _stock_name(symbol: str) -> str:
 
 def add_to_universe(results: list, uni_path: Path = None) -> int:
     """
-    배당주 통과 종목을 universe.yaml 맨 끝(moderate 아래)에 append.
+    배당주 통과 종목을 universe_ko.yaml 맨 끝(moderate 아래)에 append.
     - confirm: "Waiting" (사람 승인 전까지 매매 안 함)
-    - added_by: "AI", added_date: 오늘, note: 발견 당시 배당률·부채비율
+    - added_date: 오늘, note: 발견 당시 배당률·부채비율
     - 이미 universe 에 있는 code(Approval/Paused/Waiting/Rejected 무관)는 건너뜀.
       → Rejected 종목 재추천 방지, 중복 방지.
     반환: 실제 추가한 종목 수.
-    ※ universe.yaml 은 moderate 가 맨 끝에 있어야 함 (append 가 moderate 에 붙음).
+    ※ universe_ko.yaml 은 moderate 가 맨 끝에 있어야 함 (append 가 moderate 에 붙음).
     """
     from datetime import date
     if uni_path is None:

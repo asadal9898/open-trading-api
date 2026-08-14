@@ -63,7 +63,7 @@
 2. 이름으로 검색 → 여러 개면 번호 선택 UI
 3. 분석:
    - **실전(prod) 모드**: KIS 재무 API로 부채/ROE/영업이익 흑자여부/매출·영업이익 증가율 표시 후 `[예][아니요]`
-   - **모의(vps) 모드**: 재무 API 미지원이라 재무분석은 건너뛰고, 현재가·자유예산 기반 매수 UI로 바로 진입 — 실전과 다른 흐름이므로 실사용 시 주의
+   - **모의(vps) 모드**: `_analyze()`가 `_is_paper()`일 때 하드코딩으로 재무분석을 건너뛰고 매수 UI로 바로 감(`telegram_bot.py:1225`) — "API 미지원"이 아니라 개발자가 미리 우회하게 짜둔 것. 실측 결과 vps에서도 `get_financial_summary`(부채율·ROE·배당률 등)가 정상 반환됨(예: 동국홀딩스 debt_ratio 79.77, 2026-08-14 확인) — 실전과 다른 흐름이므로 실사용 시 주의
 4. 예 → free_holdings에 추가 (confirm: Waiting, 매수 안 함)
 
 관련 코드: telegram_bot.py의 `_cmd_add` (모의 흐름은 `_analyze_paper`)
