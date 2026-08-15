@@ -1317,7 +1317,7 @@ def _cmd_confirm_add(user: dict) -> str:
 
     # 중복 체크
     for it in lst:
-        if isinstance(it, dict) and str(it.get("code")) == code:
+        if isinstance(it, dict) and str(it.get("code", "")).zfill(6) == str(code).zfill(6):
             return f"{name}({code})은 이미 목록에 있어요."
 
     from datetime import date
@@ -1360,7 +1360,7 @@ def _resolve_free_symbol(user: dict, query: str):
     pf = load_portfolio()
     for _acc, al in (pf.allocations.get(user["key"], {}) or {}).items():
         for sym in al.free_symbols:
-            if str(sym.get("code")) == str(code):
+            if str(sym.get("code", "")).zfill(6) == str(code).zfill(6):
                 return (str(code), sym.get("name", name), sym.get("confirm", "Waiting"))
     return (str(code), name, None)
 
@@ -1510,7 +1510,7 @@ def _cmd_approve(user: dict, query: str) -> str:
         if not isinstance(lst, list):
             continue
         for it in lst:
-            if isinstance(it, dict) and str(it.get("code")) == str(code):
+            if isinstance(it, dict) and str(it.get("code", "")).zfill(6) == str(code).zfill(6):
                 it["confirm"] = "Approval"
                 cur_name = it.get("name", name)
                 updated = True
@@ -1742,7 +1742,7 @@ def _save_sell_plan(user: dict, code: str, name: str, qty: int) -> str:
         if not isinstance(lst, list):
             continue
         for it in lst:
-            if isinstance(it, dict) and str(it.get("code")) == str(code):
+            if isinstance(it, dict) and str(it.get("code", "")).zfill(6) == str(code).zfill(6):
                 it["sell_qty"] = int(qty)
                 it["confirm"] = "SellRequested"
                 updated = True
@@ -1837,7 +1837,7 @@ def _save_buy_plan(user: dict, code: str, name: str, plan: dict) -> str:
         if not isinstance(lst, list):
             continue
         for it in lst:
-            if isinstance(it, dict) and str(it.get("code")) == str(code):
+            if isinstance(it, dict) and str(it.get("code", "")).zfill(6) == str(code).zfill(6):
                 it["confirm"] = "Approval"
                 it["buy_plan"] = plan
                 updated = True
@@ -1864,7 +1864,7 @@ def _name_by_code(user: dict, code: str):
         if not isinstance(lst, list):
             continue
         for it in lst:
-            if isinstance(it, dict) and str(it.get("code")) == str(code):
+            if isinstance(it, dict) and str(it.get("code", "")).zfill(6) == str(code).zfill(6):
                 return it.get("name")
     return None
 
@@ -1883,7 +1883,7 @@ def _delete_holding(user: dict, code: str) -> str:
         if not isinstance(lst, list):
             continue
         for i, it in enumerate(lst):
-            if isinstance(it, dict) and str(it.get("code")) == str(code):
+            if isinstance(it, dict) and str(it.get("code", "")).zfill(6) == str(code).zfill(6):
                 removed = it.get("name", code)
                 del lst[i]
                 break
