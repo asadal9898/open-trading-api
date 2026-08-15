@@ -1565,7 +1565,11 @@ def _cmd_set_state(user: dict, query: str, new_state: str) -> str:
             if not isinstance(lst, list):
                 continue
             for it in lst:
-                if isinstance(it, dict) and str(it.get("code")) == str(code):
+                # zfill(6) — allocations.yaml 에 code 가 따옴표 없이 저장된 경우
+                # ruamel 이 int 로 파싱해 str() 하면 앞자리 0 이 사라진다(예: 049720 -> '49720').
+                # find_by_name() 은 항상 6자리 zero-padded 문자열을 반환하므로 양쪽을
+                # zfill(6) 으로 맞춰야 매칭이 실패하지 않는다(_set_confirm_state 와 동일 패턴).
+                if isinstance(it, dict) and str(it.get("code", "")).zfill(6) == str(code).zfill(6):
                     it["confirm"] = new_state
                     done = True
         if done:
