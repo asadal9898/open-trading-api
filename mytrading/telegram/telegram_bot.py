@@ -1475,7 +1475,7 @@ def _cmd_splitbuy(user: dict, query: str) -> str:
 
 
 def _cmd_approve(user: dict, query: str) -> str:
-    """종목명 -> free_holdings에서 confirm을 Approval 로 변경 (승인만).
+    """종목명 -> free_holdings/moderate(universe_ko) 양쪽에서 confirm을 Approval 로 변경 (승인만).
     매수 방식은 /매수 또는 /분할매수 로 별도 지정.
     query 가 '모두'/'전체' 면 일괄 승인 (Waiting → Approval)."""
     if query.strip() in ("모두", "전체", "전부", "all"):
@@ -1497,15 +1497,17 @@ def _cmd_approve(user: dict, query: str) -> str:
             return f"'{query}' 종목을 못 찾았어요."
         code, name, _m = matches[0]
 
-    # allocations.yaml 에서 confirm 을 Approval 로 변경
-    import yaml
+    cur_name = name
+    where = []
+
+    # 1) free (free_holdings, allocations.yaml) — moderate 와 무관하게 항상 확인
     alloc_path = _repo / "mytrading" / "configs" / "allocations.yaml"
     try:
         data = _rt_load(alloc_path)
     except Exception as e:
         return f"승인 실패(로드): {e}"
     fh = (data.get("free_holdings") or {}).get(user["key"], {})
-    updated, cur_name = False, name
+    free_updated = False
     for _acc, lst in fh.items():
         if not isinstance(lst, list):
             continue
@@ -1513,18 +1515,21 @@ def _cmd_approve(user: dict, query: str) -> str:
             if isinstance(it, dict) and str(it.get("code", "")).zfill(6) == str(code).zfill(6):
                 it["confirm"] = "Approval"
                 cur_name = it.get("name", name)
-                updated = True
-    if updated:
+                free_updated = True
+    if free_updated:
         try:
             _rt_dump(data, alloc_path)
         except Exception as e:
             return f"승인 실패(쓰기): {e}"
-    # free_holdings 에 없으면 universe_ko.yaml (보수·배당 종목풀) 에서 승인
-    elif _set_confirm_state(code, "Approval"):
-        pass
-    else:
+        where.append("자유")
+
+    # 2) moderate (universe_ko.yaml) — free 결과와 무관하게 항상 확인 (양쪽에 등록된 경우 대응)
+    if _set_confirm_state(code, "Approval"):
+        where.append("보수·배당")
+
+    if not where:
         return f"{name}({code}) 은 종목풀에 없어요. 먼저 /추가 하세요."
-    return (f"✅ {cur_name}({code}) 매수 승인 완료 (Approval)\n"
+    return (f"✅ {cur_name}({code}) 매수 승인 완료 (Approval, {'·'.join(where)})\n"
             f"이제 /매수 {cur_name} 또는 /분할매수 {cur_name} 로 매수할 수 있어요.")
 
 
