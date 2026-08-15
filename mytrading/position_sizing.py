@@ -150,13 +150,18 @@ def order_quantity(per_symbol: float, price: float, cfg: dict = None):
 
 def plan_buy(category: str, price: float, total_equity: float,
              user: str = None, account: str = None,
-             held_count: int = 0, cfg: dict = None) -> dict:
+             held_count: int = 0, cfg: dict = None,
+             budget: Optional[float] = None) -> dict:
     """매수 1건의 금액·수량 계산.
 
     category    : moderate / free
     price       : 현재가
     total_equity: 계좌 총평가금액
-    held_count  : 해당 카테고리에서 이미 보유 중인 종목 수 (슬롯 여유 판단용)
+    held_count  : 해당 카테고리에서 이미 보유 중인 종목 수 (슬롯 여유 판단용).
+                  budget 을 직접 주입하는 호출(아래 참고)에서는 0으로 넘길 것 —
+                  budget 이 이미 보유분을 금액으로 반영했는데 여기서 개수로 또 빼면 이중차감이 된다.
+    budget      : 예산을 외부에서 직접 주입(예: 배분액-보유평가액=remaining). None 이면
+                  기존처럼 category_amount() 로 배분액 전체를 조회해서 씀.
 
     반환: {ratio, budget, cash_floor, investable, slots, slots_left,
            per_symbol, qty, amount, ok, reason}
@@ -164,12 +169,15 @@ def plan_buy(category: str, price: float, total_equity: float,
     cfg = cfg or load_cfg()
     out = {"category": category, "price": price, "total_equity": total_equity}
 
-    ratio = category_amount(category, user, account)
-    if ratio is None:
-        out.update(ok=False, reason=f"allocations.yaml 에 {category} 배분금액 없음")
-        return out
+    if budget is not None:
+        budget = float(budget)  # 외부 주입(예: remaining) — category_amount 조회 생략
+    else:
+        ratio = category_amount(category, user, account)
+        if ratio is None:
+            out.update(ok=False, reason=f"allocations.yaml 에 {category} 배분금액 없음")
+            return out
+        budget = float(ratio)  # 금액 직접 (비율 환산 없음)
 
-    budget = float(ratio)  # 금액 직접 (비율 환산 없음)
     floor_pct = float(cfg["cash_floor"])
     investable = budget * (1.0 - floor_pct / 100.0)
     slots, per_symbol = compute_slots(investable, cfg)

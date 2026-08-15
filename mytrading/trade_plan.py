@@ -71,16 +71,34 @@ def _phase_ok(code) -> bool:
         return False
 
 
-def _apply_sizing(plan, category, price, snap, held_count):
-    """매수 계획에 수량·금액을 채운다. 산정 실패 시 매수를 보류한다."""
+def _apply_sizing(plan, category, price, snap, used_amt=0.0):
+    """매수 계획에 수량·금액을 채운다. 산정 실패 시 매수를 보류한다.
+
+    used_amt: 이 카테고리에서 이미 보유 중인 종목들의 평가액 합(build_plan 에서 카테고리당
+      1회 계산해 넘어옴, confirm/auto_confirm 무관 — 순위 밀려 Paused/Rejected 된 보유분도 포함).
+      예산 = category_amount(category) − used_amt (remaining) 을 plan_buy 에 직접 주입한다.
+      held_count(개수) 기반 슬롯차감은 이미 same 정보(보유분)를 금액으로 반영한 뒤라
+      또 쓰면 이중차감이 되므로, plan_buy 호출 시 held_count=0 으로 고정한다.
+    """
     if not price or not snap:
         plan["reason"] += " (수량 산정 불가 — 가격·잔고 없음)"
         return
     try:
-        from mytrading.position_sizing import plan_buy
-        sz = plan_buy(category or "moderate", price=float(price),
-                      total_equity=float(snap.total_equity),
-                      held_count=held_count)
+        from mytrading.position_sizing import plan_buy, category_amount
+        cat = category or "moderate"
+        total_budget = category_amount(cat)
+        if total_budget is None:
+            plan["reason"] += f" (수량 산정 실패: {cat} 배분금액 없음)"
+            return
+        remaining = total_budget - used_amt
+        if remaining <= 0:
+            plan["action"] = "hold"
+            plan["slice_pct"] = 0.0
+            plan["reason"] = (f"{plan['reason']} → 매수 보류: {cat} 배분액 소진"
+                              f"(보유평가액 {used_amt:,.0f}원이 배분액 {total_budget:,.0f}원 도달)")
+            return
+        sz = plan_buy(cat, price=float(price), total_equity=float(snap.total_equity),
+                      held_count=0, budget=remaining)
     except Exception as e:
         plan["reason"] += f" (수량 산정 실패: {str(e)[:40]})"
         return
@@ -94,7 +112,7 @@ def _apply_sizing(plan, category, price, snap, held_count):
         plan["reason"] = f"{plan['reason']} → 매수 보류: {sz.get('reason','')}"
 
 
-def _plan_for_symbol(s: dict, asof: date = None, category=None, held_count=0) -> dict:
+def _plan_for_symbol(s: dict, asof: date = None, category=None, used_amt: float = 0.0) -> dict:
     """종목 1개의 오늘 매매 계획. s 는 universe 종목 dict."""
     asof = asof or date.today()
     code = s["code"]
@@ -126,7 +144,7 @@ def _plan_for_symbol(s: dict, asof: date = None, category=None, held_count=0) ->
                 plan["slice_pct"] = 100.0                       # 전량 청산
             elif pa["action"] == "buy":
                 plan["slice_pct"] = compute_slice(style, regime, "buy")
-                _apply_sizing(plan, category, h.current_price, snap, held_count)
+                _apply_sizing(plan, category, h.current_price, snap, used_amt)
         else:
             sig = value_range_signal(code, asof)
             action = sig.get("action", "hold")
@@ -138,7 +156,7 @@ def _plan_for_symbol(s: dict, asof: date = None, category=None, held_count=0) ->
             if action == "buy":
                 plan["slice_pct"] = compute_slice(style, regime, action)
                 _apply_sizing(plan, category, (sig.get("range") or {}).get("last"),
-                              snap, held_count)
+                              snap, used_amt)
     else:
         # momentum / accumulate : cadence 로 매매일 판정 → 매수
         if is_trade_day(cadence, asof):
@@ -163,14 +181,16 @@ def build_plan(category: str = None, asof: date = None) -> list:
 
     plans = []
     for cat in cats:
-        approval_codes = set(pf.tradable_symbols(cat))   # Approval 만
+        approval_codes = set(pf.tradable_symbols(cat))   # Approval 만 — 매수 "후보" 순회용
         _snap = _snapshot()
+        # confirm/auto_confirm 무관 — 카테고리 전체 코드(순위 밀려 Paused/Rejected 된 보유분도
+        # 포함해야 "이미 배분액에서 얼마를 썼는지"가 정확해진다).
         _cat_codes = {x["code"] for x in pf.names(cat)}
-        held_cnt = sum(1 for hh in (_snap.holdings if _snap else [])
-                       if hh.symbol in _cat_codes)
+        used_amt = sum(hh.market_value for hh in (_snap.holdings if _snap else [])
+                       if hh.symbol in _cat_codes)   # 카테고리당 1회 계산, 후보 전체가 공유
         for s in pf.names(cat):
             if s["code"] in approval_codes:
-                plans.append(_plan_for_symbol(s, asof, cat, held_cnt))
+                plans.append(_plan_for_symbol(s, asof, cat, used_amt))
     return plans
 
 
