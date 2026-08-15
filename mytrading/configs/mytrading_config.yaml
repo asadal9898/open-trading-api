@@ -248,7 +248,9 @@ kis_maintenance_watch:
 #   수량     = 종목당 ÷ 현재가  (1주 단위 내림)
 position_sizing:
   min_unit: 1000000         # 슬롯당 최소 금액 (100만원)
-  max_slots: 20             # 슬롯 상한 — 이후로는 종목당 금액이 커진다
+  max_slots: 100            # 슬롯 상한 — score_dividend.py 의 auto_confirm Approval 컷오프
+                             # (매매대상 상위 100)와 맞춘 값. max_per_symbol(100만원) 캡이
+                             # 있어 이 이상 예산은 종목당 금액이 안 커지고 미배정으로 남는다.
   min_slots: 1
   # 현금 하한 % — 예산 전액을 소진하지 않고 남겨두는 비율.
   #   ⚠️ 최적화된 값이 아니다. 10~20% 어느 값이든 비슷했고 그 안의 차이는 노이즈였다.

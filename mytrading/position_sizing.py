@@ -20,6 +20,12 @@
      max_slots 까지 분산을 늘리고 그 이상에서는 종목당 금액을 키운다.
      검증: 1,000만원과 2,000만원에서 CAGR 동등(+8.7%) — 규모 무관하게 작동.
 
+  3-1. 종목당 금액에 하드캡(max_per_symbol, 기본 100만원)을 씌운다.
+     max_slots(기본 100 — 매매대상 상위 100과 맞춘 값) 도달 전에는 종목당 금액이
+     대체로 min_unit 근처라 캡이 거의 안 걸리고, 슬롯이 꽉 찬 뒤(그 이상은 종목당
+     금액이 커지는 구간)부터 실제로 작동한다 — 그 초과분은 매수에 안 쓰이고
+     현금으로 남는다(추가 슬롯을 만들진 않음).
+
   4. 주문 수량은 1주 단위 내림. 결과 금액이 min_order_amount 미만이면 건너뛴다
      (수수료 비효율 + 1주 단위 오차가 커짐).
 
@@ -43,12 +49,17 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 _DEFAULTS = {
-    "min_unit": 1_000_000,      # 슬롯당 최소 금액
-    "max_slots": 20,            # 슬롯 상한
+    "min_unit": 1_000_000,      # 슬롯당 최소 금액 (슬롯 수를 정하는 데만 씀)
+    "max_slots": 100,           # 슬롯 상한 — score_dividend.py 의 auto_confirm Approval 컷오프
+                                 # (매매대상 상위 100)와 맞춘 값. 승인된 종목 전부에 슬롯을
+                                 # 줄 수 있도록, 임의의 분산 상한이 병목이 되지 않게 함.
     "min_slots": 1,
     "cash_floor": 15.0,         # 현금 하한 % (최적값 아님 — 위 주석 참고)
     "min_order_amount": 300_000,  # 이 금액 미만이면 매수 건너뜀
     "allow_below_min_unit": True,   # 투자가능액 < min_unit 이어도 1종목 매수
+    "max_per_symbol": 1_000_000,  # 종목당 매수 금액 상한(하드캡). min_unit 과 별개 설정 —
+                                   # 지금은 값이 같아 slots<max_slots 구간에선 하드캡이 안 걸리고,
+                                   # max_slots(100) 초과 예산에서만 실제로 작동한다(아래 plan_buy 참고).
 }
 
 
@@ -162,6 +173,12 @@ def plan_buy(category: str, price: float, total_equity: float,
     floor_pct = float(cfg["cash_floor"])
     investable = budget * (1.0 - floor_pct / 100.0)
     slots, per_symbol = compute_slots(investable, cfg)
+    # 종목당 금액 하드캡 — 슬롯 계산(compute_slots)은 그대로 두고 결과값만 clamp.
+    # max_slots(기본 100 — 매매대상 상위 100과 맞춘 값) 도달 전에는 per_symbol 이
+    # 원래도 min_unit 근처라 거의 안 걸리고, 슬롯이 꽉 찬 뒤(그 이상은 종목당 금액이
+    # 커지는 구간)부터 실제로 작동한다.
+    # 캡을 넘는 초과분은 이번 매수에 안 쓰이고 현금(다음 슬롯 여유분)으로 남는다.
+    per_symbol = min(per_symbol, float(cfg["max_per_symbol"]))
     slots_left = max(0, slots - held_count)
 
     out.update(budget=budget, cash_floor=floor_pct,
