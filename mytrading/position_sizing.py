@@ -77,27 +77,32 @@ def category_amount(category: str, user: str = None,
                    account: str = None) -> Optional[float]:
     """allocations.yaml 에서 카테고리 배분 금액(원) 조회.
 
-    user/account 를 생략하면 첫 번째 사용자·계좌를 쓴다.
+    portfolio.allocation_for() 를 재사용 — "계좌|모드" 구조(vps/prod 중첩)를 정확히
+    인식한다. user/account 를 생략하면 첫 번째 사용자·계좌를 쓴다.
+    모드는 common.resolve_mode() 로 판별(env KIS_MODE → .telegram_mode 파일 → 기본 vps).
     """
     try:
-        import yaml
-        data = yaml.safe_load(
-            (_ROOT / "mytrading" / "configs" / "allocations.yaml").read_text(
-                encoding="utf-8")) or {}
+        from mytrading.portfolio import load_portfolio
+        from mytrading.common import resolve_mode
+        pf = load_portfolio()
     except Exception as e:
-        print(f"[position_sizing] allocations.yaml 읽기 실패: {e}")
+        print(f"[position_sizing] load_portfolio 실패: {e}")
         return None
 
-    users = data.get("users") or {}
-    if not users:
+    if not pf.allocations:
         return None
-    ukey = user if user in users else next(iter(users))
-    accounts = (users.get(ukey) or {}).get("accounts") or {}
-    if not accounts:
+    ukey = user if user in pf.allocations else next(iter(pf.allocations))
+    accts = pf.allocations.get(ukey) or {}
+    if not accts:
         return None
-    akey = account if account in accounts else next(iter(accounts))
-    alloc = accounts.get(akey) or {}
-    v = alloc.get(category)
+    # accts 키는 "계좌명|모드" 형식 — account 미지정 시 첫 항목에서 계좌명만 뽑음
+    akey = account or next(iter(accts)).split("|", 1)[0]
+
+    mode = resolve_mode()
+    alloc = pf.allocation_for(ukey, akey, mode)
+    if alloc is None:
+        return None
+    v = getattr(alloc, category, None)
     return float(v) if v is not None else None
 
 
@@ -159,7 +164,7 @@ def plan_buy(category: str, price: float, total_equity: float,
     slots, per_symbol = compute_slots(investable, cfg)
     slots_left = max(0, slots - held_count)
 
-    out.update(amount=amount, budget=budget, cash_floor=floor_pct,
+    out.update(budget=budget, cash_floor=floor_pct,
                investable=investable, slots=slots, slots_left=slots_left,
                per_symbol=per_symbol)
 
