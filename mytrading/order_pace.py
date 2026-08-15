@@ -85,6 +85,24 @@ def cadence_for(style: str) -> str:
     return s.get("cadence", "weekly")
 
 
+# A-3: cadence 문자열 → 일수. position_state.bought_within_cadence() 의 cadence_days 인자용.
+_CADENCE_DAYS = {
+    "daily": 1,
+    "weekly": 7,
+    "weekly_2x": 4,
+    "biweekly_even": 14,
+    "biweekly_odd": 14,
+    "monthly": 30,  # 30일 근사 — 정확한 월 경계 필요시 재검토(현재 value_range=weekly라 미사용)
+}
+
+
+def cadence_days_for(style: str) -> int:
+    """스타일의 cadence 를 '일수'로 변환 (A-3 주기 판정용). 모르는 cadence 는 7(주간) 취급.
+    value_range 는 config 에 cadence 키가 없어 cadence_for() 기본값 weekly → 7일이 된다."""
+    cad = cadence_for(style)
+    return _CADENCE_DAYS.get(cad, 7)
+
+
 # ──────────────────────────────────────────────────────────
 # 6번: slice 계산 — 실제 매매 비율(%)
 # ──────────────────────────────────────────────────────────

@@ -83,6 +83,25 @@ def _apply_sizing(plan, category, price, snap, used_amt=0.0):
     if not price or not snap:
         plan["reason"] += " (수량 산정 불가 — 가격·잔고 없음)"
         return
+
+    # A-3: 주기 중복매수 방지 — is_trade_day(요일 고정) 대신 last_bought 기준으로 판정.
+    # ⚠️ TODO(D 실발주 붙일 때): position_state.mark_bought() 호출부가 아직 없다.
+    #   지금은 last_bought 가 항상 비어있어 이 게이트는 실질적으로 늘 통과(스킵 안 함)한다.
+    try:
+        from mytrading.position_state import bought_within_cadence
+        from mytrading.order_pace import cadence_days_for
+        code = plan.get("symbol")
+        cadence_days = cadence_days_for(plan.get("style"))
+        skip = bool(code) and bought_within_cadence(code, cadence_days)
+    except Exception as e:
+        print(f"[trade_plan] cadence 판정 실패({plan.get('symbol')}) — 보수적으로 매수 보류: {e}")
+        skip = True   # 모르면 안 산다 — 이 저장소의 기존 관례(_phase_ok 등)와 동일
+    if skip:
+        plan["action"] = "hold"
+        plan["slice_pct"] = 0.0
+        plan["reason"] = f"{plan['reason']} → 매수 보류: 이번 주기 이미 매수 (cadence {cadence_days}일)"
+        return
+
     try:
         from mytrading.position_sizing import plan_buy, category_amount
         cat = category or "moderate"
