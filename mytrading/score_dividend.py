@@ -25,16 +25,21 @@ scan_dividend.py 와는 별개다 — scan_dividend 는 "새 후보 발굴"(기�
     KIS_MODE=prod uv run python mytrading/score_dividend.py --sleep 1.0    # 종목간 대기 늘림
     KIS_MODE=prod uv run python mytrading/score_dividend.py --save         # 실제 저장
     KIS_MODE=prod uv run python mytrading/score_dividend.py --observe      # 관찰 로그만 기록
+    KIS_MODE=prod uv run python mytrading/score_dividend.py --save --observe  # 계산 1번, 저장+로그 둘 다
 
 주의:
   - 종목당 KIS API 3콜(+DART 폴백 시 추가). 속도제한(EGW00201) 대비 종목간 sleep,
     실패 시 1회 재시도. 그래도 실패하면 그 종목은 채점 제외(auto_confirm 미정, None).
   - --save 는 mytrading/configs/universe_ko.yaml 을 직접 수정한다. 반드시 --dry-run 결과를
     먼저 확인한 뒤 사용할 것. confirm 필드는 절대 안 씀 — auto_confirm/score 계열만 기록.
-  - --observe 는 universe_ko.yaml 을 절대 건드리지 않는다(--save 와 같이 줘도 저장 안 함 —
-    관찰이 우선). 대신 ~/dividend_score_log/YYYY-MM-DD.json 에 그날 순위·점수·auto_confirm
-    예정값(특히 90~110등 경계 구간)을 기록한다. hysteresis 밴드를 정하기 전 일일 변동폭을
-    쌓아두기 위한 순수 관찰 모드 — cron 으로 매 거래일 돌리는 걸 전제로 한다.
+  - --observe 는 universe_ko.yaml 을 절대 건드리지 않는다(단, --save 를 같이 주면 --save 가
+    파일은 수정한다 — --observe 자체는 여전히 로그 기록 외엔 아무것도 안 씀). 대신
+    ~/dividend_score_log/YYYY-MM-DD.json 에 그날 순위·점수·auto_confirm 예정값
+    (특히 90~110등 경계 구간)을 기록한다. hysteresis 밴드를 정하기 전 일일 변동폭을
+    쌓아두기 위한 순수 관찰 모드.
+  - --save 와 --observe 를 같이 주면 API 조회·채점 계산은 한 번만 하고(재조회 없음),
+    그 결과로 저장과 로그 기록을 둘 다 한다 — 둘을 따로 두 번 돌릴 때보다 API 호출이
+    절반이고, 저장된 값과 로그가 항상 같은 데이터임이 보장된다.
 """
 import json
 import sys
@@ -346,9 +351,6 @@ def main():
     sleep_sec = 0.5
     save = "--save" in args
     observe = "--observe" in args
-    if observe and save:
-        print("⚠️ --observe 와 --save 를 같이 줬습니다 — 관찰이 우선이라 저장은 건너뜁니다.")
-        save = False
     if "--limit" in args:
         i = args.index("--limit")
         if i + 1 < len(args):
@@ -366,8 +368,14 @@ def main():
         stocks = stocks[:limit]
 
     print(f"조회 대상: {len(stocks)}종목 (sleep {sleep_sec}s/종목, 실패 시 1회 재시도)")
-    mode_txt = "관찰 로그(--observe, universe_ko.yaml 안 건드림)" if observe else \
-               ("저장(--save)" if save else "DRY-RUN (저장 안 함)")
+    if save and observe:
+        mode_txt = "저장(--save) + 관찰 로그(--observe)"
+    elif save:
+        mode_txt = "저장(--save)"
+    elif observe:
+        mode_txt = "관찰 로그(--observe, universe_ko.yaml 안 건드림)"
+    else:
+        mode_txt = "DRY-RUN (저장 안 함)"
     print(f"모드: {mode_txt}")
     print()
 
@@ -401,13 +409,14 @@ def main():
     print_summary(scored, div_zero, fetch_failed)
     print_comparison(old_top100, new_top100, code_to_name)
 
+    if save:
+        save_scores(scored, div_zero, fetch_failed)
     if observe:
         log_path = write_observation_log(scored, div_zero, fetch_failed)
         print(f"\n[관찰 로그 기록] {log_path}")
-        print("  universe_ko.yaml 은 수정하지 않았습니다 — 순수 관찰·기록만 했습니다.")
-    elif save:
-        save_scores(scored, div_zero, fetch_failed)
-    else:
+        if not save:
+            print("  universe_ko.yaml 은 수정하지 않았습니다 — 순수 관찰·기록만 했습니다.")
+    if not save and not observe:
         print("\n※ DRY-RUN — universe_ko.yaml 은 수정하지 않았습니다. "
               "confirm 필드는 애초에 이 스크립트가 건드리지 않습니다. "
               "저장하려면 --save 를 붙이세요.")
