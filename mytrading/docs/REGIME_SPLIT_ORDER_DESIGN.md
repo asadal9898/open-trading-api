@@ -150,8 +150,16 @@ momentum/accumulate 스타일은 매도 로직 자체가 아직 없음(매수만
 3. ✅ cadence 판정 함수: order_pace.is_trade_day() — daily/weekly/weekly_2x/biweekly_even/odd 구현(설계보다 weekly_2x 추가됨).
 4. ⚠️ 주문 계획 빌더: trade_plan.py로 구현됐으나 구조가 다름 — 매수만 구현(momentum/accumulate), toppish "신규 매수 0"은 반영됨(✅). "위험·안전자산 모두 분할 매도"는 미구현. value_range 매도는 diff 기반이 아니라 position_action()(평단 손익 기준)으로 대체.
 5. ⬜ 모의 주문 연결: 미착수. submit_order 연결 없음, "계산/출력만" 원칙 여전히 유효.
+   (이 항목은 이 문서 범위 — safe/aggressive 국면분할·toppish 분할매도 — 한정. moderate
+   (배당·value_range)는 별도 파이프라인으로 D-2까지 진행됨: `moderate_order_runner.py`에
+   `submit_order`/`mark_bought` 연결. 단 dry-run이 기본이고 `--live`는 모의(vps)에서만,
+   vps강제·trading_active·정규장·주기·예산 게이트를 다 통과해야 시도한다. **모의계좌 실제
+   발주 성공 사례는 아직 없음**(D-3 미완) — "구현"이지 "검증"·"실사용"은 아니다. 자세한 건
+   `VALUE_RANGE.md` §0 참고. safe/aggressive/toppish 매도는 이 진행과 무관하게 여전히 미착수.)
 6. ⬜ 백테스트 반영(cadence/slice 조합 splitfill_sim 검증): 미확인.
-7. ⬜ cron 연결: 미착수. 자동 발주 자체가 없음.
+7. ⬜ cron 연결(이 문서 범위): 미착수. free(`order_runner.py`)는 기존대로 사람이 `--execute`를
+   직접 돌리는 수동 구조 그대로. moderate는 D-2 코드는 있으나 cron 미연결(D-4 대기, §5 참고) —
+   "자동 발주 자체가 없음"은 더 이상 레포 전체에 정확한 서술이 아니다.
 
 ---
 

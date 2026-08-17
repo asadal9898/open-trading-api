@@ -19,7 +19,16 @@
 - **국면 필터 실전 연결됨**: 침체·판정불가 종목은 매수 배제(`is_buyable_phase`, `stock_eval.py`).
 - **최신 실전 관찰(~2026-08-07)**: 타이밍 기반 방어(드로다운 컨트롤·신용잔고·RSI)는 실전 폭락장에서도
   전부 기각 재확인. 코어 배당주 단순 보유도 코스피에 못 미쳐 부적합 확인.
-- **시스템 구조**: 자동 발주 없음. 봇이 신호를 알리고 사람이 승인·체결하는 조언형 구조.
+- **시스템 구조**: moderate(배당) 카테고리에 한해 **모의(vps) 자동매수 파이프라인 구현됨**
+  (score_dividend.py→auto_confirm → build_plan → moderate_order_runner.py, D-2, 2026-08-17).
+  dry-run이 기본이고 `--live`를 줘야만 발주 시도하며, vps 강제·trading_active·정규장·주기·
+  종목당 100만원·예산소진 게이트를 전부 통과해야 도달한다. **실전(prod)엔 미적용**(vps 아니면
+  즉시 중단). aggressive/safe(국면분할, `REGIME_SPLIT_ORDER_DESIGN.md`)와 free_holdings는
+  여전히 사람이 승인·체결하는 조언형 구조.
+  **⚠️ 코드는 D-2까지 구현됐지만, 모의계좌에서 실제로 발주를 성공시켜 본 적은 아직 없다**
+  (게이트가 매번 후보0/휴장/계좌중지로 막혀 `submit_order`까지 도달한 실행 기록 없음).
+  남은 단계: **D-3**(모의에서 실제 발주 1건 확인 — 거래일+계좌 켬 조건 대기 중, 아직 안 함) →
+  **D-4**(cron 자동화 — 아직) → **실전(prod) 적용**(모의 검증 완료 후).
 
 ---
 
@@ -414,9 +423,11 @@ KIS_MODE=prod uv run python mytrading/collect_div.py --refresh --sleep 0.3
 **물타기 1회 제한 (`position_state.py`)**: 계좌 잔고에는 "이미 물탔는지" 정보가 없어 별도
 상태 파일로 추적한다.
 
-⚠️ 현재 설계는 주문 체결 훅을 전제로 하는데 이 시스템에는 자동 발주가 없다. 계좌 수량 변화로
-자동 감지하는 방식(최초 보유 시 `entry_qty` 기록 → 현재수량 > entry_qty면 물타기로 판단)으로
-재설계가 필요하다(§4).
+⚠️ D-2(moderate 자동매수, 모의)로 매수 성공 시 훅(`mark_bought`)은 실제로 연결됐지만, 그건
+주기강제(A-3)용이고 **물타기 여부를 기록하는 훅(`mark_averaged_down`)은 여전히 호출부가
+없다**(재확인: 정의·docstring뿐, 실제 호출 0곳). 계좌 수량 변화로 자동 감지하는 방식(최초
+보유 시 `entry_qty` 기록 → 현재수량 > entry_qty면 물타기로 판단)으로 재설계가 필요하다는
+결론은 그대로 유효하다(§4).
 
 **매수 금액 산정 (`position_sizing.py`)**
 
@@ -494,10 +505,16 @@ KIS_MODE=prod uv run python check_universe.py --limit 10 # 시험
 
 ### 2-8. 시스템 구조 (실측 확인)
 
-- **자동 발주가 없다.** KIS 주문 API(`order_cash` 등)는 `legacy/`에만 있고 `mytrading/`에서는
-  쓰지 않는다. `notify_order_*`를 호출하는 곳은 `runners/test_order.py` 하나뿐이고, 봇 커맨드에도
-  매수/매도 실행이 없다. **봇이 신호를 알리고 주문은 직접 체결하는 조언형 구조다.**
+- **moderate(배당)은 모의(vps) 자동 발주 코드가 생겼다** (D-2, `moderate_order_runner.py`,
+  `submit_order`/`mark_bought` 연결). `--live` 플래그로만 시도하고, vps 강제·게이트를 다
+  통과해야 한다. **단, cron 연결 전이고(D-4 대기) 모의계좌에서 실제로 발주에 성공해 본
+  적도 아직 없다(D-3 미완 — 게이트 통과 자체를 아직 재현 못 함).** "구현됨"이지
+  "검증됨"·"실사용 중"이 아니다.
+  aggressive/safe(국면분할)·free_holdings는 여전히 사람이 승인·체결하는 조언형 구조 —
+  `/매수`·`/매도`(즉시 실행)·`order_runner.py`(free 배치)로 사람이 트리거해야 한다.
 - `build_plan`은 Approval 상태 종목만 계획에 넣는다 (설계 의도).
+  (2026-08 기준: confirm(사람) 우선, 없으면 auto_confirm(자동, score_dividend.py) 합성 판정
+  결과가 "Approval"인 종목 — `DIVIDEND_FILTER_DESIGN.md` §5b 참고)
 - `slice_pct`는 실제 주문 실행에 연결되어 있지 않다 (소비처가 `newsletter_ai.py` 뿐).
 
 ---
@@ -579,9 +596,12 @@ KIS_MODE=prod uv run python check_universe.py --limit 10 # 시험
 - `_judge_phase` 캐싱 (레이트리밋 위험 해소) → `finance_data.py`의 `_PHASE_CACHE`(§2-6)
 
 **여전히 열려 있음**:
-- [ ] `position_state`를 계좌 수량 기반 자동 감지로 재설계 (§2-6에서 지적된 구조적 미비)
-- [ ] 주문 실행 모듈 (`runners/test_order.py` 로직 재사용)
-- [ ] `auto_trade` config — moderate 한정 자동매매 + 텔레그램 알림 토글
+- [ ] `position_state`의 물타기(averaged_down) 기록을 계좌 수량 기반 자동 감지로 재설계
+  (§2-6 — 그대로 미해결. A-3/`mark_bought`는 별개 메커니즘이라 이 항목을 해결 안 함)
+- [x] 주문 실행 모듈 — `moderate_order_runner.py`(D-1/D-2)로 구현. **단 dry-run/`--live`
+  뼈대 단계이고, 모의계좌 실제 발주 성공 사례 없음(D-3 미완) · cron 연결 안 됨(D-4 미착수)**
+- [x] `auto_trade` 개념 — `trading_active` 계좌별 토글(기존) + `moderate_buy_alert.py`(B,
+  알림) + `moderate_order_runner.py`(D, 게이트+발주)로 구현. 실전 적용은 D-3·D-4 이후
 - [ ] 승인 종목 확대 (2026-07-19 시점 45종목 대기 — 현재 수치는 재확인 필요)
 - [ ] 텔레그램 승인 버튼 UI 마무리
 - [ ] 배당소득세 15.4% · 증권거래세 0.18% 반영한 재백테스트 (현재 CAGR은 세전·비용 미반영)
