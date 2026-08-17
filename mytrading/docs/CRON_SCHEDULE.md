@@ -15,9 +15,19 @@
 | 14:00 | 주말(토·일) | `scan_dividend.py --market kospi` | 코스피 전체 배당주 스캔 | universe_ko.yaml에 후보 추가 + 알림 |
 | 15:00 | 주말(토·일) | `scan_dividend.py --market kosdaq` | 코스닥 전체 배당주 스캔 | universe_ko.yaml에 후보 추가 + 알림 |
 | 05:00 | 매월 1일 | `dividend_calendar.py --update-universe` | 배당락일 캘린더 연간 갱신 | dividend_calendar.yaml |
+| 07:30 | 평일(월~금) | `rsi_alert.py --notify` | 코스피 RSI(14) 과매도(&lt;30) 감시 (자동매매 아님, 참고용) | 감지 시 텔레그램 알림 |
+| 07:30 | 매일 | `rclone copy` (저장소 백업) | 저장소 전체를 Google Drive로 백업 | `gdrive:open-trading-api` |
+| 14:00 | 평일(월~금) | `free_loss_alert.py --threshold -10 --notify` | 자유종목(free_holdings) 중 -10% 이하 손실 감시 | 감지 시 텔레그램 알림 |
+| 18:00 | 평일(월~금) | `fetch_credit_balance.py` | KOFIA 신용공여잔고 추이 수집 | `market_credit_balance.csv` |
+| 19:00 | 매일 | `holdings_news.py --keep-days 100` | 자유종목 관련 구글뉴스 헤드라인 수집 (참고용) | `mytrading/reports/news/` |
+| 19:30 | 평일(월~금) | `score_dividend.py --save --observe` | moderate(배당) 300점 재채점 → auto_confirm 갱신 + 관찰로그 | universe_ko.yaml auto_confirm 갱신, `~/dividend_score_log/YYYY-MM-DD.json` |
 
 > **이름 주의** — `newsletter_check.py`(감시·알림)와 `newsletter_ai.py`(AI 분석)는
 > 이름만 비슷할 뿐 역할이 완전히 다르다. 아래 상세 참조.
+>
+> **이름 주의 2** — `scan_dividend.py`(주말, 새 후보 발굴, 기존 종목 스킵)와
+> `score_dividend.py`(평일 19:30, 기존 종목 전체 재채점)도 이름이 비슷하지만 별개다.
+> 대상 집합이 정반대(전자는 신규만, 후자는 기존 전체).
 
 ## 작업별 상세
 
@@ -49,6 +59,40 @@ Gmail 기반 3종 감시: ①뉴스레터 만료 키워드 ②KCIF 리스크워�
 
 **dividend_calendar.py** — 배당락일 캘린더 (매월 1일 05:00)
 종목은 안 변해도 배당락일은 매년 변하므로 별도 관리. `dividend_calendar.yaml`에 저장.
+
+**rsi_alert.py** — 코스피 RSI 과매도 알림 (평일 07:30)
+RSI(14) < 임계값(기본 30)이면 텔레그램 알림. 백테스트상 RSI<25 → 5일 반등 승률 74.6%지만
+하락 초입엔 손실 위험도 있는 칼날 신호 — **자동매매 아님, 관찰·참고용**. 로그: `~/KIS/cache/rsi_alert.log`
+
+**rclone 백업** — 저장소 전체 백업 (매일 07:30)
+`rclone copy . gdrive:open-trading-api`로 저장소 전체를 Google Drive에 백업(`~/rclone-filter.txt` 필터 적용). 로그: `/tmp/rclone_backup.log`
+
+**free_loss_alert.py** — 자유종목 손실 알림 (평일 14:00)
+자유종목(free_holdings) 보유분 중 손실률이 임계값(기본 -10%) 이하면 텔레그램 알림. value_range
+종목과 달리 자유종목엔 자동 손절 규칙이 없어 알림만 — **자동매도 아님**. 로그: `~/KIS/cache/free_loss_alert.log`
+
+**fetch_credit_balance.py** — 신용공여잔고 수집 (평일 18:00)
+금융투자협회(KOFIA FreeSIS)에서 코스피/코스닥 신용거래융자 잔고 추이를 수집해
+`market_credit_balance.csv`를 갱신. 국면 판단 참고 데이터. 로그: `~/KIS/cache/credit_balance.log`
+
+**holdings_news.py** — 자유종목 뉴스 브리핑 (매일 19:00)
+자유종목별 최근 구글뉴스 헤드라인을 모아 저장(100일 보관). **참고용 — 매매신호 아님**.
+출력: `mytrading/reports/news/`. 로그: `~/KIS/cache/holdings_news.log`
+
+**score_dividend.py** — moderate 배당종목 자동 재채점 (평일 19:30)
+시가총액·배당률(1.5배 가중)·부채비율 순위 기반 300점 스코어링 → 상위100
+`auto_confirm:Approval` / 101등 이하 `Paused` / 배당0% `Rejected`로 매일 갱신. 사람이 정한
+`confirm` 필드는 절대 안 건드림(합성 게이트에서 confirm이 이김 — `DIVIDEND_FILTER_DESIGN.md`
+§5c 참고). `--save --observe`를 같이 줘서 계산 1번으로 저장 + 관찰로그
+(`~/dividend_score_log/`, hysteresis 검토용 이력)를 함께 남긴다.
+로그: `~/KIS/cache/score_dividend_observe.log`
+
+**(cron 미등록) moderate_buy_alert.py / moderate_order_runner.py** — B(매수후보 텔레그램
+알림)와 D(자동발주 게이트 + dry-run/`--live`, D-1/D-2)는 아직 cron에 등록돼 있지 않다.
+D는 코드 자체는 D-2까지 구현됐으나(게이트+dry-run/`--live` 스켈레톤) **모의계좌에서 실제
+발주에 성공해 본 적이 아직 없다**(D-3 미완). cron 등록은 D-3(모의 실발주 검증)·D-4(cron
+자동화) **완료 후**에나 붙일 예정이고, 지금은 사람이 수동 실행해야 한다. 자세한 건
+`VALUE_RANGE.md` §0 참고.
 
 ## 실행 순서 (주말)
 
