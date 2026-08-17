@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-D-1: moderate(배당) 자동매수 러너 — 게이트 + dry-run 뼈대. submit_order 는 아직 연결 안 함.
+D-2: moderate(배당) 자동매수 러너 — 게이트 통과 후 submit_order/mark_bought 연결.
 
-⚠️ 발주 없음. submit_order/OrderSide/OrderType 등 실제 주문 코드를 이 파일에 추가하지 말 것
-   — 그건 D-2에서, --live 로만, 아래 TODO 자리에.
+⚠️ --live 를 줘야만 실제 발주 시도. 기본(dry-run)은 D-1과 동일하게 "발주 예정" 로그·알림만
+   하고 submit_order 를 호출하지 않는다. --live 여도 vps 가 아니면(이중 확인) 발주 안 한다.
 
 게이트 순서 (① 은 스크립트 전체 중단, ②~④ 는 종목별 스킵):
   ① vps 강제        — resolve_mode() != "vps" 면 즉시 스크립트 전체 중단 (prod 방어)
@@ -22,7 +22,15 @@ D-1: moderate(배당) 자동매수 러너 — 게이트 + dry-run 뼈대. submit
 실행:
     KIS_MODE=vps uv run python mytrading/moderate_order_runner.py            # dry-run, 출력만
     KIS_MODE=vps uv run python mytrading/moderate_order_runner.py --notify   # 통과 후보 텔레그램 알림
-    KIS_MODE=vps uv run python mytrading/moderate_order_runner.py --live     # (D-1 미구현) 경고만, 발주 안 함
+    KIS_MODE=vps uv run python mytrading/moderate_order_runner.py --live     # 실제 발주(모의계좌만)
+
+계좌 선택: submit_order 자체는 계좌 인자를 안 받는다 — get_brokerage(account_name=...) 가
+  반환하는 브로커리지 객체에 계좌가 이미 baked in 되어 있다. 그런데 get_brokerage 는
+  user_key 파라미터가 없고 오직 환경변수 KIS_USER 로만 사용자를 고른다(common.py:_resolve_account).
+  order_runner.py(free)는 이걸 account_name 없이 딱 한 번만 호출해 모든 타겟에 재사용하는데,
+  moderate 는 계좌마다 다른 사용자일 수 있으므로 그 패턴을 그대로 베끼지 않고, 발주 직전에
+  os.environ["KIS_USER"] = user_key 를 명시적으로 세팅한 뒤 get_brokerage(account_name=...)
+  를 호출한다(아래 _place_order 참고).
 """
 import argparse
 import json
@@ -64,12 +72,35 @@ def _moderate_accounts(pf, mode: str) -> list:
     return out
 
 
+def _place_order(user_key: str, account_name: str, code: str, qty: int) -> dict:
+    """moderate 시장가 매수 1건 발주. 성공 시 mark_bought(code) 호출.
+    반환: {"success": bool, "order_id": str|None, "error": str|None}.
+    ⚠️ 호출 전 vps 재확인은 이 함수의 책임이 아니다 — 호출부(main)가 이미 확인한 뒤 불러야 한다."""
+    import os as _os
+    from mytrading.common import get_brokerage
+    from kis_backtest.providers.base import OrderSide, OrderType
+
+    # get_brokerage() 는 user_key 인자가 없고 KIS_USER 환경변수로만 사용자를 고른다
+    # (order_runner.py 처럼 account_name 없이 한 번만 호출해 재사용하면 다른 사용자 계좌로
+    #  잘못 나갈 수 있어서, 매 호출 직전 명시적으로 세팅한다).
+    _os.environ["KIS_USER"] = user_key
+    brk = get_brokerage(account_name=account_name)
+    try:
+        order = brk.submit_order(symbol=str(code), side=OrderSide.BUY,
+                                 quantity=int(qty), order_type=OrderType.MARKET)
+        from mytrading.position_state import mark_bought
+        mark_bought(str(code))
+        return {"success": True, "order_id": order.id, "error": None}
+    except Exception as e:
+        return {"success": False, "order_id": None, "error": str(e)}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--notify", action="store_true",
                      help="게이트 통과 후보 있으면 텔레그램 발송 (없으면 출력만)")
     ap.add_argument("--live", action="store_true",
-                     help="(D-1 미구현) 실제 발주 — 지금은 경고만 출력하고 발주 안 함")
+                     help="실제 발주 (없으면 dry-run — '발주 예정' 로그·알림만, submit_order 호출 안 함)")
     args = ap.parse_args()
 
     # ① vps 강제 — common.init() 보다 먼저, 종목 순회 전에 스크립트 전체를 즉시 중단.
@@ -78,12 +109,8 @@ def main():
     from mytrading.common import resolve_mode
     mode = resolve_mode()
     if mode != "vps":
-        print(f"🚫 D-1은 vps(모의) 전용입니다 — 현재 모드: {mode}. 즉시 중단.")
+        print(f"🚫 D-2는 vps(모의) 전용입니다 — 현재 모드: {mode}. 즉시 중단.")
         sys.exit(1)
-
-    if args.live:
-        print("⚠️ --live 는 아직 미구현입니다 (D-1은 게이트+dry-run 뼈대만) — 발주하지 않습니다.")
-        print("   submit_order 연결은 D-2에서.")
 
     from mytrading.common import init
     init(require_confirm=False)
@@ -121,6 +148,7 @@ def main():
         style = c.get("style")
         gates = {}
         skip_reason = None
+        account_used = None  # 게이트 ②를 통과했을 때만 채워짐 — 실제 발주 시 이 계좌로.
 
         # ② trading_active — moderate 계좌 중 하나라도 켜져 있으면 통과
         if not accounts:
@@ -134,6 +162,10 @@ def main():
                 skip_reason = "trading_active 꺼짐"
             else:
                 gates["trading_active"] = "pass"
+                # build_plan 의 qty/budget 계산이 애초에 단일 계좌(기본 스냅샷) 전제라,
+                # moderate 계좌가 여럿이어도 같은 qty 를 여러 계좌에 중복 발주하면 안 된다
+                # — 첫 번째 활성 계좌 하나로만 낸다(추후 멀티계좌 지원 시 재검토 필요).
+                account_used = active_accounts[0]
 
         # ③ 정규장
         if skip_reason is None:
@@ -160,7 +192,10 @@ def main():
 
         row = {"symbol": code, "name": name, "qty": c.get("qty", 0),
                "amount": c.get("amount", 0), "reason": c.get("reason", ""),
-               "gates": gates, "skip_reason": skip_reason}
+               "gates": gates, "skip_reason": skip_reason, "account": account_used,
+               "live_result": {"attempted": False, "success": None,
+                               "order_id": None, "error": None,
+                               "mark_bought_called": False}}
 
         if skip_reason:
             print(f"  ⏭ {name}({code}) 스킵 — {skip_reason}")
@@ -171,21 +206,43 @@ def main():
 
         results.append(row)
 
-    # TODO D-2: 여기서 pending 을 순회하며 submit_order 연결 (--live 일 때만).
-    #   try:
-    #       order = brk.submit_order(symbol=code, side=OrderSide.BUY, quantity=qty,
-    #                                order_type=OrderType.MARKET)
-    #       position_state.mark_bought(code)   # 성공(예외 없음) 시에만
-    #   except Exception as e:
-    #       notify.notify_error(...)            # 실패 — mark_bought 호출 안 함
-    #   지금은 submit_order 호출도, mark_bought 호출도 없다 — 로그·알림만.
+    live_attempted = False
+    if pending and args.live:
+        # ⚠️ 이중 방어 — 스크립트 시작부에서 이미 vps 를 확인했지만, 실제 발주 직전에 한 번 더.
+        from mytrading.common import resolve_mode as _resolve_mode2
+        if _resolve_mode2() != "vps":
+            print(f"🚫 발주 직전 재확인 실패 — vps 아님({_resolve_mode2()}). 전체 발주 중단.")
+            for r in pending:
+                r["live_result"]["attempted"] = False
+                r["live_result"]["error"] = "발주 직전 vps 재확인 실패"
+        else:
+            live_attempted = True
+            for r in pending:
+                u, a = r["account"]
+                res = _place_order(u, a, r["symbol"], r["qty"])
+                r["live_result"]["attempted"] = True
+                r["live_result"]["success"] = res["success"]
+                r["live_result"]["order_id"] = res["order_id"]
+                r["live_result"]["error"] = res["error"]
+                r["live_result"]["mark_bought_called"] = res["success"]
+                try:
+                    from mytrading.telegram import notify
+                    if res["success"]:
+                        print(f"  🟢 [실주문] {r['name']}({r['symbol']}) 접수 성공 "
+                              f"— 주문번호 {res['order_id']}")
+                        notify.notify_order_submitted(r["symbol"], "매수", r["qty"], "시장가")
+                    else:
+                        print(f"  🔴 [실주문 실패] {r['name']}({r['symbol']}) — {res['error']}")
+                        notify.notify_error(f"{r['name']} 매수 실패", res["error"])
+                except Exception as e:
+                    print(f"    (알림 실패: {e})")
 
-    if pending and args.notify:
+    if pending and args.notify and not live_attempted:
         lines = [f"<b>[moderate 발주 예정 · {today}]</b>"]
         for r in pending:
             lines.append(f"\n🟢 {r['name']}({r['symbol']}) {r['qty']}주 · "
                         f"약 {r['amount'] / 10000:,.0f}만원")
-        lines.append("\n⚠️ dry-run(D-1) — submit_order 미연결, 실제 발주 안 됨")
+        lines.append("\n⚠️ dry-run — submit_order 미호출, 실제 발주 안 됨 (--live 로 실행 시 발주)")
         try:
             from mytrading.telegram import notify
             notify.send_message("\n".join(lines))
@@ -208,7 +265,7 @@ def main():
         "n_pending": len(pending),
         "candidates": results,
         "live_flag": args.live,
-        "submit_order_called": False,  # D-1: 항상 False. D-2 연결 후에도 실제 호출 여부를 기록.
+        "submit_order_called": any(r["live_result"]["attempted"] for r in results),
     }
     log_path.write_text(json.dumps(log_data, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n로그 기록: {log_path}")
