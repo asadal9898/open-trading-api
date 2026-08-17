@@ -164,8 +164,10 @@ universe_ko.yaml 각 종목에 **confirm 필드**로 생애주기 표현.
 
 ### 매매 규칙
 
-- **confirm == "Approval" 인 종목만 매매 대상.** 나머지는 전부 제외.
-  (`portfolio.tradable_symbols()` 가 Approval 만 반환 → `trade_plan` 이 사용)
+- **confirm(사람) 이 설정돼 있으면 그 값만으로 판정한다** — Approval만 매매 대상, 나머지 제외.
+  confirm이 없으면 auto_confirm(자동, §5c)으로 판정한다. 둘 다 없으면 매매 불가.
+  (`portfolio.tradable_symbols()`가 이 합성(confirm 우선, 없으면 auto_confirm) 판정을 수행
+  → `trade_plan.build_plan()`이 사용, 2026-08 구현)
 - **Paused 특별 처리**: 신규 매수/매도만 중단, **이미 보유한 건 안 팔고 유지**.
 - confirm **없으면 기본 "Waiting"** (안전 — 명시적 승인 없으면 매매 안 함).
 
@@ -198,6 +200,40 @@ moderate:
 
 ---
 
+## 5c. 자동 판정 — auto_confirm (score_dividend.py, 2026-08)
+
+**⚠️ §5b는 사람이 매기는 confirm 4단계만 다룬다. 이후 자동 판정 계층(auto_confirm)이
+추가되어, universe_ko moderate 종목은 이제 confirm(사람)/auto_confirm(자동) 두 필드를
+동시에 갖는 합성 구조다.**
+
+`mytrading/score_dividend.py`가 moderate 종목 전체를 매일 재채점한다:
+
+- 시가총액(만점100)·배당률(만점150, 배당주 취지로 1.5배 가중)·부채비율(만점100)을 각각
+  **순위 기반**(1등=만점, 꼴찌=0)으로 채점해 합산(0~350점)
+- 배당률 0%(최근 1년 배당 이력 없음) 종목은 순위 계산에서 제외하고 `auto_confirm: "Rejected"`
+- 남은 종목(배당 있음)만으로 다시 순위를 매겨 **상위 100 → `auto_confirm: "Approval"`,
+  101등 이하 → `auto_confirm: "Paused"`**
+- `confirm`(사람) 필드는 절대 건드리지 않는다 — `score`/`mcap_score`/`div_score`/`debt_score`/
+  `scored_date`/`auto_confirm`만 기록
+
+**합성 판정 우선순위** (`portfolio.tradable_symbols()`): confirm(사람)이 있으면 그 값이 이긴다
+(auto_confirm 무시). confirm이 없으면 auto_confirm으로 판정. 둘 다 없으면 매매 불가.
+→ **사람이 한 번이라도 confirm을 정한 종목은 스코어링 등락과 무관하게 그 판단이 유지된다.**
+
+**cron**: 평일 19:30 `KIS_MODE=prod uv run python mytrading/score_dividend.py --save --observe`
+— 계산은 한 번만 하고 저장(`--save`, universe_ko.yaml 갱신)과 관찰로그(`--observe`,
+`~/dividend_score_log/YYYY-MM-DD.json`, hysteresis 검토용 이력) 둘 다 남긴다.
+(`CRON_SCHEDULE.md` 참고 — `scan_dividend.py`와 이름 비슷하지만 별개 스크립트)
+
+**여기서 이어지는 자동매수 파이프라인(B/D)**: auto_confirm=Approval인 종목은
+`build_plan("moderate")`의 매수 후보 대상이 되고, `moderate_buy_alert.py`(B, 텔레그램 알림)와
+`moderate_order_runner.py`(D-1/D-2, 게이트+dry-run/`--live` 발주)로 이어진다.
+**모의(vps)에서 코드는 D-2까지 구현됐지만, 모의계좌 실제 발주 성공 사례는 아직 없다**
+(D-3 미완, cron 연결도 D-4 미착수) — "구현"이지 "검증"·"실사용"은 아니다.
+자세한 안전장치·단계는 `VALUE_RANGE.md` §0 참고.
+
+---
+
 ## 6. 구현 현황
 
 ### 완료 ✅
@@ -206,19 +242,26 @@ moderate:
 2. ✅ `finance_data.py` 래퍼: get_financials, get_dividend_yield.
 3. ✅ `find_dividend_stocks.py` 스크리너: 3조건 판정, --universe/--add 옵션.
 4. ✅ portfolio.py 로더: confirm/added_date 필드 보존, 기본 "Waiting".
-5. ✅ `tradable_symbols()`: confirm=="Approval" 만 반환. trade_plan 이 사용.
+5. ✅ `tradable_symbols()`: confirm(사람) 우선, 없으면 auto_confirm(자동)으로 합성 판정 —
+    2026-08 auto_confirm 도입으로 확장됨(§5c). trade_plan 이 사용.
 6. ✅ add_to_universe: 통과 종목 자동 추가(Waiting). Rejected 건너뜀.
 7. ✅ 텔레그램 알림: AI 추가 시 "배당주 발견" (종목코드+종목명).
 8. ✅ 전체 스캔 배치 `scan_dividend.py`: 코스피/코스닥 주말 분할. cron 토14시/일15시.
 9. ✅ DART 교차검증 (finance_unified): KIS 우선 + DART. 배당성향 교차검증.
 10. ✅ **국고채 3년물 연동** (2026-07): 배당 기준을 고정값 → 국고채 + 프리미엄.
     KCIF INSIGHT에서 자동 갱신. `get_base_rate` / `dividend_threshold` / `evaluate_dividend`.
+11. ✅ **auto_confirm 자동 판정** (`score_dividend.py`, 2026-08): 시총·배당·부채 300점
+    스코어링 → 상위100 Approval / 101↓ Paused / 배당0% Rejected. cron 평일 19:30
+    `--save --observe`. 상세 §5c.
 
 ### 남은 것 ⬜
 
 - ⬜ **scan_dividend에 국고채 연동 적용** — 스캔 필터도 `dividend_threshold()` 를 쓰도록.
   (현재 스캔은 config 고정값(rate_threshold) 기준일 수 있음 — 확인 필요)
 - ⬜ 후보 → 거래량 확인 → 백테스트 → Owner 가 Approval (운영 루프, 사람 판단)
+  — **상위 100은 이제 auto_confirm으로 자동 Approval**(§5c)되므로, 사람 판단은 그 위에
+  얹히는 override(승인/거절/멈춤)로만 남았다. 완전 자동화는 아니고, 백테스트 검증 후
+  사람이 override하는 루프 자체는 그대로 유효.
 - ⬜ 주도주(momentum) 자동선별 — 정량기준 애매, 후보제시 방식, 별도 진행
 
 ---
