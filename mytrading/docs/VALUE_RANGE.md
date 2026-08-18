@@ -515,7 +515,8 @@ KIS_MODE=prod uv run python check_universe.py --limit 10 # 시험
 - `build_plan`은 Approval 상태 종목만 계획에 넣는다 (설계 의도).
   (2026-08 기준: confirm(사람) 우선, 없으면 auto_confirm(자동, score_dividend.py) 합성 판정
   결과가 "Approval"인 종목 — `DIVIDEND_FILTER_DESIGN.md` §5b 참고)
-- `slice_pct`는 실제 주문 실행에 연결되어 있지 않다 (소비처가 `newsletter_ai.py` 뿐).
+- `slice_pct`는 실제 주문 실행에 연결되어 있지 않다 (소비처 없음 — 유일한 소비처였던
+  `newsletter_ai.py`가 2026-08-18 삭제됨).
 
 ---
 
