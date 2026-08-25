@@ -205,3 +205,7 @@ mytrading/reports/__pycache__/
 
 # OpenDartReader corp_code 캐시 (자동 생성, 날짜별 갱신)
 docs_cache/
+
+# Claude Code 임시 작업 지침 (repo 추적 안 함)
+mytrading/docs/temp/
+/CLAUDE.md
