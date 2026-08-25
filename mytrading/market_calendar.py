@@ -121,11 +121,15 @@ def get_calendar(bass_dt: str = None, use_cache: bool = True) -> list:
                 "tr_day_yn": str(row.get("tr_day_yn", "")),  # 거래일
                 "sttl_day_yn": str(row.get("sttl_day_yn", "")),  # 결제일
             })
-    # 캐시 저장
-    try:
-        cache_file.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
+    # 캐시 저장 — 빈 결과는 저장 안 함(다음 호출 때 재시도 유도).
+    # chk_holiday 는 bass_dt 부터 max_depth 페이지(연간치)를 받는 구조라, 정상 성공이면
+    # 항상 다건이 온다. 완전히 빈 값은 API 실패(게이트웨이/레이트리밋)를 성공처럼
+    # 반환한 결과일 가능성이 높음 — 그걸 캐시하면 하루 종일 오판이 굳어진다.
+    if records:
+        try:
+            cache_file.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
     return records
 
 

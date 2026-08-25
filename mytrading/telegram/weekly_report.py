@@ -233,6 +233,17 @@ def send_weekly(brokerage=None, only_user: str = None,
     except Exception:
         adata = None
 
+    # scheduled(cron, 매시 정각) 는 실제 보낼 사람이 있는 시각에만 메시지를 만든다.
+    # build_message() 가 chk_holiday API(1일 1회 호출 권장)를 부르므로, 아무도 받을
+    # 시간이 아닌데도 매시간 호출하던 걸 막는다 (과호출 → 게이트웨이 레이트리밋 → 빈
+    # 캘린더 캐시로 이어지던 근본 원인).
+    if scheduled and adata is not None and adata.enabled:
+        now = datetime.now()
+        due = any((not only_user or u.key == only_user) and _is_send_time(u, now)
+                   for u in adata.users)
+        if not due:
+            return {}
+
     msg = build_message(brokerage)
 
     if preview:

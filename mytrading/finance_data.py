@@ -20,9 +20,6 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-p = "mytrading/finance_data.py"
-s = open(p, encoding="utf-8").read()
-
 def _load_debt_rules():
     """mytrading_config.yaml의 debt_industry_rules + debt_default 로드.
     키워드 매칭: KIS industry 텍스트에 키워드 포함 시 규칙 적용.
