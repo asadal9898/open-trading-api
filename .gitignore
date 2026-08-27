@@ -209,3 +209,6 @@ docs_cache/
 # Claude Code 임시 작업 지침 (repo 추적 안 함)
 mytrading/docs/temp/
 /CLAUDE.md
+
+# 포지션 상태 (물타기/주기 중복매수 추적) — 실사용 중 계속 갱신되는 로컬 상태 파일
+mytrading/position_state.yaml

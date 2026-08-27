@@ -101,6 +101,8 @@ def main():
                      help="게이트 통과 후보 있으면 텔레그램 발송 (없으면 출력만)")
     ap.add_argument("--live", action="store_true",
                      help="실제 발주 (없으면 dry-run — '발주 예정' 로그·알림만, submit_order 호출 안 함)")
+    ap.add_argument("--symbol", metavar="CODE",
+                     help="지정 시 해당 종목코드 1개만 발주 대상으로 제한 (테스트용, 예: 054050)")
     args = ap.parse_args()
 
     # ① vps 강제 — common.init() 보다 먼저, 종목 순회 전에 스크립트 전체를 즉시 중단.
@@ -128,10 +130,19 @@ def main():
     import yaml
     alloc_raw = yaml.safe_load(ALLOC_PATH.read_text(encoding="utf-8")) or {}
 
-    market_open = is_market_open()
+    try:
+        market_open = is_market_open()
+    except Exception as e:
+        # daily_update.py 와 반대 폴백: D는 실발주라 "모르면 안 산다"(market_calendar.py의
+        # 기존 원칙, A-3 cadence 게이트와 동일 관례) — 실패 시 정규장 아님으로 간주해 스킵.
+        market_open = False
+        print(f"  ⚠️ is_market_open 조회 실패 — 보수적으로 정규장 아님 처리: {e}")
 
     plans = build_plan("moderate", today)
     candidates = [p for p in plans if p.get("action") == "buy"]
+    if args.symbol:
+        target = str(args.symbol).zfill(6)
+        candidates = [c for c in candidates if str(c["symbol"]).zfill(6) == target]
 
     print("=" * 50)
     print(f"[moderate_order_runner] {today} — 매수 후보 {len(candidates)}개 "
@@ -230,7 +241,8 @@ def main():
                     if res["success"]:
                         print(f"  🟢 [실주문] {r['name']}({r['symbol']}) 접수 성공 "
                               f"— 주문번호 {res['order_id']}")
-                        notify.notify_order_submitted(r["symbol"], "매수", r["qty"], "시장가")
+                        notify.notify_order_submitted(
+                            f"{r['name']}({r['symbol']})", "BUY", r["qty"], "시장가")
                     else:
                         print(f"  🔴 [실주문 실패] {r['name']}({r['symbol']}) — {res['error']}")
                         notify.notify_error(f"{r['name']} 매수 실패", res["error"])
