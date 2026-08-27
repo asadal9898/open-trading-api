@@ -81,7 +81,9 @@ def _apply_sizing(plan, category, price, snap, used_amt=0.0):
       또 쓰면 이중차감이 되므로, plan_buy 호출 시 held_count=0 으로 고정한다.
     """
     if not price or not snap:
-        plan["reason"] += " (수량 산정 불가 — 가격·잔고 없음)"
+        plan["action"] = "hold"
+        plan["slice_pct"] = 0.0
+        plan["reason"] += " (수량 산정 불가 — 가격·잔고 없음 → 매수 보류)"
         return
 
     # A-3: 주기 중복매수 방지 — is_trade_day(요일 고정) 대신 last_bought 기준으로 판정.
@@ -129,6 +131,19 @@ def _apply_sizing(plan, category, price, snap, used_amt=0.0):
         plan["action"] = "hold"
         plan["slice_pct"] = 0.0
         plan["reason"] = f"{plan['reason']} → 매수 보류: {sz.get('reason','')}"
+        return
+
+    # A-4: 종목당 매입원가 상한 — 신규+물타기 합산 200만원 초과 시 추가매수 안 함.
+    # snap.holding_of(code).cost_basis(=avg_price×qty, 매입원가) 기준 — 평가액이 아니라
+    # 매입원가라 하락한 물타기 대상도 정확히 잡힌다. 실잔고 기준이라 별도 플래그
+    # (mark_averaged_down) 불필요.
+    h = snap.holding_of(code)
+    current_cost = h.cost_basis if h else 0.0
+    if current_cost + plan["amount"] > 2_000_000:
+        plan["action"] = "hold"
+        plan["slice_pct"] = 0.0
+        plan["reason"] = (f"{plan['reason']} → 매수 보류: 종목당 매입원가 상한 200만원 초과 "
+                          f"(보유원가 {current_cost:,.0f}원 + 이번 {plan['amount']:,.0f}원)")
 
 
 def _plan_for_symbol(s: dict, asof: date = None, category=None, used_amt: float = 0.0) -> dict:
