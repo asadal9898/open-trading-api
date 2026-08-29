@@ -140,6 +140,9 @@ def main():
 
     plans = build_plan("moderate", today)
     candidates = [p for p in plans if p.get("action") == "buy"]
+    # 총점(score_dividend.py 300점) 내림차순 — 없으면 0 취급(맨 뒤). 예산 소진 시 점수 높은
+    # 종목이 먼저 시도되게 하려는 목적. ⚠️ used_amt 누적차감은 아직 없음(별도 작업) — 정렬만.
+    candidates.sort(key=lambda p: p.get("score") or 0, reverse=True)
     if args.symbol:
         target = str(args.symbol).zfill(6)
         candidates = [c for c in candidates if str(c["symbol"]).zfill(6) == target]

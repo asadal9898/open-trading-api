@@ -60,6 +60,21 @@ def _snapshot():
     return _SNAP
 
 
+def holdings_value_for_category(category: str, snap=None, pf=None) -> float:
+    """카테고리 전체 종목(confirm/auto_confirm 무관, universe 전체)의 현재 보유평가액 합.
+    "이미 배분액에서 얼마를 썼는지"(A-2) 계산용 — build_plan() 내부 계산을 그대로 뽑은 것.
+    snap/pf 생략 시 각각 모듈 캐시(_snapshot())/새 load_portfolio() 를 쓴다 — build_plan() 은
+    이미 가진 pf/snap 을 넘겨 중복 로드를 피하고, 외부(ETF 파킹 스크립트 등)는 인자 없이
+    holdings_value_for_category(category) 하나만 호출하면 된다."""
+    if snap is None:
+        snap = _snapshot()
+    if pf is None:
+        pf = load_portfolio()
+    cat_codes = {x["code"] for x in pf.names(category)}
+    return sum(hh.market_value for hh in (snap.holdings if snap else [])
+               if hh.symbol in cat_codes)
+
+
 def _phase_ok(code) -> bool:
     """영업이익 국면이 매수 가능한가 (침체·판정불가면 False).
     실패 시 보수적으로 False — '모르면 안 산다'."""
@@ -159,6 +174,7 @@ def _plan_for_symbol(s: dict, asof: date = None, category=None, used_amt: float 
     plan = {
         "symbol": code, "name": name, "style": style,
         "regime": regime, "action": "hold", "slice_pct": 0.0, "reason": "",
+        "score": s.get("score"),   # score_dividend.py 의 300점 스코어 — 없으면 None (정렬 시 맨 뒤로)
     }
 
     if style == "value_range":
@@ -217,11 +233,7 @@ def build_plan(category: str = None, asof: date = None) -> list:
     for cat in cats:
         approval_codes = set(pf.tradable_symbols(cat))   # Approval 만 — 매수 "후보" 순회용
         _snap = _snapshot()
-        # confirm/auto_confirm 무관 — 카테고리 전체 코드(순위 밀려 Paused/Rejected 된 보유분도
-        # 포함해야 "이미 배분액에서 얼마를 썼는지"가 정확해진다).
-        _cat_codes = {x["code"] for x in pf.names(cat)}
-        used_amt = sum(hh.market_value for hh in (_snap.holdings if _snap else [])
-                       if hh.symbol in _cat_codes)   # 카테고리당 1회 계산, 후보 전체가 공유
+        used_amt = holdings_value_for_category(cat, _snap, pf)   # 카테고리당 1회 계산, 후보 전체가 공유
         for s in pf.names(cat):
             if s["code"] in approval_codes:
                 plans.append(_plan_for_symbol(s, asof, cat, used_amt))
