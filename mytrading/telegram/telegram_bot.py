@@ -796,8 +796,9 @@ def _cmd_alloc(user: dict, account: str = None) -> str:
 
 
 def _alloc_set_amount(user: dict, pending, text: str) -> str:
-    """숫자 입력받아 moderate/free 금액 저장. cash 음수면 거부."""
-    # pending: [["field"]] 형태 (moderate 또는 free)
+    """moderate → cash 순서로 이어받아 처리. free = 총자산-moderate-cash 자동계산해 저장.
+    free(=cash) 음수면 거부·재입력. cash 는 저장 안 함(여전히 파생값, 스키마 불변)."""
+    # pending: 1단계 [["moderate", acc, mode]], 2단계 [["cash", acc, mode, moderate금액]]
     field = None
     _pacc = None
     _pmode = None
@@ -807,7 +808,7 @@ def _alloc_set_amount(user: dict, pending, text: str) -> str:
         _pmode = pending[0][2] if len(pending[0]) > 2 else None
     except Exception:
         pass
-    if field not in ("moderate", "free"):
+    if field not in ("moderate", "cash"):
         _set_pending("alloc_input:" + user["key"], None)
         return "설정 대상이 불명확해요. /비중 을 다시 실행하세요."
 
@@ -820,19 +821,33 @@ def _alloc_set_amount(user: dict, pending, text: str) -> str:
 
     _mode = _pmode or _cur_mode()
     te = _alloc_snapshot_equity(acc_name)
-    mod = float(getattr(al, "moderate", 0) or 0)
-    free = float(getattr(al, "free", 0) or 0)
-    # 새 값 적용해서 cash 음수 검증
-    if field == "moderate":
-        mod = amt
-    else:
-        free = amt
-    if te is not None and (te - mod - free) < 0:
-        return (f"⛔ moderate({mod:,.0f}) + free({free:,.0f}) 가 "
-                f"총자산({te:,.0f})을 초과해요. 저장 안 함.\n"
-                f"다시 금액을 입력하세요.")
 
-    # yaml 저장
+    if field == "moderate":
+        # 1단계: 아직 저장 안 함 — cash 까지 받아서 한 번에 저장
+        _set_pending("alloc_input:" + user["key"], [["cash", acc_name, _mode, amt]])
+        guide_amt = int(amt * 0.3)
+        te_line = f"총자산 {te:,.0f}원\n" if te is not None else ""
+        return (f"{te_line}"
+                f"moderate(보수) {amt:,.0f}원 확인.\n"
+                f"이어서 cash(물타기 재원)에 배정할 금액을 입력하세요.\n"
+                f"💡 권장: moderate의 30% = {guide_amt:,.0f}원 (강제 아님)")
+
+    # field == "cash" — 2단계: moderate 는 pending[0][3]에 들어있음
+    try:
+        mod = int(pending[0][3])
+    except Exception:
+        _set_pending("alloc_input:" + user["key"], None)
+        return "moderate 값을 다시 확인할 수 없어요. /비중 을 처음부터 다시 실행하세요."
+    cash = amt
+    free = None
+    if te is not None:
+        free = te - mod - cash
+        if free < 0:
+            return (f"⛔ moderate({mod:,.0f}) + cash({cash:,.0f}) 가 "
+                    f"총자산({te:,.0f})을 초과해요. 저장 안 함.\n"
+                    f"cash 금액을 다시 입력하세요.")
+
+    # yaml 저장 — moderate/free 둘 다(스키마 불변). cash 는 저장 안 함(파생값 유지).
     from pathlib import Path as _P
     _repo = _P(__file__).resolve().parents[2]
     ypath = _repo / "mytrading" / "configs" / "allocations.yaml"
@@ -841,18 +856,19 @@ def _alloc_set_amount(user: dict, pending, text: str) -> str:
     _ub = _users.setdefault(user["key"], {})
     _accts = _ub.setdefault("accounts", {})
     _acc_block = _accts.setdefault(acc_name, {})
-    # 3단 구조 (계좌 > 모드 > field). 기존 평면 값이 있으면 모드 아래로 승격
     if _mode not in _acc_block or not isinstance(_acc_block.get(_mode), dict):
         _acc_block[_mode] = _acc_block.get(_mode) if isinstance(_acc_block.get(_mode), dict) else {}
-    _acc_block[_mode][field] = amt
+    _acc_block[_mode]["moderate"] = mod
+    _acc_block[_mode]["free"] = int(free) if free is not None else 0
     _rt_dump(data, ypath)
     _set_pending("alloc_input:" + user["key"], None)
 
-    cash_txt = ""
-    if te is not None:
-        cash_txt = f"\ncash(여유, 자동): {te - mod - free:,.0f}원"
-    label = "moderate(보수)" if field == "moderate" else "free(자유)"
-    return f"✅ {label} {amt:,.0f}원 설정.{cash_txt}"
+    warn_txt = ""
+    if cash < mod * 0.3:
+        warn_txt = ("\n⚠️ 물타기 재원 부족 — 배당주가 -30%까지 빠지면 물타기 매수가 "
+                    "어려울 수 있어요 (권장: moderate의 30%).")
+    free_txt = f"\nfree(자유, 자동계산): {free:,.0f}원" if free is not None else ""
+    return f"✅ moderate {mod:,.0f}원 · cash(물타기 재원) {cash:,.0f}원 설정.{free_txt}{warn_txt}"
 
 
 def _list_free(pf, ukey) -> list:
@@ -2082,7 +2098,7 @@ def _split_marker(reply: str):
         _tail = rest.split("\n", 1)[1] if "\n" in rest else ""
         kb = {"inline_keyboard": [[
             {"text": "moderate 설정", "callback_data": f"alloc_set:moderate:{_acc}:{_mode}"},
-            {"text": "free 설정", "callback_data": f"alloc_set:free:{_acc}:{_mode}"},
+            {"text": "❌ 취소", "callback_data": "alloc_cancel"},
         ]]}
         return head + _tail, kb
     if "\x00BUYUI:" in reply:
@@ -2351,11 +2367,15 @@ def poll_once():
                     _mode = _p[3] if len(_p) > 3 else "vps"
                     _set_pending("alloc_input:" + user["key"], [[_field, _acc, _mode]])
                     _te = _alloc_snapshot_equity()
-                    _label = "moderate(보수)" if _field == "moderate" else "free(자유)"
+                    _label = "moderate(보수)"  # 버튼이 moderate 하나뿐이라 항상 이 값
                     _hint = f" (총자산 {_te:,.0f}원)" if _te is not None else ""
                     notify._send_raw(chat_id,
                           f"{_label} 에 배정할 금액을 원 단위로 입력하세요.\n"
                           f"예: 5000000{_hint}")
+                    continue
+                if data == "alloc_cancel":
+                    _set_pending("alloc_input:" + user["key"], None)
+                    notify._send_raw(chat_id, "취소했어요. /비중 을 다시 실행하세요.")
                     continue
                 if data.startswith("pstep:"):
                     _p = data.split(":")
