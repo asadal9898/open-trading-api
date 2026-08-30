@@ -119,7 +119,7 @@ def main():
 
     from mytrading.trade_plan import build_plan
     from mytrading.portfolio import load_portfolio
-    from mytrading.market_calendar import is_market_open
+    from mytrading.market_calendar import is_market_open, is_trading_hours
     from mytrading.position_state import bought_within_cadence
     from mytrading.order_pace import cadence_days_for
 
@@ -131,12 +131,14 @@ def main():
     alloc_raw = yaml.safe_load(ALLOC_PATH.read_text(encoding="utf-8")) or {}
 
     try:
-        market_open = is_market_open()
-    except Exception as e:
         # daily_update.py 와 반대 폴백: D는 실발주라 "모르면 안 산다"(market_calendar.py의
         # 기존 원칙, A-3 cadence 게이트와 동일 관례) — 실패 시 정규장 아님으로 간주해 스킵.
+        # is_trading_hours() 는 09:00~15:30 시각까지 추가로 검사 — cron 은 10:10 실행이라
+        # 항상 통과, 야간/장외 수동 실행만 스킵되게 하려는 목적(개장일 판정은 기존 그대로).
+        market_open = is_market_open() and is_trading_hours()
+    except Exception as e:
         market_open = False
-        print(f"  ⚠️ is_market_open 조회 실패 — 보수적으로 정규장 아님 처리: {e}")
+        print(f"  ⚠️ is_market_open/is_trading_hours 조회 실패 — 보수적으로 정규장 아님 처리: {e}")
 
     plans = build_plan("moderate", today)
     candidates = [p for p in plans if p.get("action") == "buy"]

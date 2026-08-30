@@ -120,11 +120,20 @@ def main():
     from mytrading.portfolio import load_portfolio
     from mytrading.common import get_brokerage
     from mytrading.account_snapshot import get_snapshot
+    from mytrading.market_calendar import is_market_open, is_trading_hours
     from find_dividend_stocks import _current_price
 
     today = date.today()
     pf = load_portfolio()
     accounts = _moderate_accounts(pf, mode)
+
+    # ⓪ 정규장 게이트 — fail-closed(D/매도와 동일 관례, "모르면 안 산다"). 파킹도 --live 면
+    #    실발주라 매도·D 와 일관되게 개장일 AND 09:00~15:30 만 통과.
+    try:
+        market_open = is_market_open() and is_trading_hours()
+    except Exception as e:
+        market_open = False
+        print(f"  ⚠️ is_market_open/is_trading_hours 조회 실패 — 보수적으로 정규장 아님 처리: {e}")
 
     # ③ 가용예산 = category_amount − used_amt − 최소현금 100만원 (이 공식 안에서 1회만 차감)
     snap = get_snapshot(get_brokerage())   # 한 번만 조회 — used_amt·파킹액 계산 양쪽에 재사용
@@ -149,7 +158,7 @@ def main():
 
     print("=" * 50)
     print(f"[moderate_etf_parking] {today}")
-    print(f"  모드: {mode}")
+    print(f"  모드: {mode} / 정규장: {'열림' if market_open else '닫힘'}")
     print(f"  moderate 배분액: {total_budget:,.0f}원")
     print(f"  보유 배당주 평가액(used_amt): {used_amt:,.0f}원")
     print(f"  최소현금: {MIN_CASH_FLOOR:,.0f}원")
@@ -208,6 +217,10 @@ def main():
                 it["live_result"]["error"] = "발주 직전 vps 재확인 실패"
         elif not accounts:
             print("🚫 moderate 배분 계좌 없음 — 발주 중단.")
+        elif not market_open:
+            print("🚫 정규장 시간 아님 — 발주 중단.")
+            for it in pending:
+                it["live_result"]["error"] = "정규장 시간 아님"
         else:
             live_attempted = True
             u, a = accounts[0]
@@ -253,6 +266,7 @@ def main():
     log_data = {
         "date": str(today),
         "mode": mode,
+        "market_open": market_open,
         "category_amount": total_budget,
         "used_amt": used_amt,
         "min_cash_floor": MIN_CASH_FLOOR,

@@ -158,7 +158,7 @@ def main():
     from mytrading.trade_plan import build_plan, holdings_value_for_category
     from mytrading.position_sizing import category_amount
     from mytrading.portfolio import load_portfolio
-    from mytrading.market_calendar import is_market_open
+    from mytrading.market_calendar import is_market_open, is_trading_hours
     from mytrading.common import get_brokerage
     from mytrading.account_snapshot import get_snapshot
 
@@ -177,10 +177,13 @@ def main():
 
     active_accounts = [(u, a) for u, a in accounts if _trading_active(alloc_raw, u, a)]
     try:
-        market_open = is_market_open()
+        # market_calendar.is_trading_hours() 는 정책 없는 순수 판정(예외 전파) —
+        # 여기서 fail-closed 로 감싼다: 개장일이어도 09:00~15:30 밖(장외 수동 실행)이면
+        # 매도 안 함. cron 미등록 상태라 지금은 수동 실행에만 영향.
+        market_open = is_market_open() and is_trading_hours()
     except Exception as e:
         market_open = False
-        print(f"  ⚠️ is_market_open 조회 실패 — 보수적으로 정규장 아님 처리: {e}")
+        print(f"  ⚠️ is_market_open/is_trading_hours 조회 실패 — 보수적으로 정규장 아님 처리: {e}")
 
     signal_exists = bool(buy_candidates) and bool(active_accounts) and market_open
 

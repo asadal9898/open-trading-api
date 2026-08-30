@@ -144,6 +144,21 @@ def is_market_open(date_str: str = None) -> bool:
     return False
 
 
+def is_trading_hours() -> bool:
+    """지금 이 순간이 정규장 시간대인가? 개장일(is_market_open) AND 09:00~15:30 KST.
+
+    ⚠️ 정책 없는 순수 판정 함수 — is_market_open() 이 던지는 예외를 여기서 삼키지
+    않고 그대로 위로 전파한다. 실패 시 어떻게 할지(fail-open/fail-closed)는 호출부가
+    각자의 용도에 맞게 결정한다(실발주 스크립트는 fail-closed로 감싸는 게 원칙 —
+    D/moderate_etf_sell.py/moderate_etf_parking.py 참고).
+    """
+    from datetime import time as _time
+    if not is_market_open():
+        return False
+    now = datetime.now().time()
+    return _time(9, 0) <= now <= _time(15, 30)
+
+
 def next_holidays(days: int = 14, from_date: str = None) -> list:
     """
     기준일부터 향후 N일 중 휴장일(개장 안 하는 날) 리스트.
