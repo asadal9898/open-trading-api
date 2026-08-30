@@ -1,16 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-moderate 여유분 → 단기채 ETF 파킹 (`cash_plan.krw_etfs`).
+moderate 여유분 + cash(물타기 재원) 여유분 → 단기채 ETF 파킹 (`cash_plan.krw_etfs`).
 
 ⚠️ 발주는 --live 일 때만. 기본(dry-run)은 "파킹 예정" 로그·출력만 하고 submit_order 를
    호출하지 않는다. `MODERATE_FUNDING_DESIGN.md` 참고 — moderate 배분액 중 아직 배당주를
    못 산 여유분을 현금으로 놀리지 않고 단기채 ETF로 잠시 담아두는 용도. ETF 보유 자체가
    목적이 아니라 배당주 매수 전 임시 주차다.
 
-가용예산 = category_amount("moderate") − holdings_value_for_category("moderate") − 최소현금 1,000,000원
+moderate 가용예산 = category_amount("moderate") − holdings_value_for_category("moderate")
+  − 최소현금 1,000,000원
   (MODERATE_FUNDING_DESIGN.md §2 — 100만원은 이 공식 안에서 한 번만 차감, 파킹 금액은 이
-  가용예산 그 자체다.) 가용예산이 0 이하면 파킹하지 않는다 — ETF에 여유분이 있어도 손 안 댐
-  (그 여유분은 cash_plan 몫으로 남는다, §2의 "moderate 예산 cash 영구흡수 방지" 메커니즘).
+  가용예산 그 자체다.)
+cash 여유분 = alloc.cash(total_equity) — moderate/free 배정 후 남는 계좌 잔여현금
+  (2026-08-30 "자금 구조 확정" — moderate 여유분 + cash 여유분을 하나의 ETF 풀에 합쳐서
+  파킹한다. §1 "장부 없음" 원칙대로 어느 게 누구 몫인지 구분하지 않고, 파킹 목표만 합산.
+  ⚠️ cash 는 지금 자체 하한 없이 전액 파킹 대상이다 — moderate 의 100만원 같은 "자투리
+  방지 최소단위"를 cash 에도 둘지는 미정(사용자 확인 필요, 일단 전액으로 구현).
+  합산 목표(moderate 가용예산 + cash 여유분)가 0 이하면 파킹하지 않는다.
 
 이 스크립트는 moderate_order_runner.py(D, 배당주 매수)와 분리 실행한다 — D가 먼저 돌아
 그날 산 만큼 현금이 빠진 뒤의 상태를 반영해야 가용예산이 정확하다(§3). 같은 프로세스 안에서
@@ -129,27 +135,41 @@ def main():
         sys.exit(1)
     available = total_budget - used_amt - MIN_CASH_FLOOR
 
+    # ③-2 cash 여유분 — alloc.cash(total_equity). category_amount() 는 cash 를 못 다룸
+    #   (Allocation 에 cash 저장 필드가 없고 cash(total_equity) 메서드만 있음, 이전 확인됨).
+    #   moderate 계좌가 여럿이어도 첫 번째 계좌만 본다(accounts[0], D 와 동일한 단일계좌
+    #   전제 — 지금 실제로도 moderate 배분 계좌가 하나뿐이라 문제없음).
+    cash_avail = 0.0
+    if accounts:
+        _u0, _a0 = accounts[0]
+        _al = pf.allocation_for(_u0, _a0, mode)
+        if _al is not None:
+            cash_avail = _al.cash(float(snap.total_equity))
+    combined_target = available + cash_avail
+
     print("=" * 50)
     print(f"[moderate_etf_parking] {today}")
     print(f"  모드: {mode}")
     print(f"  moderate 배분액: {total_budget:,.0f}원")
     print(f"  보유 배당주 평가액(used_amt): {used_amt:,.0f}원")
     print(f"  최소현금: {MIN_CASH_FLOOR:,.0f}원")
-    print(f"  가용예산: {available:,.0f}원")
+    print(f"  moderate 가용예산: {available:,.0f}원")
+    print(f"  cash 여유분(alloc.cash, 하한 없음): {cash_avail:,.0f}원")
+    print(f"  합산 파킹 목표: {combined_target:,.0f}원")
     print(f"  moderate 배분 계좌: {accounts if accounts else '(없음)'}")
 
-    # ④ 가용예산 ≤ 0 → 파킹 안 함. 0 초과면 "이미 파킹된 만큼"을 빼서 중복 파킹 방지
+    # ④ 합산 목표 ≤ 0 → 파킹 안 함. 0 초과면 "이미 파킹된 만큼"을 빼서 중복 파킹 방지
     #    (§4-5 해결안 — 가용예산 정의 자체는 불변, 이 스크립트의 목표치 계산만 보정)
     items = []
     parked_cost = 0.0
     to_park = 0.0
-    if available <= 0:
-        print(f"\n(가용예산 {available:,.0f}원 ≤ 0 — 파킹 안 함. 여유분은 cash_plan 몫으로 남김)")
+    if combined_target <= 0:
+        print(f"\n(합산 목표 {combined_target:,.0f}원 ≤ 0 — 파킹 안 함)")
     else:
         etfs = _load_krw_etfs()
         etf_codes = {str(e.get("code", "")) for e in etfs}
         parked_cost = _parked_etf_cost_basis(snap, etf_codes)
-        to_park = available - parked_cost
+        to_park = combined_target - parked_cost
         print(f"  이미 파킹된 ETF 매입원가: {parked_cost:,.0f}원")
         print(f"  추가로 파킹할 금액: {to_park:,.0f}원")
 
@@ -213,7 +233,7 @@ def main():
 
     if pending and args.notify and not live_attempted:
         lines = [f"<b>[moderate ETF 파킹 예정 · {today}]</b>",
-                f"가용예산 {available:,.0f}원"]
+                f"합산 파킹 목표 {combined_target:,.0f}원 (moderate {available:,.0f} + cash {cash_avail:,.0f})"]
         for it in pending:
             lines.append(f"\n🟢 {it['name']}({it['code']}) {it['qty']}주 · "
                         f"약 {it['qty'] * it['price'] / 10000:,.0f}만원")
@@ -237,6 +257,8 @@ def main():
         "used_amt": used_amt,
         "min_cash_floor": MIN_CASH_FLOOR,
         "available": available,
+        "cash_avail": cash_avail,
+        "combined_target": combined_target,
         "parked_etf_cost_basis": parked_cost,
         "to_park": to_park,
         "moderate_accounts": accounts,
