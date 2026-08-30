@@ -2574,6 +2574,35 @@ def poll_once():
                     print(f"[bot] {user['name']} [버튼] 등록만(매수취소)")
                     notify._send_raw(chat_id, "등록만 했어요 (매수 안 함).\n" + reply)
                     continue
+                # 반자동 cash 물타기 승인 UI — 2-a: pending 만 소비, 실행 코드 없음.
+                # moderate_avgdown_alert.py 가 "avgdown_ctx:"+user_key+":"+code 로 pending
+                # 을 저장해둠(종목코드까지 키에 포함 — sell_go 의 계정당 슬롯 하나와 달리,
+                # 여러 물타기 후보가 동시에 대기할 수 있어서). ⚠️ submit_order 등 실제
+                # 매도·매수 코드는 다음 단계에서 여기에 연결한다 — 지금은 절대 추가 금지.
+                if data.startswith("avgdown_go:"):
+                    code = data.split(":", 1)[1]
+                    pkey = f"avgdown_ctx:{user['key']}:{code}"
+                    ctxp = _get_pending(pkey)
+                    if not ctxp:
+                        notify._send_raw(chat_id,
+                            "물타기 승인 대기가 만료됐어요. 알림을 다시 받은 뒤 시도하세요.")
+                        continue
+                    ctx = ctxp[0]
+                    _set_pending(pkey, None)
+                    print(f"[bot] {user['name']} [/물타기 승인] {ctx['name']}({code}) "
+                          f"— 실행 연결 전(준비 중)")
+                    notify._send_raw(chat_id,
+                        f"⏳ {ctx['name']}({code}) 물타기 승인을 받았어요.\n"
+                        f"실행(매도→매수)은 아직 준비 중이에요 — 지금은 매도·매수 아무것도 "
+                        f"하지 않았습니다. 다음 단계에서 연결됩니다.")
+                    continue
+                if data.startswith("avgdown_cancel:"):
+                    code = data.split(":", 1)[1]
+                    pkey = f"avgdown_ctx:{user['key']}:{code}"
+                    _set_pending(pkey, None)
+                    print(f"[bot] {user['name']} [/물타기 취소] {code}")
+                    notify._send_raw(chat_id, "물타기를 취소했어요 (변경 없음).")
+                    continue
                 if data == "reboot_yes":
                     if user.get("role") != "owner":
                         notify._send_raw(chat_id, "재부팅은 owner만 가능해요.")

@@ -1,23 +1,32 @@
 # -*- coding: utf-8 -*-
 """
-moderate 배당주 -30% 물타기 후보 알림 — 1단계(알림만, 승인·실행은 다음 단계).
+moderate 배당주 -30% 물타기 후보 알림 — 2-a(알림 + 승인 UI 뼈대, 실행은 다음 단계).
 
 ⚠️ 발주 없음. submit_order 등 주문 코드를 이 파일에 절대 추가하지 말 것 —
    이 스크립트는 build_plan() 이 낸 kind="average_down" 후보를 사람이 보도록
-   알리기만 한다. 승인 버튼·콜백·자동 매도/매수 실행은 다음 단계(반자동 cash
-   물타기 2단계)에서 별도로 붙인다. §1 "장부 없음" 원칙 — cash 잔액을 이 스크립트가
-   추적·차감하지 않는다. 매 실행 시점의 alloc.cash(te) 실시간값만 참고 표시하고,
-   물타기 여부·재원 판단은 사람이 한다(MODERATE_FUNDING_DESIGN.md 참고).
+   알리고, [예/아니오] 버튼으로 승인 의사를 pending 에 기록하기만 한다. "예" 를
+   눌러도 실제 매도·매수는 아직 실행되지 않는다(telegram_bot.py 의 avgdown_go
+   콜백이 "준비 중" 응답만 하고 pending 을 정리함 — 다음 단계에서 실행 로직 연결).
+   §1 "장부 없음" 원칙 — cash 잔액을 이 스크립트가 추적·차감하지 않는다. 매 실행
+   시점의 alloc.cash(te) 실시간값만 참고 표시하고, 물타기 여부·재원 판단은 사람이
+   한다(MODERATE_FUNDING_DESIGN.md 참고).
+
+승인 pending 은 telegram_bot.py 의 _get_pending/_set_pending(파일 기반,
+~/KIS/config/.telegram_pending) 을 그대로 재사용한다 — sell_go/sell_cancel 과 같은
+메커니즘. 단 sell_go 는 계정당 슬롯 하나("pbuy_ctx:"+user_key)인 반면, 이 알림은
+한 번에 여러 종목 후보가 동시에 나올 수 있어 종목코드까지 키에 포함한다
+("avgdown_ctx:"+user_key+":"+code) — 후보 A 승인 대기 중 후보 B 알림이 와도
+서로 pending 을 덮어쓰지 않게 하기 위함(sell_go 패턴에서의 의도적 차이).
 
 실행:
     KIS_MODE=vps uv run python mytrading/moderate_avgdown_alert.py            # dry-run, 출력만
-    KIS_MODE=vps uv run python mytrading/moderate_avgdown_alert.py --notify   # 후보 있으면 텔레그램 발송
+    KIS_MODE=vps uv run python mytrading/moderate_avgdown_alert.py --notify   # 후보 있으면 버튼 포함 텔레그램 발송
 """
 import argparse
 import html
 import json
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +55,28 @@ def _moderate_accounts(pf, mode: str) -> list:
 
 def _fmt_manwon(amount) -> str:
     return f"약 {float(amount) / 10000:,.0f}만원"
+
+
+def _avgdown_keyboard(code: str) -> dict:
+    """[물타기 실행/취소] 버튼. 콜백은 telegram_bot.py 의 avgdown_go/avgdown_cancel 이 처리
+    — 지금 단계에서는 실행 대신 '준비 중' 응답만 하고 pending 을 정리한다."""
+    return {"inline_keyboard": [[
+        {"text": "✅ 물타기 실행", "callback_data": f"avgdown_go:{code}"},
+        {"text": "❌ 취소", "callback_data": f"avgdown_cancel:{code}"},
+    ]]}
+
+
+def _send_with_buttons(text: str, keyboard) -> bool:
+    """전역 chat_id 로 버튼 포함 메시지 전송. notify.send_message() 는 reply_markup 을
+    지원하지 않아(공개 헬퍼는 텍스트 전용) _send_raw 를 직접 쓴다 — 다른 버튼 UI
+    (/비중, /매도 등)와 동일 패턴."""
+    from mytrading.telegram import notify
+    cfg = notify._load_config()
+    chat_id = str(cfg.get("chat_id", "")).strip()
+    if not chat_id:
+        print("[avgdown_alert] 전역 chat_id 미설정 — 발송 생략")
+        return False
+    return notify._send_raw(chat_id, text, reply_markup=keyboard)
 
 
 def _build_message(candidates: list, cash_avail: float, today: date) -> str:
@@ -129,20 +160,36 @@ def main():
               f"보유원가 {c['current_cost']:,.0f}원 · 물타기예정 {c['qty']}주/"
               f"{_fmt_manwon(c['amount'])} · A-4여유 {c['a4_remaining']:,.0f}원 — {c['reason']}")
 
+    # ④ 종목별로 개별 메시지+버튼 전송 — 버튼의 callback_data 가 종목코드 하나에 묶이므로
+    #    (§ pending 키도 종목코드 포함) 후보를 한 메시지에 합치지 않고 건별로 보낸다.
     notified = False
     if candidates:
-        msg = _build_message(candidates, cash_avail, today)
-        print("\n--- 알림 문구 ---")
-        print(msg.replace("<b>", "").replace("</b>", ""))
-        if args.notify:
-            try:
-                from mytrading.telegram import notify
-                notified = notify.send_message(msg)
-                print(f"\n(텔레그램 발송: {'성공' if notified else '실패'})")
-            except Exception as e:
-                print(f"\n(발송 실패: {e})")
-        else:
-            print("\n(--notify 없음 — 발송 생략)")
+        u0 = accounts[0][0] if accounts else None
+        if not accounts:
+            print("\n(⚠️ moderate 배분 계좌 없음 — 승인 버튼 없이 알림만 전송)")
+        for c in candidates:
+            msg = _build_message([c], cash_avail, today)
+            kb = _avgdown_keyboard(c["symbol"]) if accounts else None
+            print("\n--- 알림 문구 ---")
+            print(msg.replace("<b>", "").replace("</b>", ""))
+            if args.notify:
+                if accounts:
+                    from mytrading.telegram import telegram_bot as tb
+                    pkey = f"avgdown_ctx:{u0}:{c['symbol']}"
+                    tb._set_pending(pkey, [{
+                        "code": c["symbol"], "name": c["name"],
+                        "sell_plan": None,   # ⚠️ 다음 단계에서 §5 매도 계산 연결 예정 (지금은 없음)
+                        "buy_qty": c["qty"], "buy_amount": c["amount"],
+                        "ts": datetime.now().isoformat(),
+                    }])
+                try:
+                    ok = _send_with_buttons(msg, kb)
+                    notified = notified or ok
+                    print(f"\n(텔레그램 발송: {'성공' if ok else '실패'})")
+                except Exception as e:
+                    print(f"\n(발송 실패: {e})")
+            else:
+                print("\n(--notify 없음 — 발송 생략)")
     else:
         print("\n(물타기 대상 없음 — 알림 생략)")
 
