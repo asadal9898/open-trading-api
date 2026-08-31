@@ -2574,11 +2574,10 @@ def poll_once():
                     print(f"[bot] {user['name']} [버튼] 등록만(매수취소)")
                     notify._send_raw(chat_id, "등록만 했어요 (매수 안 함).\n" + reply)
                     continue
-                # 반자동 cash 물타기 승인 UI — 2-a: pending 만 소비, 실행 코드 없음.
+                # 반자동 cash 물타기 승인 UI — 2-b: 실행 로직 연결.
                 # moderate_avgdown_alert.py 가 "avgdown_ctx:"+user_key+":"+code 로 pending
                 # 을 저장해둠(종목코드까지 키에 포함 — sell_go 의 계정당 슬롯 하나와 달리,
-                # 여러 물타기 후보가 동시에 대기할 수 있어서). ⚠️ submit_order 등 실제
-                # 매도·매수 코드는 다음 단계에서 여기에 연결한다 — 지금은 절대 추가 금지.
+                # 여러 물타기 후보가 동시에 대기할 수 있어서).
                 if data.startswith("avgdown_go:"):
                     code = data.split(":", 1)[1]
                     pkey = f"avgdown_ctx:{user['key']}:{code}"
@@ -2589,12 +2588,87 @@ def poll_once():
                         continue
                     ctx = ctxp[0]
                     _set_pending(pkey, None)
-                    print(f"[bot] {user['name']} [/물타기 승인] {ctx['name']}({code}) "
-                          f"— 실행 연결 전(준비 중)")
+                    print(f"[bot] {user['name']} [/물타기 승인] {ctx['name']}({code}) — 실행 시작")
+
+                    # ① 실행 시점 재검증(stale 방지) — build_plan() 을 다시 불러 최신
+                    #    amount/qty 를 쓴다. A-4(200만 상한)는 build_plan() 안에서 이미
+                    #    반영되므로 여기서 별도 체크 불필요 — 후보에 없으면 초과/소진/이미
+                    #    물탄 것 중 하나.
+                    from mytrading.trade_plan import build_plan
+                    plans = build_plan("moderate")
+                    cand = next((p for p in plans
+                                if str(p.get("symbol")) == str(code)
+                                and p.get("kind") == "average_down"
+                                and p.get("action") == "buy"), None)
+                    if cand is None:
+                        notify._send_raw(chat_id,
+                            f"ℹ️ {ctx['name']}({code}) — 지금은 물타기 대상이 아니에요"
+                            f"(신호 소멸/한도초과/이미 물탐 중 하나). 실행 취소.")
+                        continue
+
+                    name = cand.get("name", ctx["name"])
+                    qty = cand.get("qty", 0)
+                    amount = cand.get("amount", 0.0)
+                    if qty < 1:
+                        notify._send_raw(chat_id,
+                            f"⚠️ {name}({code}) — 매수 수량이 0이에요. 실행 취소.")
+                        continue
+
+                    accts = _orderable_accounts(user)
+                    acc = accts[0] if accts else None
+                    if acc and not _trading_active(user, acc):
+                        notify._send_raw(chat_id,
+                            f"⏸ {acc} 보수 투자가 중지 상태예요. 물타기 실행 취소.")
+                        continue
+
+                    # ② 즉시 매수 시도 — 기존 예수금으로(매도 없이 먼저 시도, §5-1-1 참고:
+                    #    moderate+free+cash 풀링 예수금이 보통 충분함)
+                    result = _execute_order_now(code, name, qty, is_sell=False,
+                                                account_name=acc)
+                    if result.startswith("✅"):
+                        try:
+                            from mytrading.position_state import mark_bought, mark_averaged_down
+                            mark_bought(code)
+                            mark_averaged_down(code)  # 물타기 1회 제한(§4-1 GAP 해소) — 필수
+                        except Exception as e:
+                            print(f"[bot] mark_bought/mark_averaged_down 실패: {e}")
+                        notify._send_raw(chat_id,
+                            f"🟢 물타기 매수 완료 — {name}({code}) {qty}주 · "
+                            f"{amount:,.0f}원\n{result}")
+                        continue
+
+                    # ③ 매수 실패 — ETF 매도로 재원 마련 폴백(물타기 금액만큼만)
                     notify._send_raw(chat_id,
-                        f"⏳ {ctx['name']}({code}) 물타기 승인을 받았어요.\n"
-                        f"실행(매도→매수)은 아직 준비 중이에요 — 지금은 매도·매수 아무것도 "
-                        f"하지 않았습니다. 다음 단계에서 연결됩니다.")
+                        f"⚠️ {name}({code}) 매수 실패({result})\n재원 마련을 위해 ETF 매도를 시도합니다.")
+                    from mytrading.moderate_etf_sell import (_load_krw_etfs, _etf_pool_state,
+                                                              compute_sell_plan)
+                    from mytrading.account_snapshot import get_snapshot
+                    from mytrading.common import get_brokerage as _get_brk
+                    snap = get_snapshot(_get_brk())
+                    pool = _etf_pool_state(snap, _load_krw_etfs())
+                    sell_plan = compute_sell_plan(pool, target=amount)
+                    pending_sell = [it for it in sell_plan if it["qty"] >= 1]
+                    if not pending_sell:
+                        notify._send_raw(chat_id,
+                            f"❌ {name}({code}) — ETF 파킹분도 없어서 재원 마련 실패. 물타기 취소.")
+                        continue
+
+                    sell_lines = []
+                    ok_count = 0
+                    for it in pending_sell:
+                        r = _execute_order_now(it["code"], it["name"], it["qty"],
+                                               is_sell=True, account_name=acc)
+                        sell_lines.append(f"{it['name']}({it['code']}) {it['qty']}주 — {r}")
+                        if r.startswith("✅"):
+                            ok_count += 1
+                    if ok_count > 0:
+                        notify._send_raw(chat_id,
+                            f"🔻 ETF 매도 접수({ok_count}건) — 대금 정산에 시간이 걸려요"
+                            f"(당일 반영 안 됨, §5-1-1 참고).\n" + "\n".join(sell_lines)
+                            + f"\n\n정산 후 {name}({code}) 물타기 알림이 다시 오면 재승인해주세요.")
+                    else:
+                        notify._send_raw(chat_id,
+                            "❌ ETF 매도도 실패했어요. 물타기 취소.\n" + "\n".join(sell_lines))
                     continue
                 if data.startswith("avgdown_cancel:"):
                     code = data.split(":", 1)[1]

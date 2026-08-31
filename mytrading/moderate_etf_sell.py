@@ -111,22 +111,29 @@ def _place_order(user_key: str, account_name: str, code: str, qty: int) -> dict:
         return {"success": False, "order_id": None, "error": str(e)}
 
 
-def compute_sell_plan(pool: dict) -> list:
+def compute_sell_plan(pool: dict, target: float = None) -> list:
     """§5 매도 계산. pool: {code: {name,weight,qty,price,market_value}}.
+    target: 매도 목표금액(생략 시 SELL_TARGET_CAP=100만원, 기존 배치 매도와 동일 동작).
+    2-b(반자동 물타기 재원마련)처럼 물타기 금액만큼만 팔아야 할 때 명시 지정.
     반환: [{code,name,weight,qty,price,market_value_sold}, ...] (qty>0 인 것만 의미 있음)."""
+    is_default_target = target is None
+    if is_default_target:
+        target = SELL_TARGET_CAP
+
     pool_value = sum(v["market_value"] for v in pool.values())
     plan = []
     if pool_value <= 0:
         return plan
 
-    if pool_value < SELL_TARGET_CAP:
+    if pool_value < target:
         # 전량매도 — 비율 계산 안 함 (단수 때문에 비율대로 나누면 못 다 팔 수 있음)
+        reason = ("전량매도(ETF 풀 시가 합 < 100만원)" if is_default_target
+                  else f"전량매도(ETF 풀 시가 합 < 목표 {target:,.0f}원)")
         for code, v in pool.items():
             plan.append({"code": code, "name": v["name"], "weight": v["weight"],
-                         "qty": v["qty"], "price": v["price"],
-                         "reason": "전량매도(ETF 풀 시가 합 < 100만원)"})
+                         "qty": v["qty"], "price": v["price"], "reason": reason})
     else:
-        target = min(SELL_TARGET_CAP, pool_value)
+        target = min(target, pool_value)
         wsum = sum(v["weight"] for v in pool.values()) or 100
         for code, v in pool.items():
             alloc = target * v["weight"] / wsum
