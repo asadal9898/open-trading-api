@@ -175,7 +175,7 @@ def main():
         return
 
     print(f"  주문 접수됨 — 주문번호: {order.id}, 상태: {order.status}")
-    notify_order_submitted(symbol, "SELL", qty, price_desc)
+    notify_order_submitted(f"{name}({symbol})", "SELL", qty, price_desc)
 
     # 거래 로그 기록 (접수 시점)
     record_trade(symbol=symbol, name=name, side="SELL", quantity=qty,
@@ -210,7 +210,7 @@ def main():
             print("  ⏳ 미체결 (지정가가 시장과 안 맞으면 대기)")
         elif target.status == OrderStatus.REJECTED:
             print("  ❌ 거부됨 — 사유를 KIS 에서 확인하세요")
-            notify_error("매도 거부됨", f"{symbol} 매도가 거부되었습니다")
+            notify_error("매도 거부됨", f"{name}({symbol}) 매도가 거부되었습니다")
 
     print("\n매도 테스트 완료. 잔고/보유는 check_balance.py 로 확인하세요.")
 

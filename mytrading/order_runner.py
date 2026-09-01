@@ -89,6 +89,7 @@ def run_orders(dry_run=True, only_user=None):
         code = str(it.get("code"))
         name = it.get("name", code)
         side_txt = "매도" if action == "sell" else "매수"
+        side_en = "SELL" if action == "sell" else "BUY"  # notify_order_submitted 는 영문 고정
         kind_txt = {"buy_onetime": "일시", "buy_split": "분할1회", "sell": ""}[action]
         line = f"  {name}({code}) {side_txt} {kind_txt} {qty}주"
         if dry_run:
@@ -100,7 +101,7 @@ def run_orders(dry_run=True, only_user=None):
             print(f"[주문]{line} → 접수 (주문번호 {order.id})")
             try:
                 from mytrading.telegram import notify
-                notify.notify_order_submitted(code, side_txt, qty, "시장가")
+                notify.notify_order_submitted(f"{name}({code})", side_en, qty, "시장가")
             except Exception as e:
                 print(f"    (알림 실패: {e})")
             if action == "sell":

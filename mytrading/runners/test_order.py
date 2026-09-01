@@ -146,11 +146,11 @@ def main():
         notify_error("주문 실패", msg)
         return
 
+    sym_name = get_symbol_names().get(symbol, symbol)
     print(f"  주문 접수됨 — 주문번호: {order.id}, 상태: {order.status}")
-    notify_order_submitted(symbol, "BUY", QTY, price_desc)
+    notify_order_submitted(f"{sym_name}({symbol})", "BUY", QTY, price_desc)
 
     # 거래 로그 기록 (접수 시점 — 체결가는 지정가/현재가로 근사)
-    sym_name = get_symbol_names().get(symbol, symbol)
     record_trade(symbol=symbol, name=sym_name, side="BUY", quantity=QTY,
                  price=(price if price is not None else ask),
                  order_id=str(order.id), status="submitted")
@@ -181,13 +181,13 @@ def main():
             print("  ✅ 체결 완료")
             # 체결가가 없으면 주문가/현재가로 대체
             fill_price = target.average_price or price or ask
-            notify_order_filled(symbol, symbol, "BUY",
+            notify_order_filled(symbol, sym_name, "BUY",
                                 target.filled_quantity or QTY, fill_price)
         elif target.status in (OrderStatus.SUBMITTED, OrderStatus.PENDING):
             print("  ⏳ 미체결 (지정가가 시장과 안 맞으면 대기 상태일 수 있음)")
         elif target.status == OrderStatus.REJECTED:
             print("  ❌ 거부됨 — 사유를 KIS 에서 확인하세요")
-            notify_error("주문 거부됨", f"{symbol} 주문이 거부되었습니다")
+            notify_error("주문 거부됨", f"{sym_name}({symbol}) 주문이 거부되었습니다")
 
     print("\n주문 테스트 완료. 잔고/보유는 check_balance.py 로 확인하세요.")
 

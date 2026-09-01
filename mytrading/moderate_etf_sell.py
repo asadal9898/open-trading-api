@@ -271,7 +271,8 @@ def main():
                 try:
                     from mytrading.telegram import notify
                     if res["success"]:
-                        notify.notify_order_submitted(it["code"], "매도", it["qty"], "시장가")
+                        notify.notify_order_submitted(f"{it['name']}({it['code']})", "SELL",
+                                                      it["qty"], "시장가")
                     else:
                         notify.notify_error(f"{it['name']} 매도 실패", res["error"])
                 except Exception as e:

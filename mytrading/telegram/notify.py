@@ -193,8 +193,18 @@ def _dispatch(text: str, to: str = None) -> bool:
 
 def notify_order_submitted(symbol: str, side: str, qty: int,
                            order_type: str = "시장가", to: str = None) -> bool:
-    """주문 접수 알림."""
-    side_kr = "매수" if str(side).upper() == "BUY" else "매도"
+    """주문 접수 알림. side 는 "BUY"/"SELL"(영문, 대소문자 무관) 고정 — 호출부가
+    한글 "매수"/"매도"를 그대로 넘기면 "매수"가 "BUY"와 안 맞아 전부 "매도"로
+    잘못 표시되는 버그가 있었다(2026-09-01 발견, 호출부들을 영문으로 통일해 수정).
+    여기서도 인식 못 하는 값이면 조용히 "매도"로 떨어뜨리지 않고 원값을 그대로
+    노출해서 — 앞으로 같은 실수가 나면 알림 문구에서 바로 티나게 한다."""
+    side_up = str(side).upper()
+    if side_up == "BUY":
+        side_kr = "매수"
+    elif side_up == "SELL":
+        side_kr = "매도"
+    else:
+        side_kr = f"?({side})"
     text = (f"📤 <b>주문 접수</b>\n"
             f"종목: {_esc(symbol)}\n"
             f"{side_kr} {qty}주 ({_esc(order_type)})")

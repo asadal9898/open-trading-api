@@ -1823,6 +1823,7 @@ def _execute_order_now(code: str, name: str, qty: int, is_sell: bool, account_na
     """정규장에서 즉시 시장가 주문. 성공/실패 메시지 문자열 반환.
     정규장 아니면 주문 안 하고 안내만."""
     side_txt = "매도" if is_sell else "매수"
+    side_en = "SELL" if is_sell else "BUY"  # notify_order_submitted 는 영문 고정
     if not _is_trading_hours():
         return (f"⏰ 지금은 정규장이 아니에요 (평일 09:00~15:30).\n"
                 f"{name}({code}) {side_txt}는 정규장에만 가능해요.")
@@ -1839,7 +1840,7 @@ def _execute_order_now(code: str, name: str, qty: int, is_sell: bool, account_na
         order = brk.submit_order(symbol=str(code), side=side,
                                  quantity=int(qty), order_type=OrderType.MARKET)
         try:
-            notify.notify_order_submitted(str(code), side_txt, int(qty), "시장가")
+            notify.notify_order_submitted(f"{name}({code})", side_en, int(qty), "시장가")
         except Exception:
             pass
         mode_txt = "모의" if _is_paper() else "🚨실전"
