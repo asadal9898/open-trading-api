@@ -262,7 +262,11 @@ def main():
     total_park_amount = sum(it["qty"] * it["price"] for it in pending)
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_path = LOG_DIR / f"{today}.json"
+    # --live 는 별도 파일명(_live)에 기록 — dry-run 로그와 같은 파일을 쓰면 파킹 후
+    # 검증용으로 dry-run 을 한 번만 더 돌려도 --live 기록(실제 발주 여부·수량)이
+    # 덮어써져 사라진다(2026-09-01 실제로 겪음). 체결확인 스크립트는 항상 이 _live
+    # 파일만 봐야 dry-run 에 안 흔들린다.
+    log_path = LOG_DIR / (f"{today}_live.json" if args.live else f"{today}.json")
     log_data = {
         "date": str(today),
         "mode": mode,
