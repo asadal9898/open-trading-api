@@ -40,24 +40,45 @@ _DEFAULT_CADENCE = {
 }
 
 
-# 잔고 스냅샷 — 실행당 1회만 조회 (종목마다 부르면 API 낭비)
-_SNAP = None
-_SNAP_TRIED = False
+# 잔고 스냅샷 — 유저별 1회만 조회, 프로세스 안에서 캐시(종목마다 부르면 API 낭비).
+# confirm 2단계-3: user_key 별로 캐시 슬롯을 분리(딕셔너리) — Owner 하나뿐이면 여전히
+# 슬롯 1개=조회 1회로 예전 bool 플래그(_SNAP_TRIED) 와 동일하게 동작한다(회귀 0).
+_SNAP_BY_USER: dict = {}
 
 
-def _snapshot():
-    global _SNAP, _SNAP_TRIED
-    if _SNAP_TRIED:
-        return _SNAP
-    _SNAP_TRIED = True
+def _snapshot(user_key: str = None):
+    """user_key 생략(None)이면 **환경변수를 전혀 건드리지 않고** 지금까지와 완전히
+    같은 방식으로 조회한다(회귀 0 — "Owner 로 강제"조차 하지 않음, 호출 시점의
+    KIS_USER 를 그대로 존중). user_key 를 명시하면 조회 직전에만
+    os.environ["KIS_USER"] 를 그 값으로 세팅했다가 조회 후 원래 값으로 복원한다
+    (사이드이펙트 최소화 — D 의 _place_order 가 쓰는 것과 같은 계열의 패턴이지만
+    거기는 복원을 안 하고 여기는 한다).
+    캐시 키는 user_key 자체(None 도 유효한 별도 키) — user_key=None 경로와
+    user_key="Owner" 경로는 결과가 같더라도 캐시를 공유하지 않는다(무리해서
+    합치면 "그때그때 env"와 "명시적 Owner"를 뒤섞게 돼 오히려 헷갈림)."""
+    if user_key in _SNAP_BY_USER:
+        return _SNAP_BY_USER[user_key]
     try:
         from mytrading.common import get_brokerage
         from mytrading.account_snapshot import get_snapshot
-        _SNAP = get_snapshot(get_brokerage())
+        if user_key is None:
+            snap = get_snapshot(get_brokerage())
+        else:
+            import os
+            prev = os.environ.get("KIS_USER")
+            os.environ["KIS_USER"] = user_key
+            try:
+                snap = get_snapshot(get_brokerage())
+            finally:
+                if prev is None:
+                    os.environ.pop("KIS_USER", None)
+                else:
+                    os.environ["KIS_USER"] = prev
     except Exception as e:
-        print(f"[trade_plan] 잔고 조회 실패 — 보유 판단 생략: {e}")
-        _SNAP = None
-    return _SNAP
+        print(f"[trade_plan] 잔고 조회 실패({user_key or '(기본)'}) — 보유 판단 생략: {e}")
+        snap = None
+    _SNAP_BY_USER[user_key] = snap
+    return snap
 
 
 def holdings_value_for_category(category: str, snap=None, pf=None) -> float:
@@ -161,8 +182,10 @@ def _apply_sizing(plan, category, price, snap, used_amt=0.0):
                           f"(보유원가 {current_cost:,.0f}원 + 이번 {plan['amount']:,.0f}원)")
 
 
-def _plan_for_symbol(s: dict, asof: date = None, category=None, used_amt: float = 0.0) -> dict:
-    """종목 1개의 오늘 매매 계획. s 는 universe 종목 dict."""
+def _plan_for_symbol(s: dict, asof: date = None, category=None, used_amt: float = 0.0,
+                     user_key: str = None) -> dict:
+    """종목 1개의 오늘 매매 계획. s 는 universe 종목 dict.
+    user_key 생략(None)이면 _snapshot() 도 그대로 None 으로 호출돼 회귀 0(기존과 동일)."""
     asof = asof or date.today()
     code = s["code"]
     name = s.get("name", code)
@@ -181,7 +204,7 @@ def _plan_for_symbol(s: dict, asof: date = None, category=None, used_amt: float 
         # 보유 여부로 갈림 (백테스트 검증 전략)
         #   미보유 → 52주 저점+buy_zone% AND 국면OK → 매수
         #   보유   → 평단 대비 +15% 익절 / -30% 물타기 1회 / -50% 손절
-        snap = _snapshot()
+        snap = _snapshot(user_key)
         h = snap.holding_of(code) if snap else None
         if h is not None:
             from mytrading.position_state import was_averaged_down
@@ -223,20 +246,26 @@ def _plan_for_symbol(s: dict, asof: date = None, category=None, used_amt: float 
     return plan
 
 
-def build_plan(category: str = None, asof: date = None) -> list:
-    """카테고리(없으면 전체)의 Approval 종목 매매 계획 리스트."""
+def build_plan(category: str = None, asof: date = None, user_key: str = None) -> list:
+    """카테고리(없으면 전체)의 Approval 종목 매매 계획 리스트.
+
+    user_key 생략(None)이면 portfolio.tradable_symbols() 가 Owner 로 폴백하고
+    _snapshot() 도 환경변수를 안 건드리는 기본 경로를 타서 — 기존 호출부(D·매도·파킹·
+    알림·2-b·CLI, 총 6곳)는 전부 이 경로라 동작이 그대로다(회귀 0, confirm 2단계-1/3
+    참고). user_key 를 명시하면 그 유저의 moderate_confirm 기준으로 후보가 걸러지고,
+    보유 판단(물타기/신규매수 판정)에 쓰는 잔고 스냅샷도 그 유저 것으로 조회된다."""
     asof = asof or date.today()
     pf = load_portfolio()
     cats = [category] if category else ["aggressive", "moderate", "safe"]
 
     plans = []
     for cat in cats:
-        approval_codes = set(pf.tradable_symbols(cat))   # Approval 만 — 매수 "후보" 순회용
-        _snap = _snapshot()
+        approval_codes = set(pf.tradable_symbols(cat, user_key))   # Approval 만 — 매수 "후보" 순회용
+        _snap = _snapshot(user_key)
         used_amt = holdings_value_for_category(cat, _snap, pf)   # 카테고리당 1회 계산, 후보 전체가 공유
         for s in pf.names(cat):
             if s["code"] in approval_codes:
-                plans.append(_plan_for_symbol(s, asof, cat, used_amt))
+                plans.append(_plan_for_symbol(s, asof, cat, used_amt, user_key))
     return plans
 
 

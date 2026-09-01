@@ -77,16 +77,23 @@ class Portfolio:
         """분류별 종목 [{code, name}] 리스트."""
         return self.universe.get(category, [])
 
-    # moderate confirm 유저별 분리 1단계 임시 상수 — 호출부(build_plan 등)가 아직
-    # user_key 를 안 넘겨서 하드코딩. 2단계에서 tradable_symbols/paused_symbols 에
-    # user 인자가 생기면 이 상수는 지운다.
+    # moderate confirm 유저별 분리 1단계 임시 상수 — user_key 를 안 주는(None) 호출부의
+    # 폴백 대상. 2단계-1(이 커밋)에서 tradable_symbols/paused_symbols 에 user_key 선택
+    # 인자가 생겼지만, build_plan() 등 기존 호출부는 여전히 안 넘기므로 계속 여기로
+    # 떨어진다 — 전 시스템이 실제로 유저를 넘기기 시작하면(2단계-4, D) 이 상수 의존도가
+    # 점점 줄고 최종적으로 지울 수 있다.
     _CONFIRM_OWNER = "Owner"
 
-    def tradable_symbols(self, category: str = None) -> List[str]:
+    def tradable_symbols(self, category: str = None, user_key: str = None) -> List[str]:
         """매매 가능 종목 코드만 (유저confirm/confirm/auto_confirm 합성 판정).
 
-        판정 우선순위(1단계, Owner 고정 — 위 _CONFIRM_OWNER 참고):
-          1) self.moderate_confirm["Owner"][code] (allocations.yaml, 유저별 신규 저장소)
+        user_key 생략(None)이면 _CONFIRM_OWNER("Owner") 로 폴백 — 기존 호출부
+        (build_plan 등)는 전부 이 경로라 동작이 그대로다(회귀 0). user_key 를
+        명시하면 그 유저의 moderate_confirm 을 본다(2단계 진행 중 다른 유저 실험용).
+
+        판정 우선순위:
+          1) self.moderate_confirm[user_key or "Owner"][code] (allocations.yaml,
+             유저별 신규 저장소)
           2) universe_ko.yaml 의 confirm(사람) — 1단계 마이그레이션 후 더 이상 안 써지는
              동결된 값이지만, 폴백으로 계속 읽는다(신규 위치가 비어있을 때 안전망).
           3) auto_confirm(자동, score_dividend.py)
@@ -94,12 +101,12 @@ class Portfolio:
         둘 다 없을 때만 본다. 둘 다 없으면 매매 불가(기존과 동일 — 명시적 승인만 매매).
         """
         cats = [category] if category else _CATEGORIES
-        owner_confirm = self.moderate_confirm.get(self._CONFIRM_OWNER, {})
+        user_confirm = self.moderate_confirm.get(user_key or self._CONFIRM_OWNER, {})
         out = []
         for cat in cats:
             for s in self.universe.get(cat, []):
                 code = s["code"]
-                confirm = owner_confirm.get(str(code).zfill(6))
+                confirm = user_confirm.get(str(code).zfill(6))
                 if confirm is None:
                     confirm = s.get("confirm")
                 if confirm is not None:
@@ -110,16 +117,17 @@ class Portfolio:
                     out.append(code)
         return out
 
-    def paused_symbols(self, category: str = None) -> List[str]:
+    def paused_symbols(self, category: str = None, user_key: str = None) -> List[str]:
         """confirm == "Paused" 인 종목 코드 (보유 유지, 신규매매 중단).
-        판정 우선순위는 tradable_symbols 와 동일(유저 신규 저장소 → universe_ko 폴백)."""
+        user_key/판정 우선순위는 tradable_symbols 와 동일(생략 시 Owner 폴백,
+        회귀 0)."""
         cats = [category] if category else _CATEGORIES
-        owner_confirm = self.moderate_confirm.get(self._CONFIRM_OWNER, {})
+        user_confirm = self.moderate_confirm.get(user_key or self._CONFIRM_OWNER, {})
         out = []
         for cat in cats:
             for s in self.universe.get(cat, []):
                 code = s["code"]
-                confirm = owner_confirm.get(str(code).zfill(6))
+                confirm = user_confirm.get(str(code).zfill(6))
                 if confirm is None:
                     confirm = s.get("confirm")
                 if confirm == "Paused":

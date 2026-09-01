@@ -135,92 +135,126 @@ def main():
         # 기존 원칙, A-3 cadence 게이트와 동일 관례) — 실패 시 정규장 아님으로 간주해 스킵.
         # is_trading_hours() 는 09:00~15:30 시각까지 추가로 검사 — cron 은 10:10 실행이라
         # 항상 통과, 야간/장외 수동 실행만 스킵되게 하려는 목적(개장일 판정은 기존 그대로).
+        # ⚠️ 유저 무관 — 정규장 여부는 모두에게 동일하므로 유저 루프 밖에서 한 번만 계산.
         market_open = is_market_open() and is_trading_hours()
     except Exception as e:
         market_open = False
         print(f"  ⚠️ is_market_open/is_trading_hours 조회 실패 — 보수적으로 정규장 아님 처리: {e}")
 
-    plans = build_plan("moderate", today)
-    candidates = [p for p in plans if p.get("action") == "buy"]
-    # 총점(score_dividend.py 300점) 내림차순 — 없으면 0 취급(맨 뒤). 예산 소진 시 점수 높은
-    # 종목이 먼저 시도되게 하려는 목적. ⚠️ used_amt 누적차감은 아직 없음(별도 작업) — 정렬만.
-    candidates.sort(key=lambda p: p.get("score") or 0, reverse=True)
-    if args.symbol:
-        target = str(args.symbol).zfill(6)
-        candidates = [c for c in candidates if str(c["symbol"]).zfill(6) == target]
+    # confirm 2단계-4: 유저별로 build_plan(user_key=) 을 따로 호출해야 유저별
+    # confirm(2단계-1)·스냅샷(2단계-3)이 반영된다 — accounts 를 유저 단위로 그룹화한다.
+    # Owner 하나뿐이면 아래 루프가 정확히 1회 돌아서, 이전(build_plan 1회 + 전체
+    # accounts 기준 첫 활성계좌)과 100% 동일한 경로를 탄다(회귀 0).
+    accounts_by_user = {}
+    for u, a in accounts:
+        accounts_by_user.setdefault(u, []).append(a)
 
     print("=" * 50)
-    print(f"[moderate_order_runner] {today} — 매수 후보 {len(candidates)}개 "
-          f"(전체 {len(plans)}종목 중)")
+    print(f"[moderate_order_runner] {today}")
     print(f"  모드: {mode} / 정규장: {'열림' if market_open else '닫힘'}")
     print(f"  moderate 배분 계좌: {accounts if accounts else '(없음)'}")
 
     results = []
     pending = []  # 게이트 전부 통과한 종목 — "발주 예정"
 
-    for c in candidates:
-        code = c["symbol"]
-        name = c.get("name", code)
-        style = c.get("style")
-        gates = {}
-        skip_reason = None
-        account_used = None  # 게이트 ②를 통과했을 때만 채워짐 — 실제 발주 시 이 계좌로.
+    if not accounts_by_user:
+        # 계좌가 아예 없는 경우 — 예전과 동일하게 build_plan 은 그대로 돌려서 후보
+        # 전체를 "계좌 없음"으로 스킵 기록한다(로그 형태를 예전과 그대로 맞춤).
+        plans = build_plan("moderate", today)
+        candidates = [p for p in plans if p.get("action") == "buy"]
+        candidates.sort(key=lambda p: p.get("score") or 0, reverse=True)
+        if args.symbol:
+            target = str(args.symbol).zfill(6)
+            candidates = [c for c in candidates if str(c["symbol"]).zfill(6) == target]
+        print(f"\n  --- moderate 배분 계좌 없음 — 후보 {len(candidates)}개 전부 스킵 예정 ---")
+        for c in candidates:
+            row = {"symbol": c["symbol"], "name": c.get("name", c["symbol"]), "user": None,
+                   "qty": c.get("qty", 0), "amount": c.get("amount", 0),
+                   "reason": c.get("reason", ""),
+                   "gates": {"trading_active": "skip(moderate 배분 계좌 없음)"},
+                   "skip_reason": "moderate 배분 계좌 없음", "account": None,
+                   "live_result": {"attempted": False, "success": None,
+                                   "order_id": None, "error": None,
+                                   "mark_bought_called": False}}
+            print(f"    ⏭ {row['name']}({row['symbol']}) 스킵 — {row['skip_reason']}")
+            results.append(row)
+    else:
+        for ukey, acc_list in accounts_by_user.items():
+            plans = build_plan("moderate", today, user_key=ukey)
+            candidates = [p for p in plans if p.get("action") == "buy"]
+            # 총점(score_dividend.py 300점) 내림차순 — 없으면 0 취급(맨 뒤). 예산 소진 시
+            # 점수 높은 종목이 먼저 시도되게 하려는 목적. ⚠️ used_amt 누적차감은 아직 없음
+            # (별도 작업) — 정렬만. ⚠️ 유저가 둘 이상이면 이 정렬은 "그 유저 안"에서만
+            # 적용된다(유저 간 우선순위는 미결정 — 2단계-4 문서 참고). Owner 하나면
+            # 기존과 동일(전체=그 유저).
+            candidates.sort(key=lambda p: p.get("score") or 0, reverse=True)
+            if args.symbol:
+                target = str(args.symbol).zfill(6)
+                candidates = [c for c in candidates if str(c["symbol"]).zfill(6) == target]
 
-        # ② trading_active — moderate 계좌 중 하나라도 켜져 있으면 통과
-        if not accounts:
-            gates["trading_active"] = "skip(moderate 배분 계좌 없음)"
-            skip_reason = "moderate 배분 계좌 없음"
-        else:
-            active_accounts = [(u, a) for u, a in accounts
-                               if _trading_active(alloc_raw, u, a)]
-            if not active_accounts:
-                gates["trading_active"] = "skip"
-                skip_reason = "trading_active 꺼짐"
-            else:
-                gates["trading_active"] = "pass"
-                # build_plan 의 qty/budget 계산이 애초에 단일 계좌(기본 스냅샷) 전제라,
-                # moderate 계좌가 여럿이어도 같은 qty 를 여러 계좌에 중복 발주하면 안 된다
-                # — 첫 번째 활성 계좌 하나로만 낸다(추후 멀티계좌 지원 시 재검토 필요).
-                account_used = active_accounts[0]
+            print(f"\n  --- 유저 {ukey} — 매수 후보 {len(candidates)}개 "
+                  f"(전체 {len(plans)}종목 중) ---")
 
-        # ③ 정규장
-        if skip_reason is None:
-            if not market_open:
-                gates["market_open"] = "skip"
-                skip_reason = "정규장 아님"
-            else:
-                gates["market_open"] = "pass"
+            for c in candidates:
+                code = c["symbol"]
+                name = c.get("name", code)
+                style = c.get("style")
+                gates = {}
+                skip_reason = None
+                account_used = None  # 게이트 ②를 통과했을 때만 채워짐 — 실제 발주 시 이 계좌로.
 
-        # ④ 주기(cadence) — 위 docstring 참고: build_plan 단계에서 이미 걸러진 뒤라
-        #    이 시점엔 사실상 항상 pass. mark_bought 연결 전까진 실질적 의미 없음.
-        if skip_reason is None:
-            cadence_days = cadence_days_for(style)
-            try:
-                already = bought_within_cadence(code, cadence_days)
-            except Exception as e:
-                already = True  # 모르면 안 산다
-                print(f"  ⚠️ {name}({code}) cadence 판정 실패 — 보수적으로 스킵: {e}")
-            if already:
-                gates["cadence"] = f"skip(cadence {cadence_days}일 이내 매수기록)"
-                skip_reason = f"주기 내 이미 매수(cadence {cadence_days}일)"
-            else:
-                gates["cadence"] = "pass"
+                # ② trading_active — 이 유저의 moderate 계좌 중 하나라도 켜져 있으면 통과
+                active_accounts = [a for a in acc_list if _trading_active(alloc_raw, ukey, a)]
+                if not active_accounts:
+                    gates["trading_active"] = "skip"
+                    skip_reason = "trading_active 꺼짐"
+                else:
+                    gates["trading_active"] = "pass"
+                    # build_plan 의 qty/budget 계산이 애초에 단일 계좌(그 유저 기본
+                    # 스냅샷) 전제라, 한 유저가 moderate 계좌를 여럿 가져도 같은 qty 를
+                    # 여러 계좌에 중복 발주하면 안 된다 — 첫 번째 활성 계좌 하나로만
+                    # 낸다(유저 "내부" 단일계좌 전제, 추후 재검토 필요).
+                    account_used = (ukey, active_accounts[0])
 
-        row = {"symbol": code, "name": name, "qty": c.get("qty", 0),
-               "amount": c.get("amount", 0), "reason": c.get("reason", ""),
-               "gates": gates, "skip_reason": skip_reason, "account": account_used,
-               "live_result": {"attempted": False, "success": None,
-                               "order_id": None, "error": None,
-                               "mark_bought_called": False}}
+                # ③ 정규장
+                if skip_reason is None:
+                    if not market_open:
+                        gates["market_open"] = "skip"
+                        skip_reason = "정규장 아님"
+                    else:
+                        gates["market_open"] = "pass"
 
-        if skip_reason:
-            print(f"  ⏭ {name}({code}) 스킵 — {skip_reason}")
-        else:
-            print(f"  ✅ {name}({code}) {c.get('qty', 0)}주 · {c.get('amount', 0):,.0f}원 "
-                  f"— 발주 예정 (게이트 전부 통과)")
-            pending.append(row)
+                # ④ 주기(cadence) — 위 docstring 참고: build_plan 단계에서 이미 걸러진
+                #    뒤라 이 시점엔 사실상 항상 pass. mark_bought 연결 전까진 실질적
+                #    의미 없음.
+                if skip_reason is None:
+                    cadence_days = cadence_days_for(style)
+                    try:
+                        already = bought_within_cadence(code, cadence_days)
+                    except Exception as e:
+                        already = True  # 모르면 안 산다
+                        print(f"  ⚠️ {name}({code}) cadence 판정 실패 — 보수적으로 스킵: {e}")
+                    if already:
+                        gates["cadence"] = f"skip(cadence {cadence_days}일 이내 매수기록)"
+                        skip_reason = f"주기 내 이미 매수(cadence {cadence_days}일)"
+                    else:
+                        gates["cadence"] = "pass"
 
-        results.append(row)
+                row = {"symbol": code, "name": name, "user": ukey, "qty": c.get("qty", 0),
+                       "amount": c.get("amount", 0), "reason": c.get("reason", ""),
+                       "gates": gates, "skip_reason": skip_reason, "account": account_used,
+                       "live_result": {"attempted": False, "success": None,
+                                       "order_id": None, "error": None,
+                                       "mark_bought_called": False}}
+
+                if skip_reason:
+                    print(f"    ⏭ {name}({code}) 스킵 — {skip_reason}")
+                else:
+                    print(f"    ✅ {name}({code}) {c.get('qty', 0)}주 · "
+                          f"{c.get('amount', 0):,.0f}원 — 발주 예정 (게이트 전부 통과)")
+                    pending.append(row)
+
+                results.append(row)
 
     live_attempted = False
     if pending and args.live:
@@ -278,7 +312,7 @@ def main():
             {"user": u, "account": a, "trading_active": _trading_active(alloc_raw, u, a)}
             for u, a in accounts
         ],
-        "n_candidates": len(candidates),
+        "n_candidates": len(results),   # results 는 유저별 candidates 를 전부 합친 것(불변식: 후보 1개당 row 1개)
         "n_pending": len(pending),
         "candidates": results,
         "live_flag": args.live,
