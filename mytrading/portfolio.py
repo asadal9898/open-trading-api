@@ -51,6 +51,10 @@ class Portfolio:
     allocations: Dict[str, Dict[str, Allocation]] = field(default_factory=dict)
     # universe: {category: [{code, name}]}
     universe: Dict[str, List[dict]] = field(default_factory=dict)
+    # moderate confirm 유저별(1단계) — {user_key: {종목코드: confirm 상태}}
+    # allocations.yaml 의 users.{key}.moderate_confirm 에서 옴. tradable_symbols/
+    # paused_symbols 가 universe_ko.yaml 의 confirm 보다 먼저 이걸 본다.
+    moderate_confirm: Dict[str, Dict[str, str]] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
 
     def allocation_for(self, user_key: str, account_name: str,
@@ -73,37 +77,53 @@ class Portfolio:
         """분류별 종목 [{code, name}] 리스트."""
         return self.universe.get(category, [])
 
+    # moderate confirm 유저별 분리 1단계 임시 상수 — 호출부(build_plan 등)가 아직
+    # user_key 를 안 넘겨서 하드코딩. 2단계에서 tradable_symbols/paused_symbols 에
+    # user 인자가 생기면 이 상수는 지운다.
+    _CONFIRM_OWNER = "Owner"
+
     def tradable_symbols(self, category: str = None) -> List[str]:
-        """매매 가능 종목 코드만 (confirm/auto_confirm 합성 판정).
+        """매매 가능 종목 코드만 (유저confirm/confirm/auto_confirm 합성 판정).
 
-        confirm(사람) 이 설정돼 있으면 그 값만으로 판정한다(auto_confirm 은 무시 — 사람이 이김).
-        confirm 이 없거나 None 이면 auto_confirm(자동) 값으로 판정한다.
-        둘 다 없으면 매매 불가(기존 기본값 "Waiting" 과 동일하게 취급 — 안전: 명시적 승인만 매매).
-
-        auto_confirm 필드가 아직 없는 종목(현재 전부)은 그대로 confirm 하나로만 판정되므로
-        이 메서드 도입 자체로는 기존 동작이 바뀌지 않는다(하위호환).
+        판정 우선순위(1단계, Owner 고정 — 위 _CONFIRM_OWNER 참고):
+          1) self.moderate_confirm["Owner"][code] (allocations.yaml, 유저별 신규 저장소)
+          2) universe_ko.yaml 의 confirm(사람) — 1단계 마이그레이션 후 더 이상 안 써지는
+             동결된 값이지만, 폴백으로 계속 읽는다(신규 위치가 비어있을 때 안전망).
+          3) auto_confirm(자동, score_dividend.py)
+        1)/2) 어느 쪽이든 값이 있으면 그 값만으로 판정하고(Approval 만 통과), 3)은 1)/2)
+        둘 다 없을 때만 본다. 둘 다 없으면 매매 불가(기존과 동일 — 명시적 승인만 매매).
         """
         cats = [category] if category else _CATEGORIES
+        owner_confirm = self.moderate_confirm.get(self._CONFIRM_OWNER, {})
         out = []
         for cat in cats:
             for s in self.universe.get(cat, []):
-                confirm = s.get("confirm")
+                code = s["code"]
+                confirm = owner_confirm.get(str(code).zfill(6))
+                if confirm is None:
+                    confirm = s.get("confirm")
                 if confirm is not None:
                     ok = (confirm == "Approval")
                 else:
                     ok = (s.get("auto_confirm") == "Approval")
                 if ok:
-                    out.append(s["code"])
+                    out.append(code)
         return out
 
     def paused_symbols(self, category: str = None) -> List[str]:
-        """confirm == "Paused" 인 종목 코드 (보유 유지, 신규매매 중단)."""
+        """confirm == "Paused" 인 종목 코드 (보유 유지, 신규매매 중단).
+        판정 우선순위는 tradable_symbols 와 동일(유저 신규 저장소 → universe_ko 폴백)."""
         cats = [category] if category else _CATEGORIES
+        owner_confirm = self.moderate_confirm.get(self._CONFIRM_OWNER, {})
         out = []
         for cat in cats:
             for s in self.universe.get(cat, []):
-                if s.get("confirm") == "Paused":
-                    out.append(s["code"])
+                code = s["code"]
+                confirm = owner_confirm.get(str(code).zfill(6))
+                if confirm is None:
+                    confirm = s.get("confirm")
+                if confirm == "Paused":
+                    out.append(code)
         return out
 
 
@@ -137,6 +157,13 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
                         entry[k] = it[k]
                 out.append(entry)
         return out
+
+    # moderate confirm 유저별(1단계) — users.{key}.moderate_confirm
+    moderate_confirm: Dict[str, Dict[str, str]] = {}
+    for ukey, ublock in (araw.get("users", {}) or {}).items():
+        mc = (ublock or {}).get("moderate_confirm") or {}
+        if mc:
+            moderate_confirm[ukey] = {str(k).zfill(6): v for k, v in mc.items()}
 
     for ukey, ublock in (araw.get("users", {}) or {}).items():
         accts = (ublock or {}).get("accounts", {}) or {}
@@ -200,7 +227,8 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
                 clean.append(entry)
         universe[cat] = clean
 
-    return Portfolio(allocations=allocations, universe=universe, warnings=warnings)
+    return Portfolio(allocations=allocations, universe=universe,
+                     moderate_confirm=moderate_confirm, warnings=warnings)
 
 def get_watch_symbols(config: dict = None) -> list:
     """

@@ -901,22 +901,28 @@ _CONFIRM_BUTTONS = {
 _ACTION_TO_STATE = {"a": "Approval", "r": "Rejected", "p": "Paused"}
 
 
-def _set_confirm_state(code: str, new_state: str) -> bool:
-    """universe_ko.yaml 에서 종목 confirm 을 new_state 로 변경 (형식 보존)."""
+def _set_confirm_state(code: str, new_state: str, user_key: str) -> bool:
+    """유저(user_key)의 moderate confirm 을 new_state 로 변경 — 1단계: 저장 위치가
+    allocations.yaml 의 users.{user_key}.moderate_confirm 으로 바뀜(유저별 분리).
+    universe_ko.yaml 의 confirm 은 더 이상 여기서 안 씀(동결 — portfolio.py 의
+    폴백으로만 읽힘, MODERATE_FUNDING_DESIGN.md 관련 논의 참고).
+    종목이 moderate 종목풀(universe_ko.yaml)에 실제 있는지는 그대로 확인한다(기존
+    동작과 동일 — 없는 종목이면 기록 안 하고 False)."""
     try:
         from pathlib import Path as _P
         _repo = _P(__file__).resolve().parents[2]
         yp = _repo / "mytrading" / "configs" / "universe_ko.yaml"
-        data = _rt_load(yp)
-        changed = False
-        for cat in ("moderate",):
-            for it in (data.get(cat) or []):
-                if str(it.get("code", "")).zfill(6) == str(code).zfill(6):
-                    it["confirm"] = new_state
-                    changed = True
-        if changed:
-            _rt_dump(data, yp)
-        return changed
+        udata = _rt_load(yp)
+        exists = any(str(it.get("code", "")).zfill(6) == str(code).zfill(6)
+                     for it in (udata.get("moderate") or []))
+        if not exists:
+            return False
+        ap = _repo / "mytrading" / "configs" / "allocations.yaml"
+        adata = _rt_load(ap)
+        mc = adata.setdefault("users", {}).setdefault(user_key, {}).setdefault("moderate_confirm", {})
+        mc[str(code).zfill(6)] = new_state
+        _rt_dump(adata, ap)
+        return True
     except Exception as e:
         print(f"[bot] _set_confirm_state 실패: {e}")
         return False
@@ -934,21 +940,27 @@ def _bulk_set_state(user: dict, new_state: str) -> str:
     label = _CONFIRM_LABELS.get(new_state, new_state)
     n_mod, n_free = 0, 0
 
-    # 1) universe_ko.yaml (보수·배당 = moderate)
+    # 1) moderate confirm (유저별 1단계) — 종목 목록은 universe_ko.yaml 에서 읽되
+    #    (그 confirm 은 동결된 폴백으로만 참고), 실제 기록은 allocations.yaml 의
+    #    users.{user}.moderate_confirm 에 한다. universe_ko.yaml 자체는 안 건드림.
     try:
         yp = _repo / "mytrading" / "configs" / "universe_ko.yaml"
         udata = _rt_load(yp)
+        ap = _repo / "mytrading" / "configs" / "allocations.yaml"
+        adata = _rt_load(ap)
+        mc = adata.setdefault("users", {}).setdefault(user["key"], {}).setdefault("moderate_confirm", {})
         ch = False
         for it in (udata.get("moderate") or []):
             if not isinstance(it, dict):
                 continue
-            cur = it.get("confirm", "Waiting") or "Waiting"
+            code = str(it.get("code", "")).zfill(6)
+            cur = mc.get(code, it.get("confirm", "Waiting") or "Waiting")
             if cur in _targets:
-                it["confirm"] = new_state
+                mc[code] = new_state
                 n_mod += 1
                 ch = True
         if ch:
-            _rt_dump(udata, yp)
+            _rt_dump(adata, ap)
     except Exception as e:
         print(f"[bot] _bulk_set_state moderate 실패: {e}")
 
@@ -1540,7 +1552,7 @@ def _cmd_approve(user: dict, query: str) -> str:
         where.append("자유")
 
     # 2) moderate (universe_ko.yaml) — free 결과와 무관하게 항상 확인 (양쪽에 등록된 경우 대응)
-    if _set_confirm_state(code, "Approval"):
+    if _set_confirm_state(code, "Approval", user["key"]):
         where.append("보수·배당")
 
     if not where:
@@ -1574,7 +1586,7 @@ def _cmd_set_state(user: dict, query: str, new_state: str) -> str:
     done = False
 
     # 1) moderate (universe_ko.yaml)
-    if _set_confirm_state(code, new_state):
+    if _set_confirm_state(code, new_state, user["key"]):
         done = True
 
     # 2) free (free_holdings, allocations.yaml)
@@ -2275,7 +2287,7 @@ def poll_once():
                     _new = _ACTION_TO_STATE.get(_act)
                     if not _new or not _cd:
                         continue
-                    _ok = _set_confirm_state(_cd, _new)
+                    _ok = _set_confirm_state(_cd, _new, user["key"])
                     _lbl = _CONFIRM_LABELS.get(_new, _new)
                     if _ok:
                         print(f"[bot] {user['name']} [상태변경] {_cd} → {_new}")
