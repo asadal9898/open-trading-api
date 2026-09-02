@@ -46,6 +46,19 @@ class Allocation:
 
 
 @dataclass
+class AccountInfo:
+    """계좌체계 재설계 2-1: 새 계좌명(모의투자증권/일반투자증권/ISA증권 등)으로 직접
+    조회하는 계좌 정보 — 모드 개념 없음(계좌명이 곧 실전/모의). 아직 아무 호출부도
+    안 쓰는 추가 전용 API(Portfolio.allocation_by_account) 의 반환 타입."""
+    name: str
+    moderate: float = 0.0
+    free: float = 0.0
+    free_symbols: List[dict] = field(default_factory=list)
+    trading_active: bool = False
+    moderate_confirm: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class Portfolio:
     # allocations: {user_key: {account_name: Allocation}}
     allocations: Dict[str, Dict[str, Allocation]] = field(default_factory=dict)
@@ -57,6 +70,12 @@ class Portfolio:
     # (배분액 moderate/free 와 같은 depth). tradable_symbols/paused_symbols 가
     # universe_ko.yaml 의 confirm 보다 먼저 이걸 본다.
     moderate_confirm: Dict[str, Dict[str, Dict[str, Dict[str, str]]]] = field(default_factory=dict)
+    # 계좌체계 재설계 2-1: 새 계좌명 기준 조회용 — {user_key: {새계좌명: AccountInfo}}.
+    # allocations.yaml 의 users.{key}.accounts.{새계좌명} 중 moderate/free 키가 있는
+    # (=신규 평면 계좌) 블록만 담는다. 기존 allocations/moderate_confirm 필드와는
+    # 완전히 독립된 별도 저장소 — 이 필드를 쓰는 호출부가 아직 없어 추가만으로
+    # 기존 API 는 전혀 영향받지 않는다(회귀 0).
+    accounts_new: Dict[str, Dict[str, AccountInfo]] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
 
     def allocation_for(self, user_key: str, account_name: str,
@@ -65,6 +84,15 @@ class Portfolio:
         accts = self.allocations.get(user_key, {})
         return (accts.get(f"{account_name}|{mode}")
                 or accts.get(account_name))
+
+    def allocation_by_account(self, user_key: str, account_name: str) -> Optional[AccountInfo]:
+        """계좌체계 재설계 2-1: 새 계좌명(예: "모의투자증권")으로 직접 조회.
+        모드 인자 없음 — 계좌명 자체가 실전/모의를 뜻한다. 없으면 None."""
+        return self.accounts_new.get(user_key, {}).get(account_name)
+
+    def accounts_of(self, user_key: str) -> Dict[str, AccountInfo]:
+        """유저의 새 계좌체계 계좌 전부 (새계좌명 → AccountInfo)."""
+        return self.accounts_new.get(user_key, {})
 
     def symbols(self, category: str = None) -> List[str]:
         """종목 코드 리스트. category 지정 시 그 분류만, 없으면 전체."""
@@ -240,6 +268,44 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
                                 .setdefault(legacy_name, {})
                                 [mode]) = {str(k).zfill(6): v for k, v in mc.items()}
 
+    # 계좌체계 재설계 2-1: 새 계좌명 기준 API(accounts_new) — 위 루프와 완전히 독립된
+    # 별도 패스. _ACCOUNT_MODE_MAP 에 없는 계좌명도 담는다(향후 신규 계좌 추가 시
+    # 매핑 갱신 없이도 바로 조회 가능하도록) — moderate/free 키가 있는 블록만
+    # "신규 평면 계좌"로 보고, "일반증권" 처럼 trading_active 만 남은 잔재 블록은
+    # 제외한다(둘 다 있으면 신규 계좌, 잔재는 무시).
+    accounts_new: Dict[str, Dict[str, AccountInfo]] = {}
+    for ukey, ublock in (araw.get("users", {}) or {}).items():
+        accts = (ublock or {}).get("accounts", {}) or {}
+        for acc_name, vals in accts.items():
+            if not isinstance(vals, dict):
+                continue
+            if "moderate" not in vals and "free" not in vals:
+                continue
+            # trading_active: 이 계좌 블록에 직접 있으면 그 값, 없으면 _ACCOUNT_MODE_MAP
+            # 으로 연결된 잔재 블록("일반증권" 등)의 값으로 폴백(1단계가 거기 남겨둠).
+            legacy_name = _ACCOUNT_MODE_MAP.get(acc_name, (None, None))[0]
+            legacy_ta = bool((accts.get(legacy_name) or {}).get("trading_active", False)) \
+                if legacy_name else False
+            ta = vals.get("trading_active")
+            trading_active = bool(ta) if ta is not None else legacy_ta
+
+            free_syms_new = _fh_for(ukey, legacy_name) if legacy_name else []
+            if not free_syms_new:
+                for it in (vals.get("free_symbols") or []):
+                    if isinstance(it, dict) and str(it.get("code", "")).strip():
+                        free_syms_new.append({"code": str(it["code"]).strip(),
+                                              "name": str(it.get("name", "")).strip()})
+            mc_new = {str(k).zfill(6): v for k, v in (vals.get("moderate_confirm") or {}).items()}
+
+            accounts_new.setdefault(ukey, {})[acc_name] = AccountInfo(
+                name=acc_name,
+                moderate=float(vals.get("moderate", 0) or 0),
+                free=float(vals.get("free", 0) or 0),
+                free_symbols=free_syms_new,
+                trading_active=trading_active,
+                moderate_confirm=mc_new,
+            )
+
     # --- 종목풀 ---
     uraw = _load_yaml(uni_path)
     universe: Dict[str, List[dict]] = {}
@@ -263,7 +329,8 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
         universe[cat] = clean
 
     return Portfolio(allocations=allocations, universe=universe,
-                     moderate_confirm=moderate_confirm, warnings=warnings)
+                     moderate_confirm=moderate_confirm, accounts_new=accounts_new,
+                     warnings=warnings)
 
 def get_watch_symbols(config: dict = None) -> list:
     """
