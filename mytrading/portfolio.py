@@ -51,10 +51,12 @@ class Portfolio:
     allocations: Dict[str, Dict[str, Allocation]] = field(default_factory=dict)
     # universe: {category: [{code, name}]}
     universe: Dict[str, List[dict]] = field(default_factory=dict)
-    # moderate confirm 유저별(1단계) — {user_key: {종목코드: confirm 상태}}
-    # allocations.yaml 의 users.{key}.moderate_confirm 에서 옴. tradable_symbols/
-    # paused_symbols 가 universe_ko.yaml 의 confirm 보다 먼저 이걸 본다.
-    moderate_confirm: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    # moderate confirm — 3단계-1: 계좌·모드별 3중 중첩으로 전환.
+    # {user_key: {account_name: {mode: {종목코드: confirm 상태}}}}
+    # allocations.yaml 의 users.{key}.accounts.{계좌}.{모드}.moderate_confirm 에서 옴
+    # (배분액 moderate/free 와 같은 depth). tradable_symbols/paused_symbols 가
+    # universe_ko.yaml 의 confirm 보다 먼저 이걸 본다.
+    moderate_confirm: Dict[str, Dict[str, Dict[str, Dict[str, str]]]] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
 
     def allocation_for(self, user_key: str, account_name: str,
@@ -77,31 +79,35 @@ class Portfolio:
         """분류별 종목 [{code, name}] 리스트."""
         return self.universe.get(category, [])
 
-    # moderate confirm 유저별 분리 1단계 임시 상수 — user_key 를 안 주는(None) 호출부의
-    # 폴백 대상. 2단계-1(이 커밋)에서 tradable_symbols/paused_symbols 에 user_key 선택
-    # 인자가 생겼지만, build_plan() 등 기존 호출부는 여전히 안 넘기므로 계속 여기로
-    # 떨어진다 — 전 시스템이 실제로 유저를 넘기기 시작하면(2단계-4, D) 이 상수 의존도가
-    # 점점 줄고 최종적으로 지울 수 있다.
+    # moderate confirm 임시 하드코딩 상수 — 3단계-2에서 tradable_symbols/paused_symbols
+    # 에 account/mode 인자가 생겨서 이제 "아무도 안 넘겼을 때만" 쓰는 순수 폴백이 됨
+    # (2단계-1 이후의 user_key 와 동일한 역할). D가 실제로 다루는 유일한 조합
+    # (Owner/일반증권/vps)과 정확히 일치하므로 기존 호출부는 전부 회귀 0.
     _CONFIRM_OWNER = "Owner"
+    _CONFIRM_ACCOUNT = "일반증권"
+    _CONFIRM_MODE = "vps"
 
-    def tradable_symbols(self, category: str = None, user_key: str = None) -> List[str]:
+    def tradable_symbols(self, category: str = None, user_key: str = None,
+                         account: str = None, mode: str = None) -> List[str]:
         """매매 가능 종목 코드만 (유저confirm/confirm/auto_confirm 합성 판정).
 
-        user_key 생략(None)이면 _CONFIRM_OWNER("Owner") 로 폴백 — 기존 호출부
-        (build_plan 등)는 전부 이 경로라 동작이 그대로다(회귀 0). user_key 를
-        명시하면 그 유저의 moderate_confirm 을 본다(2단계 진행 중 다른 유저 실험용).
+        user_key/account/mode 각각 생략(None)이면 _CONFIRM_OWNER/_CONFIRM_ACCOUNT/
+        _CONFIRM_MODE 로 폴백 — 기존 호출부(build_plan 등)는 전부 이 경로라 동작이
+        그대로다(회귀 0). 셋 다 명시하면 그 (유저,계좌,모드)의 moderate_confirm 을 본다.
 
         판정 우선순위:
-          1) self.moderate_confirm[user_key or "Owner"][code] (allocations.yaml,
-             유저별 신규 저장소)
-          2) universe_ko.yaml 의 confirm(사람) — 1단계 마이그레이션 후 더 이상 안 써지는
+          1) self.moderate_confirm[user][account][mode][code] (allocations.yaml,
+             계좌·모드별 신규 저장소 — 배분액 moderate/free 와 같은 depth)
+          2) universe_ko.yaml 의 confirm(사람) — 마이그레이션 후 더 이상 안 써지는
              동결된 값이지만, 폴백으로 계속 읽는다(신규 위치가 비어있을 때 안전망).
           3) auto_confirm(자동, score_dividend.py)
         1)/2) 어느 쪽이든 값이 있으면 그 값만으로 판정하고(Approval 만 통과), 3)은 1)/2)
         둘 다 없을 때만 본다. 둘 다 없으면 매매 불가(기존과 동일 — 명시적 승인만 매매).
         """
         cats = [category] if category else _CATEGORIES
-        user_confirm = self.moderate_confirm.get(user_key or self._CONFIRM_OWNER, {})
+        user_confirm = (self.moderate_confirm.get(user_key or self._CONFIRM_OWNER, {})
+                            .get(account or self._CONFIRM_ACCOUNT, {})
+                            .get(mode or self._CONFIRM_MODE, {}))
         out = []
         for cat in cats:
             for s in self.universe.get(cat, []):
@@ -117,12 +123,15 @@ class Portfolio:
                     out.append(code)
         return out
 
-    def paused_symbols(self, category: str = None, user_key: str = None) -> List[str]:
+    def paused_symbols(self, category: str = None, user_key: str = None,
+                       account: str = None, mode: str = None) -> List[str]:
         """confirm == "Paused" 인 종목 코드 (보유 유지, 신규매매 중단).
-        user_key/판정 우선순위는 tradable_symbols 와 동일(생략 시 Owner 폴백,
-        회귀 0)."""
+        인자/판정 우선순위는 tradable_symbols 와 동일(생략 시 Owner/일반증권/vps
+        폴백, 회귀 0)."""
         cats = [category] if category else _CATEGORIES
-        user_confirm = self.moderate_confirm.get(user_key or self._CONFIRM_OWNER, {})
+        user_confirm = (self.moderate_confirm.get(user_key or self._CONFIRM_OWNER, {})
+                            .get(account or self._CONFIRM_ACCOUNT, {})
+                            .get(mode or self._CONFIRM_MODE, {}))
         out = []
         for cat in cats:
             for s in self.universe.get(cat, []):
@@ -140,6 +149,20 @@ def _load_yaml(path: Path) -> dict:
         return {}
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+# 계좌체계 재설계 1단계(2026-09-02): allocations.yaml 은 이제 "계좌명 = 실전/모의"
+# 인 평면 구조(accounts.{모의투자증권/일반투자증권/ISA증권}.{moderate,free,
+# moderate_confirm})를 쓴다. 하지만 D 등 7개 스크립트·텔레그램 봇은 여전히 예전
+# 구조("계좌|모드" 합성키, moderate_confirm[유저][계좌][모드])를 전제로 동작 —
+# 이 매핑으로 새 YAML 을 읽되 내부적으로는 예전과 동일한 모양으로 재조립해서
+# 그 쪽은 전부 무변경으로 둔다(회귀 0). 2단계(resolve_mode/게이트 재설계)에서
+# 이 매핑을 걷어내고 호출부들이 새 계좌명을 직접 쓰게 바꿀 예정.
+_ACCOUNT_MODE_MAP = {
+    "모의투자증권": ("일반증권", "vps"),
+    "일반투자증권": ("일반증권", "prod"),
+    "ISA증권": ("ISA", "prod"),
+}
 
 
 def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
@@ -166,52 +189,56 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
                 out.append(entry)
         return out
 
-    # moderate confirm 유저별(1단계) — users.{key}.moderate_confirm
-    moderate_confirm: Dict[str, Dict[str, str]] = {}
-    for ukey, ublock in (araw.get("users", {}) or {}).items():
-        mc = (ublock or {}).get("moderate_confirm") or {}
-        if mc:
-            moderate_confirm[ukey] = {str(k).zfill(6): v for k, v in mc.items()}
+    # moderate confirm — 3단계-1: {user: {account: {mode: {code: state}}}}.
+    # 계좌체계 재설계 1단계(2026-09-02)부터는 아래 _ACCOUNT_MODE_MAP 을 거쳐
+    # 채운다(같은 depth) — 자세한 내용은 _ACCOUNT_MODE_MAP 주석 참고.
+    moderate_confirm: Dict[str, Dict[str, Dict[str, Dict[str, str]]]] = {}
 
     for ukey, ublock in (araw.get("users", {}) or {}).items():
         accts = (ublock or {}).get("accounts", {}) or {}
         for acc_name, vals in accts.items():
             if not isinstance(vals, dict):
                 continue
+            if acc_name not in _ACCOUNT_MODE_MAP:
+                # "일반증권" 처럼 trading_active 만 남은 잔재 블록 — raw YAML 로
+                # 직접 읽는 D/ETF매도/봇 3곳을 위한 하위호환용이라 여기(portfolio.py
+                # 의 Allocation/moderate_confirm 파싱) 대상이 아니다(2단계에서 정리).
+                # moderate/free/vps/prod 키가 있는데 매핑에 없으면 설정 오류일
+                # 가능성이 커서 경고만 남기고 무시한다(배분 유실 방지용 안전장치).
+                if any(k in vals for k in ("moderate", "free", "vps", "prod")):
+                    warnings.append(
+                        f"{ukey}/{acc_name}: 미등록 계좌명 — 배분 무시됨 "
+                        f"(_ACCOUNT_MODE_MAP 확인, 계좌체계 재설계 1단계)")
+                continue
+            legacy_name, mode = _ACCOUNT_MODE_MAP[acc_name]
+
             # 자유 종목: free_holdings 우선, 없으면 free_symbols 폴백
-            free_syms = _fh_for(ukey, acc_name)
+            # ⚠️ 조회 키는 루프변수(acc_name, 새 계좌명)가 아니라 legacy_name —
+            # free_holdings.yaml 은 예전 계좌명("일반증권")으로 저장돼 있다.
+            free_syms = _fh_for(ukey, legacy_name)
             if not free_syms:
                 for it in (vals.get("free_symbols") or []):
                     if isinstance(it, dict) and str(it.get("code", "")).strip():
                         free_syms.append({"code": str(it["code"]).strip(),
                                           "name": str(it.get("name", "")).strip()})
-            # 모드 계층 판별: vals 안에 vps/prod 키가 있으면 모드별 구조,
-            # 없으면 평면 구조(하위호환) → vps 로 취급
-            mode_keys = [m for m in ("vps", "prod") if isinstance(vals.get(m), dict)]
-            if mode_keys:
-                for mode in mode_keys:
-                    mv = vals.get(mode) or {}
-                    al = Allocation(
-                        moderate=float(mv.get("moderate", 0) or 0),
-                        free=float(mv.get("free", 0) or 0),
-                        free_symbols=free_syms,
-                    )
-                    if al.free > 0 and not free_syms:
-                        warnings.append(
-                            f"{ukey}/{acc_name}/{mode}: free {al.free:,.0f}원인데 free_symbols 없음")
-                    # 키: "계좌|모드" 로 저장 (allocation_for 에서 분해)
-                    allocations.setdefault(ukey, {})[f"{acc_name}|{mode}"] = al
-            else:
-                # 평면 구조 (하위호환) → vps
-                al = Allocation(
-                    moderate=float(vals.get("moderate", 0) or 0),
-                    free=float(vals.get("free", 0) or 0),
-                    free_symbols=free_syms,
-                )
-                if al.free > 0 and not free_syms:
-                    warnings.append(
-                        f"{ukey}/{acc_name}: free 금액 {al.free:,.0f}원인데 free_symbols 없음")
-                allocations.setdefault(ukey, {})[f"{acc_name}|vps"] = al
+            al = Allocation(
+                moderate=float(vals.get("moderate", 0) or 0),
+                free=float(vals.get("free", 0) or 0),
+                free_symbols=free_syms,
+            )
+            if al.free > 0 and not free_syms:
+                warnings.append(
+                    f"{ukey}/{legacy_name}/{mode}: free {al.free:,.0f}원인데 free_symbols 없음")
+            # 키: "계좌|모드" 로 저장 (allocation_for 에서 분해) — legacy_name 기준이라
+            # 예전과 동일한 키("일반증권|vps" 등), 기존 호출부 전부 회귀 0.
+            allocations.setdefault(ukey, {})[f"{legacy_name}|{mode}"] = al
+
+            # moderate confirm(3단계-1) — 같은 vals(계좌 블록)에서 같이 뽑음
+            mc = vals.get("moderate_confirm") or {}
+            if mc:
+                (moderate_confirm.setdefault(ukey, {})
+                                .setdefault(legacy_name, {})
+                                [mode]) = {str(k).zfill(6): v for k, v in mc.items()}
 
     # --- 종목풀 ---
     uraw = _load_yaml(uni_path)
