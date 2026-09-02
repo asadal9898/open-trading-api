@@ -51,6 +51,13 @@ class AccountInfo:
     조회하는 계좌 정보 — 모드 개념 없음(계좌명이 곧 실전/모의). 아직 아무 호출부도
     안 쓰는 추가 전용 API(Portfolio.allocation_by_account) 의 반환 타입."""
     name: str
+    # 2-2a: kis_devlp.yaml 매칭용/모드 구분용 — allocations.yaml 의 새 계좌명은
+    # kis_devlp.yaml 의 실제 계좌명(Account.name)과 다른 네임스페이스라, 발주 호출
+    # (get_brokerage/_place_order 의 account_name=)에는 반드시 이 legacy_name 을
+    # 써야 한다 — name(새 계좌명)을 그대로 넘기면 매칭 실패 후 조용히 엉뚱한 계좌로
+    # 폴백하는 위험이 있다(2-2 설계 시 확인됨).
+    legacy_name: Optional[str] = None
+    mode: Optional[str] = None    # "vps"/"prod" — _ACCOUNT_MODE_MAP 에서
     moderate: float = 0.0
     free: float = 0.0
     free_symbols: List[dict] = field(default_factory=list)
@@ -283,7 +290,7 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
                 continue
             # trading_active: 이 계좌 블록에 직접 있으면 그 값, 없으면 _ACCOUNT_MODE_MAP
             # 으로 연결된 잔재 블록("일반증권" 등)의 값으로 폴백(1단계가 거기 남겨둠).
-            legacy_name = _ACCOUNT_MODE_MAP.get(acc_name, (None, None))[0]
+            legacy_name, mapped_mode = _ACCOUNT_MODE_MAP.get(acc_name, (None, None))
             legacy_ta = bool((accts.get(legacy_name) or {}).get("trading_active", False)) \
                 if legacy_name else False
             ta = vals.get("trading_active")
@@ -299,6 +306,8 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
 
             accounts_new.setdefault(ukey, {})[acc_name] = AccountInfo(
                 name=acc_name,
+                legacy_name=legacy_name,
+                mode=mapped_mode,
                 moderate=float(vals.get("moderate", 0) or 0),
                 free=float(vals.get("free", 0) or 0),
                 free_symbols=free_syms_new,

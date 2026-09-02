@@ -42,33 +42,24 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-ALLOC_PATH = _ROOT / "mytrading" / "configs" / "allocations.yaml"
 LOG_DIR = Path.home() / "moderate_order_log"
 
 
-def _trading_active(alloc_data: dict, user_key: str, account: str) -> bool:
-    """계좌별 보수(배당) 자동매매 활성 여부. 기본 False(중지).
-    telegram_bot.py 의 _trading_active() 와 같은 필드(allocations.yaml
-    users.{key}.accounts.{acc}.trading_active)를 읽는 독립 구현 —
-    텔레그램 봇 모듈을 import 하지 않기 위해(free_loss_alert.py 등과 같은 패턴)."""
-    accs = ((alloc_data.get("users") or {}).get(user_key, {}) or {}).get("accounts", {}) or {}
-    acc = accs.get(account, {}) or {}
-    return bool(acc.get("trading_active", False))
-
-
 def _moderate_accounts(pf, mode: str) -> list:
-    """moderate 배분액(>0)이 있는 (user_key, account_name) 목록 — 현재 모드 기준.
-    build_plan() 은 계좌 정보를 안 주므로, "누구 계좌로 낼 주문인가"는 allocations.yaml 의
-    moderate 배분액으로 역산한다."""
+    """moderate 배분액(>0)이 있는 (user_key, AccountInfo) 목록 — 현재 모드 기준.
+    계좌체계 재설계 2-2b: 새 계좌명 API(Portfolio.accounts_of/AccountInfo) 기반으로
+    전환 — "계좌|모드" 합성키 파싱 대신 info.mode/info.moderate 로 직접 필터한다.
+
+    ⚠️ 발주(get_brokerage/_place_order)에는 반드시 info.legacy_name(kis_devlp.yaml
+    의 실제 계좌명, 예:"일반증권")을 써야 한다 — info.name(allocations.yaml 의 새
+    계좌명, 예:"모의투자증권")을 그대로 넘기면 kis_devlp 쪽에 매칭되는 이름이 없어
+    조용히 엉뚱한 계좌로 폴백하는 위험이 있다(2-2 설계에서 확인됨, common.py의
+    _resolve_account 가 이름 불일치 시 예외 없이 "주문가능한 첫 계좌"로 폴백)."""
     out = []
-    for ukey, accts in pf.allocations.items():
-        for key, al in accts.items():
-            if "|" in key:
-                acc_name, acc_mode = key.rsplit("|", 1)
-            else:
-                acc_name, acc_mode = key, "vps"
-            if acc_mode == mode and al.moderate > 0:
-                out.append((ukey, acc_name))
+    for ukey, accts in pf.accounts_new.items():
+        for info in accts.values():
+            if info.mode == mode and info.moderate > 0:
+                out.append((ukey, info))
     return out
 
 
@@ -125,10 +116,7 @@ def main():
 
     today = date.today()
     pf = load_portfolio()
-    accounts = _moderate_accounts(pf, mode)
-
-    import yaml
-    alloc_raw = yaml.safe_load(ALLOC_PATH.read_text(encoding="utf-8")) or {}
+    accounts = _moderate_accounts(pf, mode)   # [(ukey, AccountInfo), ...]
 
     try:
         # daily_update.py 와 반대 폴백: D는 실발주라 "모르면 안 산다"(market_calendar.py의
@@ -152,7 +140,8 @@ def main():
     print("=" * 50)
     print(f"[moderate_order_runner] {today}")
     print(f"  모드: {mode} / 정규장: {'열림' if market_open else '닫힘'}")
-    print(f"  moderate 배분 계좌: {accounts if accounts else '(없음)'}")
+    accounts_disp = [(u, info.legacy_name) for u, info in accounts]  # 로그 표시용 — legacy_name 그대로(회귀 0)
+    print(f"  moderate 배분 계좌: {accounts_disp if accounts_disp else '(없음)'}")
 
     results = []
     pending = []  # 게이트 전부 통과한 종목 — "발주 예정"
@@ -204,7 +193,9 @@ def main():
                 account_used = None  # 게이트 ②를 통과했을 때만 채워짐 — 실제 발주 시 이 계좌로.
 
                 # ② trading_active — 이 유저의 moderate 계좌 중 하나라도 켜져 있으면 통과
-                active_accounts = [a for a in acc_list if _trading_active(alloc_raw, ukey, a)]
+                # 2-2b: info.trading_active(새 API, AccountInfo) 로 직접 조회 — raw YAML
+                # 재파싱 없음.
+                active_accounts = [info for info in acc_list if info.trading_active]
                 if not active_accounts:
                     gates["trading_active"] = "skip"
                     skip_reason = "trading_active 꺼짐"
@@ -214,7 +205,8 @@ def main():
                     # 스냅샷) 전제라, 한 유저가 moderate 계좌를 여럿 가져도 같은 qty 를
                     # 여러 계좌에 중복 발주하면 안 된다 — 첫 번째 활성 계좌 하나로만
                     # 낸다(유저 "내부" 단일계좌 전제, 추후 재검토 필요).
-                    account_used = (ukey, active_accounts[0])
+                    # ⚠️ 발주용이라 legacy_name(kis_devlp 실제 계좌명) — new name 아님.
+                    account_used = (ukey, active_accounts[0].legacy_name)
 
                 # ③ 정규장
                 if skip_reason is None:
@@ -309,8 +301,8 @@ def main():
         "mode": mode,
         "market_open": market_open,
         "moderate_accounts": [
-            {"user": u, "account": a, "trading_active": _trading_active(alloc_raw, u, a)}
-            for u, a in accounts
+            {"user": u, "account": info.legacy_name, "trading_active": info.trading_active}
+            for u, info in accounts
         ],
         "n_candidates": len(results),   # results 는 유저별 candidates 를 전부 합친 것(불변식: 후보 1개당 row 1개)
         "n_pending": len(pending),
