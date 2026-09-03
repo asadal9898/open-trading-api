@@ -243,6 +243,17 @@ def _cmd_mode(user: dict, args=None) -> str:
     return f"'{args[0]}' 는 몰라요. /모드 실전 또는 /모드 모의 로 쓰세요."
 
 
+def _account_display_label(account: str) -> str:
+    """계좌명(legacy_name, kis_devlp 네임스페이스) → 사용자 표시 라벨.
+    "일반증권"은 현재 봇 모드(_cur_mode())에 따라 모의투자/실전투자로 갈리고
+    (모의≠실전이 계좌체계 재설계의 핵심 전제 — 표시도 그에 맞춤), ISA 는 모드
+    무관하게 그대로 표시한다. ⚠️ 표시 전용 — 콜백 데이터·_set_trading/_trading_active
+    호출에는 절대 이 라벨이 아니라 원래 account(legacy_name)를 그대로 써야 한다."""
+    if account == "일반증권":
+        return "모의투자" if _cur_mode() == "vps" else "실전투자"
+    return account
+
+
 def _trading_active(user: dict, account: str) -> bool:
     """계좌별 보수(배당) 자동매매 활성 여부. 기본 False(중지 상태).
     ⚠️ 계좌체계 재설계 2-6: raw YAML(accounts.일반증권 스텁, 이제 제거됨) 대신
@@ -1861,8 +1872,12 @@ def _order_with_pick(user: dict, chat_id, code: str, name: str, qty: int, is_sel
         acc = accts[0] if accts else None
         # 보수 투자 중지 계좌면 차단
         if acc and not _trading_active(user, acc):
-            return (f"\u23f8 {acc} 보수 투자가 중지 상태예요.\n"
-                    f"/상태 에서 [{acc} 시작]을 눌러야 {side_txt}할 수 있어요.")
+            # ⚠️ /상태 버튼 라벨과 일치시키려고 _account_display_label 사용(모의투자/
+            # 실전투자/ISA) — _execute_order_now(account_name=acc)는 아래에서 여전히
+            # legacy_name(acc) 그대로 씀, 라벨은 이 안내문에서만 표시용.
+            _label = _account_display_label(acc)
+            return (f"\u23f8 {_label} 보수 투자가 중지 상태예요.\n"
+                    f"/상태 에서 [{_label} 시작]을 눌러야 {side_txt}할 수 있어요.")
         return _execute_order_now(code, name, qty, is_sell, account_name=acc)
     _set_pending("orderpick:" + user["key"],
                  [{"code": code, "name": name, "qty": int(qty), "is_sell": is_sell}])
@@ -2089,9 +2104,13 @@ def _split_marker(reply: str):
         _tail = rest.split("\n", 1)[1] if "\n" in rest else ""
         rows = []
         for _a in _accs:
+            # ⚠️ 표시 라벨(_account_display_label, 모드별로 모의투자/실전투자)와
+            # 콜백 데이터(_a, legacy_name 그대로) 분리 — 콜백은 _set_trading 이
+            # _LEGACY_TO_NEW 로 변환하는 값이라 반드시 legacy_name 이어야 한다.
+            _label = _account_display_label(_a)
             rows.append([
-                {"text": f"\u25b6 {_a} 시작", "callback_data": f"trade:on:{_a}"},
-                {"text": f"\u23f8 {_a} 중지", "callback_data": f"trade:off:{_a}"},
+                {"text": f"\u25b6 {_label} 시작", "callback_data": f"trade:on:{_a}"},
+                {"text": f"\u23f8 {_label} 중지", "callback_data": f"trade:off:{_a}"},
             ])
         kb = {"inline_keyboard": rows} if rows else None
         return head + _tail, kb
