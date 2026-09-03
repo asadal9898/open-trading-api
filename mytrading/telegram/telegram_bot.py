@@ -244,21 +244,35 @@ def _cmd_mode(user: dict, args=None) -> str:
 
 
 def _trading_active(user: dict, account: str) -> bool:
-    """계좌별 보수(배당) 자동매매 활성 여부. 기본 False(중지 상태)."""
+    """계좌별 보수(배당) 자동매매 활성 여부. 기본 False(중지 상태).
+    ⚠️ 계좌체계 재설계 2-6: raw YAML(accounts.일반증권 스텁, 이제 제거됨) 대신
+    accounts_of(새 계좌명)의 AccountInfo.trading_active 로 조회한다. account 인자는
+    지금처럼 kis_devlp 네임스페이스(legacy_name, 예:"일반증권") 그대로 받고, 내부에서만
+    _LEGACY_TO_NEW 로 새 계좌명을 찾는다(_alloc_load/①②와 동일 원칙 — 반환 계약 불변)."""
     try:
-        from pathlib import Path as _P
-        _repo = _P(__file__).resolve().parents[2]
-        data = _rt_load(_repo / "mytrading" / "configs" / "allocations.yaml")
-        accs = ((data.get("users") or {}).get(user["key"], {}) or {}).get("accounts", {}) or {}
-        acc = accs.get(account, {}) or {}
-        return bool(acc.get("trading_active", False))
+        from mytrading.portfolio import load_portfolio, _LEGACY_TO_NEW
+        mode = _cur_mode()
+        new_name = _LEGACY_TO_NEW.get((account, mode))
+        if new_name is None:
+            return False
+        pf = load_portfolio()
+        info = pf.accounts_of(user["key"]).get(new_name)
+        return bool(info.trading_active) if info else False
     except Exception:
         return False
 
 
 def _set_trading(user: dict, account: str, active: bool) -> bool:
-    """계좌별 보수 자동매매 on/off 저장."""
+    """계좌별 보수 자동매매 on/off 저장.
+    ⚠️ 계좌체계 재설계 2-6: accounts.{새계좌명}.trading_active 에 저장 —
+    account 인자(legacy_name)는 _LEGACY_TO_NEW 로 새 계좌명으로 변환해서만 쓴다."""
     try:
+        from mytrading.portfolio import _LEGACY_TO_NEW
+        mode = _cur_mode()
+        new_name = _LEGACY_TO_NEW.get((account, mode))
+        if new_name is None:
+            print(f"[bot] _set_trading 실패: 지원 안 되는 계좌·모드 ({account}+{mode})")
+            return False
         from pathlib import Path as _P
         _repo = _P(__file__).resolve().parents[2]
         yp = _repo / "mytrading" / "configs" / "allocations.yaml"
@@ -266,7 +280,7 @@ def _set_trading(user: dict, account: str, active: bool) -> bool:
         users = data.setdefault("users", {})
         ub = users.setdefault(user["key"], {})
         accs = ub.setdefault("accounts", {})
-        acc = accs.setdefault(account, {})
+        acc = accs.setdefault(new_name, {})
         acc["trading_active"] = bool(active)
         _rt_dump(data, yp)
         return True
