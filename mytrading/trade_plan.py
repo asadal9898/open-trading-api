@@ -40,44 +40,50 @@ _DEFAULT_CADENCE = {
 }
 
 
-# 잔고 스냅샷 — 유저별 1회만 조회, 프로세스 안에서 캐시(종목마다 부르면 API 낭비).
-# confirm 2단계-3: user_key 별로 캐시 슬롯을 분리(딕셔너리) — Owner 하나뿐이면 여전히
-# 슬롯 1개=조회 1회로 예전 bool 플래그(_SNAP_TRIED) 와 동일하게 동작한다(회귀 0).
-_SNAP_BY_USER: dict = {}
+# 잔고 스냅샷 — (유저,계좌)별 1회만 조회, 프로세스 안에서 캐시(종목마다 부르면 API 낭비).
+# confirm 3단계-3: 캐시 키를 (user_key, account) 2-튜플로 확장 — mode 는 넣지 않는다.
+# resolve_mode() 는 KIS_MODE env/.telegram_mode 파일로만 결정되고 함수 인자가 없어서,
+# 여기서 mode 를 지원하려면 전역 KIS_MODE 를 프로세스 중간에 바꿔야 하는데 이는
+# D 의 vps 강제 게이트를 우회할 위험이 있다(CLAUDE.md: "KIS_MODE 안 주는 것만으론
+# vps 보장 안 됨"). mode 는 tradable_symbols/build_plan 레벨(3단계-2)에만 남긴다.
+_SNAP_CACHE: dict = {}
 
 
-def _snapshot(user_key: str = None):
+def _snapshot(user_key: str = None, account: str = None):
     """user_key 생략(None)이면 **환경변수를 전혀 건드리지 않고** 지금까지와 완전히
     같은 방식으로 조회한다(회귀 0 — "Owner 로 강제"조차 하지 않음, 호출 시점의
     KIS_USER 를 그대로 존중). user_key 를 명시하면 조회 직전에만
     os.environ["KIS_USER"] 를 그 값으로 세팅했다가 조회 후 원래 값으로 복원한다
     (사이드이펙트 최소화 — D 의 _place_order 가 쓰는 것과 같은 계열의 패턴이지만
-    거기는 복원을 안 하고 여기는 한다).
-    캐시 키는 user_key 자체(None 도 유효한 별도 키) — user_key=None 경로와
-    user_key="Owner" 경로는 결과가 같더라도 캐시를 공유하지 않는다(무리해서
-    합치면 "그때그때 env"와 "명시적 Owner"를 뒤섞게 돼 오히려 헷갈림)."""
-    if user_key in _SNAP_BY_USER:
-        return _SNAP_BY_USER[user_key]
+    거기는 복원을 안 하고 여기는 한다). account 는 get_brokerage(account_name=...)
+    로 그대로 전달 — account=None 이면 기존과 동일하게 첫 주문가능 계좌가 선택된다.
+    캐시 키는 (user_key, account) 튜플(둘 다 None 도 유효한 별도 키) — 인자를
+    생략한 기존 호출부는 전부 (None, None) 키 하나만 쓰므로 예전 단일 슬롯과
+    동일하게 동작한다(회귀 0)."""
+    key = (user_key, account)
+    if key in _SNAP_CACHE:
+        return _SNAP_CACHE[key]
     try:
         from mytrading.common import get_brokerage
         from mytrading.account_snapshot import get_snapshot
         if user_key is None:
-            snap = get_snapshot(get_brokerage())
+            snap = get_snapshot(get_brokerage(account_name=account))
         else:
             import os
             prev = os.environ.get("KIS_USER")
             os.environ["KIS_USER"] = user_key
             try:
-                snap = get_snapshot(get_brokerage())
+                snap = get_snapshot(get_brokerage(account_name=account))
             finally:
                 if prev is None:
                     os.environ.pop("KIS_USER", None)
                 else:
                     os.environ["KIS_USER"] = prev
     except Exception as e:
-        print(f"[trade_plan] 잔고 조회 실패({user_key or '(기본)'}) — 보유 판단 생략: {e}")
+        label = (user_key or "(기본)") + (f"/{account}" if account else "")
+        print(f"[trade_plan] 잔고 조회 실패({label}) — 보유 판단 생략: {e}")
         snap = None
-    _SNAP_BY_USER[user_key] = snap
+    _SNAP_CACHE[key] = snap
     return snap
 
 
@@ -183,9 +189,10 @@ def _apply_sizing(plan, category, price, snap, used_amt=0.0):
 
 
 def _plan_for_symbol(s: dict, asof: date = None, category=None, used_amt: float = 0.0,
-                     user_key: str = None) -> dict:
+                     user_key: str = None, account: str = None) -> dict:
     """종목 1개의 오늘 매매 계획. s 는 universe 종목 dict.
-    user_key 생략(None)이면 _snapshot() 도 그대로 None 으로 호출돼 회귀 0(기존과 동일)."""
+    user_key/account 둘 다 생략(None)이면 _snapshot() 도 그대로 (None,None) 으로
+    호출돼 회귀 0(기존과 동일)."""
     asof = asof or date.today()
     code = s["code"]
     name = s.get("name", code)
@@ -204,7 +211,7 @@ def _plan_for_symbol(s: dict, asof: date = None, category=None, used_amt: float 
         # 보유 여부로 갈림 (백테스트 검증 전략)
         #   미보유 → 52주 저점+buy_zone% AND 국면OK → 매수
         #   보유   → 평단 대비 +15% 익절 / -30% 물타기 1회 / -50% 손절
-        snap = _snapshot(user_key)
+        snap = _snapshot(user_key, account)
         h = snap.holding_of(code) if snap else None
         if h is not None:
             from mytrading.position_state import was_averaged_down
