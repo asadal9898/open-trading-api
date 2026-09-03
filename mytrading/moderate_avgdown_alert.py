@@ -110,7 +110,7 @@ def main():
     init(require_confirm=False)
 
     from mytrading.trade_plan import build_plan
-    from mytrading.portfolio import load_portfolio
+    from mytrading.portfolio import load_portfolio, _LEGACY_TO_NEW
     from mytrading.common import get_brokerage
     from mytrading.account_snapshot import get_snapshot
 
@@ -130,11 +130,14 @@ def main():
     plans = build_plan("moderate", today)
     candidates_raw = [p for p in plans if p.get("kind") == "average_down" and p.get("action") == "buy"]
 
-    # ③ cash 여유분 — alloc.cash(total_equity). accounts[0] 만 본다(D/파킹/매도와 동일 단일계좌 전제)
+    # ③ cash 여유분 — al.cash(total_equity). accounts[0] 만 본다(D/파킹/매도와 동일 단일계좌 전제)
+    # ⚠️ 계좌체계 재설계 2-5(2): allocation_by_account(새 계좌명)로 조회 — a0 는
+    # accounts[0]에서 이미 legacy_name(2-3c에서 접어둔 것)이라 그대로 _LEGACY_TO_NEW 에 넣는다.
     cash_avail = 0.0
     if accounts:
         u0, a0 = accounts[0]
-        al = pf.allocation_for(u0, a0, mode)
+        new_name = _LEGACY_TO_NEW.get((a0, mode))
+        al = pf.allocation_by_account(u0, new_name) if new_name else None
         if al is not None:
             cash_avail = al.cash(float(snap.total_equity))
 

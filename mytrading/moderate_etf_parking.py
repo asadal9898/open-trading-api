@@ -115,7 +115,7 @@ def main():
 
     from mytrading.trade_plan import holdings_value_for_category
     from mytrading.position_sizing import category_amount
-    from mytrading.portfolio import load_portfolio
+    from mytrading.portfolio import load_portfolio, _LEGACY_TO_NEW
     from mytrading.common import get_brokerage
     from mytrading.account_snapshot import get_snapshot
     from mytrading.market_calendar import is_market_open, is_trading_hours
@@ -147,14 +147,17 @@ def main():
         sys.exit(1)
     available = total_budget - used_amt - MIN_CASH_FLOOR
 
-    # ③-2 cash 여유분 — alloc.cash(total_equity). category_amount() 는 cash 를 못 다룸
-    #   (Allocation 에 cash 저장 필드가 없고 cash(total_equity) 메서드만 있음, 이전 확인됨).
+    # ③-2 cash 여유분 — al.cash(total_equity). category_amount() 는 cash 를 못 다룸
+    #   (moderate/free 배분 필드만 다룸, cash 는 파생값).
     #   moderate 계좌가 여럿이어도 첫 번째 계좌만 본다(accounts[0], D 와 동일한 단일계좌
     #   전제 — 지금 실제로도 moderate 배분 계좌가 하나뿐이라 문제없음).
+    # ⚠️ 계좌체계 재설계 2-5(2): allocation_by_account(새 계좌명)로 조회 — _a0 는
+    # accounts[0]에서 이미 legacy_name(①에서 접어둔 것)이라 그대로 _LEGACY_TO_NEW 에 넣는다.
     cash_avail = 0.0
     if accounts:
         _u0, _a0 = accounts[0]
-        _al = pf.allocation_for(_u0, _a0, mode)
+        _new_name = _LEGACY_TO_NEW.get((_a0, mode))
+        _al = pf.allocation_by_account(_u0, _new_name) if _new_name else None
         if _al is not None:
             cash_avail = _al.cash(float(snap.total_equity))
     combined_target = available + cash_avail

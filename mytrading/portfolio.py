@@ -64,6 +64,10 @@ class AccountInfo:
     trading_active: bool = False
     moderate_confirm: Dict[str, str] = field(default_factory=dict)
 
+    def cash(self, total_equity: float) -> float:
+        """여유 현금 = 총자산 - moderate - free (Allocation.cash() 와 동일 공식)."""
+        return float(total_equity) - self.moderate - self.free
+
 
 @dataclass
 class Portfolio:
