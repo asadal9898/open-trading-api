@@ -477,13 +477,19 @@ def _resolve_alloc_account(arg: str = None) -> str:
 
 
 def _alloc_load(user: dict, account: str = None):
-    """(acc_name, Allocation) — 현재 모드·지정 계좌. 없으면 (None, None)."""
+    """(acc_name, AccountInfo) — 현재 모드·지정 계좌. 없으면 (None, None).
+    ⚠️ 계좌체계 재설계 2-4 C그룹: 내부 조회만 allocation_by_account(새 계좌명)로
+    전환 — acc(반환값 0번째)는 그대로 legacy_name("일반증권" 등)이다. 호출부가
+    이 acc 를 get_brokerage(account_name=acc)(kis_devlp.yaml 네임스페이스, 새
+    계좌명과 다름)에도 쓰기 때문에 반환 계약은 바꾸지 않는다 — 바꾸면 엉뚱 계좌로
+    조용히 폴백하는 위험(2-2 설계 때 확인된 것과 동일 패턴)."""
     try:
-        from mytrading.portfolio import load_portfolio
+        from mytrading.portfolio import load_portfolio, _LEGACY_TO_NEW
         pf = load_portfolio()
         mode = _cur_mode()
         acc = _resolve_alloc_account(account)
-        al = pf.allocation_for(user["key"], acc, mode)
+        new_name = _LEGACY_TO_NEW.get((acc, mode))
+        al = pf.allocation_by_account(user["key"], new_name) if new_name else None
         if al is not None:
             return acc, al
     except Exception as e:
