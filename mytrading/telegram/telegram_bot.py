@@ -887,10 +887,13 @@ def _alloc_set_amount(user: dict, pending, text: str) -> str:
 
 
 def _list_free(pf, ukey) -> list:
-    """자유 종목 라인들. 계좌|모드 순회 시 종목 코드 기준 중복 제거."""
+    """자유 종목 라인들. 계좌(새 계좌명) 순회 시 종목 코드 기준 중복 제거.
+    ⚠️ 계좌체계 재설계 2-5(3): pf.accounts_new(새 계좌명 API) 순회로 전환 — 모의/실전
+    계좌 둘 다 legacy_name("일반증권")이 같아 free_symbols 가 동일 목록의 중복이라
+    (기존 "계좌|모드" 순회와 마찬가지로) 코드 기준 dedup 이 그대로 필요하다."""
     out = []
     seen = set()
-    for acc_name, al in (pf.allocations.get(ukey, {}) or {}).items():
+    for acc_name, al in (pf.accounts_new.get(ukey, {}) or {}).items():
         for sym in al.free_symbols:
             code = str(sym.get("code", ""))
             if code in seen:
@@ -1420,7 +1423,8 @@ def _resolve_free_symbol(user: dict, query: str):
         code, name, _m = matches[0]
     from mytrading.portfolio import load_portfolio
     pf = load_portfolio()
-    for _acc, al in (pf.allocations.get(user["key"], {}) or {}).items():
+    # ⚠️ 계좌체계 재설계 2-5(3): _list_free 와 동일하게 accounts_new(새 계좌명) 순회로 전환.
+    for _acc, al in (pf.accounts_new.get(user["key"], {}) or {}).items():
         for sym in al.free_symbols:
             if str(sym.get("code", "")).zfill(6) == str(code).zfill(6):
                 return (str(code), sym.get("name", name), sym.get("confirm", "Waiting"))
@@ -1683,11 +1687,16 @@ def _free_budget(user: dict):
     ★ moderate+free 가 총자산 초과(cash<0)면 설정 오류로 (0, name, 0) 반환.
     """
     try:
-        from mytrading.portfolio import load_portfolio
+        from mytrading.portfolio import load_portfolio, _LEGACY_TO_NEW
         pf = load_portfolio()
         mode = _cur_mode()
+        # ⚠️ 계좌체계 재설계 2-5(3): acc_name 은 _alloc_load 와 동일하게 legacy_name
+        # 그대로 유지(아래 get_brokerage(account_name=acc_name)에도 쓰이고, 반환값
+        # account_name 으로도 호출부에 나가므로 절대 새 계좌명으로 바꾸면 안 됨) —
+        # 내부 조회만 allocation_by_account(새 계좌명)로 전환.
         acc_name = _resolve_alloc_account(user.get("_alloc_acc"))
-        alloc = pf.allocation_for(user["key"], acc_name, mode)
+        new_name = _LEGACY_TO_NEW.get((acc_name, mode))
+        alloc = pf.allocation_by_account(user["key"], new_name) if new_name else None
         if alloc is None:
             return (0.0, None, 0.0)
         from mytrading.common import get_brokerage
