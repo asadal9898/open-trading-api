@@ -88,32 +88,37 @@ def category_amount(category: str, user: str = None,
                    account: str = None) -> Optional[float]:
     """allocations.yaml 에서 카테고리 배분 금액(원) 조회.
 
-    portfolio.allocation_for() 를 재사용 — "계좌|모드" 구조(vps/prod 중첩)를 정확히
-    인식한다. user/account 를 생략하면 첫 번째 사용자·계좌를 쓴다.
-    모드는 common.resolve_mode() 로 판별(env KIS_MODE → .telegram_mode 파일 → 기본 vps).
+    ⚠️ 계좌체계 재설계 2-5(1): portfolio.allocation_by_account() 재사용 — 새 계좌명
+    (평면, 모드 중첩 없음)으로 직접 조회한다. user/account(둘 다 legacy_name 기준,
+    호출부 시그니처 불변)를 생략하면 첫 번째 사용자·계좌를 쓴다. 모드는 여전히
+    common.resolve_mode() 로 판별(env KIS_MODE → .telegram_mode 파일 → 기본 vps) —
+    D 등이 매일 쓰는 원샷 스크립트라 프로세스 내내 고정이므로 여기서 mode 를
+    바꿀 이유가 없다(3단계-3 에서 이미 정리된 것과 같은 이유).
     """
     try:
-        from mytrading.portfolio import load_portfolio
+        from mytrading.portfolio import load_portfolio, _LEGACY_TO_NEW
         from mytrading.common import resolve_mode
         pf = load_portfolio()
     except Exception as e:
         print(f"[position_sizing] load_portfolio 실패: {e}")
         return None
 
-    if not pf.allocations:
+    if not pf.accounts_new:
         return None
-    ukey = user if user in pf.allocations else next(iter(pf.allocations))
-    accts = pf.allocations.get(ukey) or {}
+    ukey = user if user in pf.accounts_new else next(iter(pf.accounts_new))
+    accts = pf.accounts_new.get(ukey) or {}
     if not accts:
         return None
-    # accts 키는 "계좌명|모드" 형식 — account 미지정 시 첫 항목에서 계좌명만 뽑음
-    akey = account or next(iter(accts)).split("|", 1)[0]
+    # account 미지정 시 첫 항목의 legacy_name 을 씀(구버전의 "계좌명|모드"→계좌명
+    # 추출과 동일한 의미 — 어느 쪽이든 "그 유저의 대표 계좌 이름"을 얻는 것뿐).
+    akey = account or next(iter(accts.values())).legacy_name
 
     mode = resolve_mode()
-    alloc = pf.allocation_for(ukey, akey, mode)
-    if alloc is None:
+    new_name = _LEGACY_TO_NEW.get((akey, mode))
+    info = accts.get(new_name) if new_name else None
+    if info is None:
         return None
-    v = getattr(alloc, category, None)
+    v = getattr(info, category, None)
     return float(v) if v is not None else None
 
 
