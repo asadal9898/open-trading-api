@@ -199,6 +199,14 @@ _ACCOUNT_MODE_MAP = {
     "ISA증권": ("ISA", "prod"),
 }
 
+# 역방향(legacy_name, mode) → 새 계좌명 — legacy_name+mode 로 저장 대상을 물어오는
+# 쪽(텔레그램 봇 /비중 등)이 실제 YAML 위치(새 계좌명, 평면)를 알아내는 데 쓴다.
+# _ACCOUNT_MODE_MAP 이 데이터가 아니라 고정 상수라 이 역매핑도 고정 상수로 충분
+# (런타임에 accounts_of() 로 매번 탐색할 필요 없음). ISA+vps 처럼 매핑에 없는
+# 조합은 .get() 이 None 을 반환 — 호출부가 이걸 "지원 안 되는 계좌·모드"로
+# 처리해야 한다(죽은 가지를 새로 만들지 않기 위함).
+_LEGACY_TO_NEW = {v: k for k, v in _ACCOUNT_MODE_MAP.items()}
+
 
 def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
                    uni_path: Path = UNIVERSE_PATH) -> Portfolio:

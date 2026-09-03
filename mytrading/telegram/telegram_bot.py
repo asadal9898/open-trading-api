@@ -847,6 +847,17 @@ def _alloc_set_amount(user: dict, pending, text: str) -> str:
                     f"총자산({te:,.0f})을 초과해요. 저장 안 함.\n"
                     f"cash 금액을 다시 입력하세요.")
 
+    # ⚠️ 계좌체계 재설계 — /비중 버그 수정: acc_name/_mode 는 legacy_name+mode
+    # (예: "일반증권"+"vps") 지만, allocations.yaml 은 이제 평면 새 계좌명
+    # (예: "모의투자증권")으로 저장한다 — portfolio._LEGACY_TO_NEW 로 실제 저장
+    # 위치를 찾는다. 매핑에 없는 조합(예: ISA+vps, ISA 는 모의 미지원)이면 죽은
+    # 가지를 새로 만들지 않고 에러로 막는다.
+    from mytrading.portfolio import _LEGACY_TO_NEW
+    new_name = _LEGACY_TO_NEW.get((acc_name, _mode))
+    if new_name is None:
+        _set_pending("alloc_input:" + user["key"], None)
+        return f"⛔ 지원 안 되는 계좌·모드 조합이에요 ({acc_name}+{_mode}). 저장 안 함."
+
     # yaml 저장 — moderate/free 둘 다(스키마 불변). cash 는 저장 안 함(파생값 유지).
     from pathlib import Path as _P
     _repo = _P(__file__).resolve().parents[2]
@@ -855,11 +866,9 @@ def _alloc_set_amount(user: dict, pending, text: str) -> str:
     _users = data.setdefault("users", {})
     _ub = _users.setdefault(user["key"], {})
     _accts = _ub.setdefault("accounts", {})
-    _acc_block = _accts.setdefault(acc_name, {})
-    if _mode not in _acc_block or not isinstance(_acc_block.get(_mode), dict):
-        _acc_block[_mode] = _acc_block.get(_mode) if isinstance(_acc_block.get(_mode), dict) else {}
-    _acc_block[_mode]["moderate"] = mod
-    _acc_block[_mode]["free"] = int(free) if free is not None else 0
+    _acc_block = _accts.setdefault(new_name, {})
+    _acc_block["moderate"] = mod
+    _acc_block["free"] = int(free) if free is not None else 0
     _rt_dump(data, ypath)
     _set_pending("alloc_input:" + user["key"], None)
 
@@ -902,14 +911,21 @@ _ACTION_TO_STATE = {"a": "Approval", "r": "Rejected", "p": "Paused"}
 
 
 def _set_confirm_state(code: str, new_state: str, user_key: str) -> bool:
-    """유저(user_key)의 moderate confirm 을 new_state 로 변경 — 1단계: 저장 위치가
-    allocations.yaml 의 users.{user_key}.moderate_confirm 으로 바뀜(유저별 분리).
+    """유저(user_key)의 moderate confirm 을 new_state 로 변경.
+    ⚠️ 계좌체계 재설계 — confirm 버그 수정(②, ①의 _LEGACY_TO_NEW 패턴 재사용):
+    저장 위치가 allocations.yaml 의 users.{user_key}.accounts.{새계좌명}.moderate_confirm
+    으로 바뀐다 — load_portfolio() 가 실제로 읽는 위치와 맞춘다. 계좌는 "일반증권"
+    고정(confirm 은 moderate 카테고리 전용이라 ISA 는 대상 아님), 모드는 클릭 시점의
+    봇 현재 모드(_cur_mode()) — confirm 버튼 callback_data 에 모드 정보가 없어(종목코드
+    뿐) 클릭 시점 모드가 유일한 판단 근거이며, 이게 "vps 테스트 승인이 prod 실전에
+    자동 반영되면 안 된다"는 confirm 모드분리 설계 의도와도 맞는다.
     universe_ko.yaml 의 confirm 은 더 이상 여기서 안 씀(동결 — portfolio.py 의
     폴백으로만 읽힘, MODERATE_FUNDING_DESIGN.md 관련 논의 참고).
     종목이 moderate 종목풀(universe_ko.yaml)에 실제 있는지는 그대로 확인한다(기존
     동작과 동일 — 없는 종목이면 기록 안 하고 False)."""
     try:
         from pathlib import Path as _P
+        from mytrading.portfolio import _LEGACY_TO_NEW
         _repo = _P(__file__).resolve().parents[2]
         yp = _repo / "mytrading" / "configs" / "universe_ko.yaml"
         udata = _rt_load(yp)
@@ -917,9 +933,14 @@ def _set_confirm_state(code: str, new_state: str, user_key: str) -> bool:
                      for it in (udata.get("moderate") or []))
         if not exists:
             return False
+        new_name = _LEGACY_TO_NEW.get(("일반증권", _cur_mode()))
+        if new_name is None:
+            print(f"[bot] _set_confirm_state 실패: 지원 안 되는 모드 ({_cur_mode()})")
+            return False
         ap = _repo / "mytrading" / "configs" / "allocations.yaml"
         adata = _rt_load(ap)
-        mc = adata.setdefault("users", {}).setdefault(user_key, {}).setdefault("moderate_confirm", {})
+        accts = adata.setdefault("users", {}).setdefault(user_key, {}).setdefault("accounts", {})
+        mc = accts.setdefault(new_name, {}).setdefault("moderate_confirm", {})
         mc[str(code).zfill(6)] = new_state
         _rt_dump(adata, ap)
         return True
@@ -940,15 +961,22 @@ def _bulk_set_state(user: dict, new_state: str) -> str:
     label = _CONFIRM_LABELS.get(new_state, new_state)
     n_mod, n_free = 0, 0
 
-    # 1) moderate confirm (유저별 1단계) — 종목 목록은 universe_ko.yaml 에서 읽되
-    #    (그 confirm 은 동결된 폴백으로만 참고), 실제 기록은 allocations.yaml 의
-    #    users.{user}.moderate_confirm 에 한다. universe_ko.yaml 자체는 안 건드림.
+    # 1) moderate confirm — 종목 목록은 universe_ko.yaml 에서 읽되(그 confirm 은 동결된
+    #    폴백으로만 참고), 실제 기록은 allocations.yaml 의
+    #    users.{user}.accounts.{새계좌명}.moderate_confirm 에 한다(②, _set_confirm_state
+    #    와 동일한 _LEGACY_TO_NEW 패턴 — 일반증권+현재모드). universe_ko.yaml 자체는
+    #    안 건드림.
     try:
+        from mytrading.portfolio import _LEGACY_TO_NEW
+        new_name = _LEGACY_TO_NEW.get(("일반증권", _cur_mode()))
+        if new_name is None:
+            raise RuntimeError(f"지원 안 되는 모드 ({_cur_mode()})")
         yp = _repo / "mytrading" / "configs" / "universe_ko.yaml"
         udata = _rt_load(yp)
         ap = _repo / "mytrading" / "configs" / "allocations.yaml"
         adata = _rt_load(ap)
-        mc = adata.setdefault("users", {}).setdefault(user["key"], {}).setdefault("moderate_confirm", {})
+        accts = adata.setdefault("users", {}).setdefault(user["key"], {}).setdefault("accounts", {})
+        mc = accts.setdefault(new_name, {}).setdefault("moderate_confirm", {})
         ch = False
         for it in (udata.get("moderate") or []):
             if not isinstance(it, dict):
