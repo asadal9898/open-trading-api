@@ -38,18 +38,15 @@ A4_CAP = 2_000_000
 
 
 def _moderate_accounts(pf, mode: str) -> list:
-    """moderate 배분액(>0)이 있는 (user_key, account_name) 목록 — 현재 모드 기준.
-    moderate_order_runner.py/moderate_etf_parking.py/moderate_etf_sell.py 의 동명 함수와
-    동일 패턴(독립 구현 — 서로 import 안 함)."""
+    """moderate 배분액(>0)이 있는 (user_key, AccountInfo) 목록 — 현재 모드 기준.
+    계좌체계 재설계 2-3c: moderate_order_runner.py(D) 2-2b 와 동일 패턴으로 전환 —
+    "계좌|모드" 합성키 파싱 대신 info.mode/info.moderate 로 직접 필터한다(독립
+    구현 — 서로 import 안 함, D 와 로직만 동일)."""
     out = []
-    for ukey, accts in pf.allocations.items():
-        for key, al in accts.items():
-            if "|" in key:
-                acc_name, acc_mode = key.rsplit("|", 1)
-            else:
-                acc_name, acc_mode = key, "vps"
-            if acc_mode == mode and al.moderate > 0:
-                out.append((ukey, acc_name))
+    for ukey, accts in pf.accounts_new.items():
+        for info in accts.values():
+            if info.mode == mode and info.moderate > 0:
+                out.append((ukey, info))
     return out
 
 
@@ -119,7 +116,12 @@ def main():
 
     today = date.today()
     pf = load_portfolio()
-    accounts = _moderate_accounts(pf, mode)
+    # ⚠️ 계좌체계 재설계 2-3c: accounts_of 기반 _moderate_accounts 는 AccountInfo 객체를
+    #   반환한다 — JSON 직렬화(log_data)에 그대로 넣으면 터지고, allocation_for(u0,a0,mode)
+    #   도 legacy_name("일반증권") 기준이라 새 계좌명을 넘기면 조회 실패한다. 호출 직후
+    #   즉시 legacy_name 문자열로 접어서 예전과 동일한 (user_key, account_name) 튜플
+    #   리스트로 되돌린다 — 아래 코드는 전부 이 문자열 튜플을 그대로 쓰므로 무변경.
+    accounts = [(u, info.legacy_name) for u, info in _moderate_accounts(pf, mode)]
     snap = get_snapshot(get_brokerage())
 
     # ② build_plan("moderate") → kind=="average_down" AND action=="buy" 만
