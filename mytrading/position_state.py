@@ -96,9 +96,10 @@ def mark_averaged_down(code: str) -> None:
 def mark_bought(code: str, bought_date: Optional[date] = None) -> None:
     """실발주 성공 시 매수일 기록 (주기 중복매수 판정용, A-3).
 
-    ⚠️ TODO(D 실발주 붙일 때 연결): 이 함수를 호출하는 코드가 아직 없다.
-    실제 주문 체결 성공 직후 이 함수를 호출하도록 연결해야 한다.
-    그전까진 last_bought 가 항상 비어있어 bought_within_cadence() 는 늘 False(스킵 안 함)다.
+    ⚠️ moderate_order_runner.py 의 _place_order() 에서 호출됨(D-2 연결 완료, 82-83행) —
+    submit_order 성공 직후 자동 호출. 단 D 배당주 매수는 아직 실매수 성공 사례가
+    0건이라(2026-09-04 기준) 이 호출 자체가 실제로 실행된 적은 없음 — 코드는 연결
+    완료, 실행 경로는 미검증.
     """
     data = _load()
     st = data.get(str(code)) or {}

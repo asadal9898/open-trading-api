@@ -129,8 +129,10 @@ def _apply_sizing(plan, category, price, snap, used_amt=0.0):
         return
 
     # A-3: 주기 중복매수 방지 — is_trade_day(요일 고정) 대신 last_bought 기준으로 판정.
-    # ⚠️ TODO(D 실발주 붙일 때): position_state.mark_bought() 호출부가 아직 없다.
-    #   지금은 last_bought 가 항상 비어있어 이 게이트는 실질적으로 늘 통과(스킵 안 함)한다.
+    # ⚠️ position_state.mark_bought() 는 moderate_order_runner.py 의 _place_order() 에서
+    #   이미 호출됨(D-2 연결 완료) — 단 D 배당주 매수는 아직 실매수 성공 0건이라
+    #   실제로 호출된 적 없음, last_bought 가 계속 비어있어 이 게이트는 지금까지
+    #   실질적으로 늘 통과(스킵 안 함)해왔다. 코드는 연결 완료, 실행 검증은 미완.
     try:
         from mytrading.position_state import bought_within_cadence
         from mytrading.order_pace import cadence_days_for
