@@ -75,17 +75,11 @@ class Portfolio:
     allocations: Dict[str, Dict[str, Allocation]] = field(default_factory=dict)
     # universe: {category: [{code, name}]}
     universe: Dict[str, List[dict]] = field(default_factory=dict)
-    # moderate confirm — 3단계-1: 계좌·모드별 3중 중첩으로 전환.
-    # {user_key: {account_name: {mode: {종목코드: confirm 상태}}}}
-    # allocations.yaml 의 users.{key}.accounts.{계좌}.{모드}.moderate_confirm 에서 옴
-    # (배분액 moderate/free 와 같은 depth). tradable_symbols/paused_symbols 가
-    # universe_ko.yaml 의 confirm 보다 먼저 이걸 본다.
-    moderate_confirm: Dict[str, Dict[str, Dict[str, Dict[str, str]]]] = field(default_factory=dict)
     # 계좌체계 재설계 2-1: 새 계좌명 기준 조회용 — {user_key: {새계좌명: AccountInfo}}.
     # allocations.yaml 의 users.{key}.accounts.{새계좌명} 중 moderate/free 키가 있는
-    # (=신규 평면 계좌) 블록만 담는다. 기존 allocations/moderate_confirm 필드와는
-    # 완전히 독립된 별도 저장소 — 이 필드를 쓰는 호출부가 아직 없어 추가만으로
-    # 기존 API 는 전혀 영향받지 않는다(회귀 0).
+    # (=신규 평면 계좌) 블록만 담는다. tradable_symbols/paused_symbols(2-7)가 여기의
+    # AccountInfo.moderate_confirm 을 읽는다 — 구식 3중첩(user/계좌/모드) 필드는
+    # 2-7에서 제거됨(이 필드가 유일한 소비자였음).
     accounts_new: Dict[str, Dict[str, AccountInfo]] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
 
@@ -118,13 +112,28 @@ class Portfolio:
         """분류별 종목 [{code, name}] 리스트."""
         return self.universe.get(category, [])
 
-    # moderate confirm 임시 하드코딩 상수 — 3단계-2에서 tradable_symbols/paused_symbols
-    # 에 account/mode 인자가 생겨서 이제 "아무도 안 넘겼을 때만" 쓰는 순수 폴백이 됨
-    # (2단계-1 이후의 user_key 와 동일한 역할). D가 실제로 다루는 유일한 조합
-    # (Owner/일반증권/vps)과 정확히 일치하므로 기존 호출부는 전부 회귀 0.
+    # moderate confirm 임시 하드코딩 상수 — tradable_symbols/paused_symbols 에서
+    # "아무도 안 넘겼을 때만" 쓰는 순수 폴백(2단계-1 이후의 user_key 와 동일한 역할).
+    # D가 실제로 다루는 유일한 조합(Owner/일반증권/vps)과 정확히 일치하므로 기존
+    # 호출부는 전부 회귀 0. account/mode 는 legacy_name+모드 — _LEGACY_TO_NEW 로
+    # 새 계좌명을 찾는 데 쓴다(2-7).
     _CONFIRM_OWNER = "Owner"
     _CONFIRM_ACCOUNT = "일반증권"
     _CONFIRM_MODE = "vps"
+
+    def _confirm_for(self, user_key: str = None, account: str = None,
+                     mode: str = None) -> Dict[str, str]:
+        """(유저,계좌,모드)의 moderate_confirm {코드: 상태} — 2-7: accounts_new
+        (새 계좌명 API)의 AccountInfo.moderate_confirm 을 읽는다. account/mode 는
+        legacy_name+모드(예:"일반증권"+"vps") 그대로 받고, 내부에서만 _LEGACY_TO_NEW
+        로 새 계좌명을 찾는다(_alloc_load 등과 동일 원칙). 매핑에 없는 조합(예:
+        ISA+vps)이거나 그 계좌가 없으면 빈 dict(= 승인 정보 없음, 기존과 동일 동작)."""
+        new_name = _LEGACY_TO_NEW.get((account or self._CONFIRM_ACCOUNT,
+                                       mode or self._CONFIRM_MODE))
+        if new_name is None:
+            return {}
+        info = self.accounts_new.get(user_key or self._CONFIRM_OWNER, {}).get(new_name)
+        return info.moderate_confirm if info else {}
 
     def tradable_symbols(self, category: str = None, user_key: str = None,
                          account: str = None, mode: str = None) -> List[str]:
@@ -135,8 +144,8 @@ class Portfolio:
         그대로다(회귀 0). 셋 다 명시하면 그 (유저,계좌,모드)의 moderate_confirm 을 본다.
 
         판정 우선순위:
-          1) self.moderate_confirm[user][account][mode][code] (allocations.yaml,
-             계좌·모드별 신규 저장소 — 배분액 moderate/free 와 같은 depth)
+          1) AccountInfo.moderate_confirm[code] (allocations.yaml, 새 계좌명 밑,
+             2-7 — 배분액 moderate/free 와 같은 depth)
           2) universe_ko.yaml 의 confirm(사람) — 마이그레이션 후 더 이상 안 써지는
              동결된 값이지만, 폴백으로 계속 읽는다(신규 위치가 비어있을 때 안전망).
           3) auto_confirm(자동, score_dividend.py)
@@ -144,9 +153,7 @@ class Portfolio:
         둘 다 없을 때만 본다. 둘 다 없으면 매매 불가(기존과 동일 — 명시적 승인만 매매).
         """
         cats = [category] if category else _CATEGORIES
-        user_confirm = (self.moderate_confirm.get(user_key or self._CONFIRM_OWNER, {})
-                            .get(account or self._CONFIRM_ACCOUNT, {})
-                            .get(mode or self._CONFIRM_MODE, {}))
+        user_confirm = self._confirm_for(user_key, account, mode)
         out = []
         for cat in cats:
             for s in self.universe.get(cat, []):
@@ -168,9 +175,7 @@ class Portfolio:
         인자/판정 우선순위는 tradable_symbols 와 동일(생략 시 Owner/일반증권/vps
         폴백, 회귀 0)."""
         cats = [category] if category else _CATEGORIES
-        user_confirm = (self.moderate_confirm.get(user_key or self._CONFIRM_OWNER, {})
-                            .get(account or self._CONFIRM_ACCOUNT, {})
-                            .get(mode or self._CONFIRM_MODE, {}))
+        user_confirm = self._confirm_for(user_key, account, mode)
         out = []
         for cat in cats:
             for s in self.universe.get(cat, []):
@@ -236,11 +241,6 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
                 out.append(entry)
         return out
 
-    # moderate confirm — 3단계-1: {user: {account: {mode: {code: state}}}}.
-    # 계좌체계 재설계 1단계(2026-09-02)부터는 아래 _ACCOUNT_MODE_MAP 을 거쳐
-    # 채운다(같은 depth) — 자세한 내용은 _ACCOUNT_MODE_MAP 주석 참고.
-    moderate_confirm: Dict[str, Dict[str, Dict[str, Dict[str, str]]]] = {}
-
     for ukey, ublock in (araw.get("users", {}) or {}).items():
         accts = (ublock or {}).get("accounts", {}) or {}
         for acc_name, vals in accts.items():
@@ -279,13 +279,6 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
             # 키: "계좌|모드" 로 저장 (allocation_for 에서 분해) — legacy_name 기준이라
             # 예전과 동일한 키("일반증권|vps" 등), 기존 호출부 전부 회귀 0.
             allocations.setdefault(ukey, {})[f"{legacy_name}|{mode}"] = al
-
-            # moderate confirm(3단계-1) — 같은 vals(계좌 블록)에서 같이 뽑음
-            mc = vals.get("moderate_confirm") or {}
-            if mc:
-                (moderate_confirm.setdefault(ukey, {})
-                                .setdefault(legacy_name, {})
-                                [mode]) = {str(k).zfill(6): v for k, v in mc.items()}
 
     # 계좌체계 재설계 2-1: 새 계좌명 기준 API(accounts_new) — 위 루프와 완전히 독립된
     # 별도 패스. _ACCOUNT_MODE_MAP 에 없는 계좌명도 담는다(향후 신규 계좌 추가 시
@@ -350,8 +343,7 @@ def load_portfolio(alloc_path: Path = ALLOCATIONS_PATH,
         universe[cat] = clean
 
     return Portfolio(allocations=allocations, universe=universe,
-                     moderate_confirm=moderate_confirm, accounts_new=accounts_new,
-                     warnings=warnings)
+                     accounts_new=accounts_new, warnings=warnings)
 
 def get_watch_symbols(config: dict = None) -> list:
     """
