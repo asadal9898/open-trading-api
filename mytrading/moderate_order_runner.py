@@ -295,7 +295,10 @@ def main():
         print("\n(발주 예정 종목 없음 — 알림 생략)")
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_path = LOG_DIR / f"{today}.json"
+    # --live 는 별도 파일명(_live)에 기록 — dry-run 로그와 같은 파일을 쓰면 실전 cron
+    # 실행 후 검증용으로 dry-run 을 한 번만 더 돌려도 --live 기록(실제 발주 여부·수량)이
+    # 덮어써져 사라진다(moderate_etf_parking.py 와 동일 패턴, 오늘 D에서도 재현 확인됨).
+    log_path = LOG_DIR / (f"{today}_live.json" if args.live else f"{today}.json")
     log_data = {
         "date": str(today),
         "mode": mode,
