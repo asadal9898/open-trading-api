@@ -127,7 +127,7 @@ def handle_command(user: dict, text: str) -> str:
     _KO = {
         "/추가": "/add", "/목록": "/list", "/종목": "/list", "/승인": "/approve",
         "/거절": "/reject", "/멈춤": "/pause",
-        "/매수": "/buy", "/분할매수": "/splitbuy", "/매도": "/sell",
+        "/매수": "/buy", "/매도": "/sell",
         "/재부팅": "/reboot", "/도움": "/help", "/시작": "/start",
         "/상태": "/status", "/계좌": "/account", "/비중": "/alloc",
         "/현금매수": "/cashbuy",
@@ -157,7 +157,6 @@ def handle_command(user: dict, text: str) -> str:
                 "/reject(/거절) 종목명 - 매수 거절\n\n"
                 "/pause(/멈춤) 종목명\n - 매수 멈춤(잠시 안 삼)\n\n"
                 "/buy(/매수) 종목명\n - 승인 종목 일시매수\n\n"
-                "/splitbuy(/분할매수) 종목명\n - 승인 종목 분할매수\n\n"
                 "/sell(/매도) 종목명 - 보유 종목 매도\n"
                 "\n"
                 "/reboot(/재부팅) - 재부팅 (owner)")
@@ -187,9 +186,6 @@ def handle_command(user: dict, text: str) -> str:
     if cmd == "/buy":
         if not args: return "종목명을 입력하세요. 예: /매수 삼성전자"
         return _cmd_buy(user, " ".join(args))
-    if cmd == "/splitbuy":
-        if not args: return "종목명을 입력하세요. 예: /분할매수 삼성전자"
-        return _cmd_splitbuy(user, " ".join(args))
     if cmd == "/sell":
         if not args: return "종목명을 입력하세요. 예: /매도 삼성전자"
         return _cmd_sell(user, " ".join(args))
@@ -1554,20 +1550,9 @@ def _cmd_buy(user: dict, query: str) -> str:
     return _build_buy_ui(user, code, name, kind="buy")
 
 
-def _cmd_splitbuy(user: dict, query: str) -> str:
-    """/분할매수 — 승인된 종목만. 분할매수 UI."""
-    for _k in ("approve:", "approve_plan:", "add:", ""):
-        _set_pending(_k + user["key"], None)
-    gate = _approval_gate(user, query)
-    if isinstance(gate, str):
-        return gate
-    code, name = gate
-    return _build_buy_ui(user, code, name, kind="split")
-
-
 def _cmd_approve(user: dict, query: str) -> str:
     """종목명 -> free_holdings/moderate(universe_ko) 양쪽에서 confirm을 Approval 로 변경 (승인만).
-    매수 방식은 /매수 또는 /분할매수 로 별도 지정.
+    매수 방식은 /매수 로 별도 지정.
     query 가 '모두'/'전체' 면 일괄 승인 (Waiting → Approval)."""
     if query.strip() in ("모두", "전체", "전부", "all"):
         return _bulk_set_state(user, "Approval")
@@ -1621,7 +1606,7 @@ def _cmd_approve(user: dict, query: str) -> str:
     if not where:
         return f"{name}({code}) 은 종목풀에 없어요. 먼저 /추가 하세요."
     return (f"✅ {cur_name}({code}) 매수 승인 완료 (Approval, {'·'.join(where)})\n"
-            f"이제 /매수 {cur_name} 또는 /분할매수 {cur_name} 로 매수할 수 있어요.")
+            f"이제 /매수 {cur_name} 로 매수할 수 있어요.")
 
 
 def _cmd_set_state(user: dict, query: str, new_state: str) -> str:
@@ -1750,41 +1735,15 @@ def _free_budget(user: dict):
 
 def _parse_buy_plan(text: str) -> dict:
     """매수방식 텍스트 파싱 -> buy_plan. 규칙 기반.
-    반환: {onetime, split:{every, qty}} 또는 None(파싱 실패).
-    split.every: daily | weekly | weekly_2x | biweekly
-    """
+    반환: {onetime} 또는 None(파싱 실패).
+    ⚠️ 분할매수(주기 반복) 기능 제거됨(2026-09-04) — 일시매수만 인식한다."""
     import re
     plan = {}
-    t = text
 
-    # 1) 일시매수 추출 후 원문에서 제거 (분할 수량과 혼동 방지)
     onetime_pat = r"(?:일시매수|일시|한\s*번에|한번에|1회에)\s*([0-9]+)\s*주"
-    m = re.search(onetime_pat, t)
+    m = re.search(onetime_pat, text)
     if m:
         plan["onetime"] = int(m.group(1))
-        t = t[:m.start()] + " " + t[m.end():]
-
-    # 2) 분할 빈도 판정 (우선순위: 격주 > 주2회 > 주1회 > 매일)
-    #    매칭된 빈도 표현은 t에서 제거 -> 수량 숫자와 안 겹치게
-    freq_pats = [
-        ("biweekly",  r"격주|보름\s*마다?|2\s*주\s*(?:마다|에\s*(?:1\s*회|한\s*번)|1\s*회)"),
-        ("weekly_2x", r"주\s*2\s*회|주에\s*2\s*회|일주일에\s*2\s*회"),
-        ("weekly",    r"매주|주\s*1\s*회|주에\s*1\s*회|일주일에\s*1\s*회|주마다"),
-        ("daily",     r"매일|하루\s*(?:마다|에)|데일리"),
-    ]
-    every = None
-    for _name, _pat in freq_pats:
-        mm = re.search(_pat, t)
-        if mm:
-            every = _name
-            t = t[:mm.start()] + " " + t[mm.end():]
-            break
-
-    # 3) 남은 텍스트에서 분할 수량 (N주씩 우선, 없으면 N주)
-    if every:
-        qm = re.search(r"([0-9]+)\s*주\s*씩", t) or re.search(r"([0-9]+)\s*주", t)
-        if qm:
-            plan["split"] = {"every": every, "qty": int(qm.group(1))}
 
     return plan if plan else None
 def _approve_parse(user: dict, text: str) -> str:
@@ -1813,18 +1772,15 @@ def _approve_parse(user: dict, text: str) -> str:
     plan = _parse_buy_plan(text)
     if not plan:
         return ("못 알아들었어요. 예시대로 입력해주세요:\n"
-                "  일시 10주 / 분할 주1회 1주 / 일시 5주 + 분할 주1회 1주")
+                "  일시 10주")
     # 파싱 결과 재확인
     _set_pending("approve_plan:" + user["key"], [plan])
-    parts = []
-    if plan.get("onetime"):
-        parts.append(f"일시매수 {plan['onetime']}주")
-    if plan.get("split"):
-        sp = plan["split"]
-        freq = {"daily": "매일", "weekly": "매주",
-                "weekly_2x": "주2회", "biweekly": "격주"}.get(sp["every"], sp["every"])
-        parts.append(f"{freq} {sp['qty']}주씩")
-    return (f"{name} 매수 계획:\n  " + "\n  ".join(parts) +
+    # ⚠️ 분할매수 기능 제거됨(2026-09-04) — "매주/매일/격주/매월" 같은 분할 관련 문구가
+    # 남아있으면(구 습관으로 입력했을 가능성) 조용히 무시되지 않게 안내를 덧붙인다.
+    import re as _re
+    warn = ("\n⚠️ 분할매수 기능은 제거됐어요 — 일시매수만 저장돼요."
+            if _re.search(r"매주|매일|격주|매월", text) else "")
+    return (f"{name} 매수 계획:\n  일시매수 {plan['onetime']}주{warn}"
             "\n맞나요?  예 / 아니요\x00YESNO")
 
 
@@ -2053,44 +2009,11 @@ def _stepper_keyboard(code, cur, full, price, half=0, kind=None):
             {"text": "\u2705 매수", "callback_data": f"pbuy_go:{code}"},
             {"text": "\u274c 취소", "callback_data": f"buynow_cancel:{code}"},
         ])
-    elif kind == "split":
-        rows.append([
-            {"text": "\u2705 분할매수 설정", "callback_data": f"pbuy_go:{code}"},
-            {"text": "\u274c 취소", "callback_data": f"buynow_cancel:{code}"},
-        ])
     else:
         rows.append([
-            {"text": "\u2705 매수 (분할매수 설정)", "callback_data": f"pbuy_go:{code}"},
+            {"text": "\u2705 매수 예약", "callback_data": f"pbuy_go:{code}"},
             {"text": "\u274c 취소 (등록만)", "callback_data": f"pbuy_cancel:{code}"},
         ])
-    return {"inline_keyboard": rows}
-
-def _split_keyboard(code, qty, onetime, every="daily"):
-    """분할매수 설정 키보드. qty=주기당수량, onetime=확정된일시매수, every=주기."""
-    qty = max(1, int(qty or 1))
-    freq_labels = [("daily", "매일"), ("weekly", "매주"),
-                   ("biweekly", "격주"), ("monthly", "매월")]
-    rows = [
-        [{"text": f"분할 수량: {qty}주 (주기당)", "callback_data": "noop"}],
-        [
-            {"text": "-10", "callback_data": f"sstep:{code}:-10"},
-            {"text": "-5", "callback_data": f"sstep:{code}:-5"},
-            {"text": "-1", "callback_data": f"sstep:{code}:-1"},
-            {"text": "+1", "callback_data": f"sstep:{code}:1"},
-            {"text": "+5", "callback_data": f"sstep:{code}:5"},
-            {"text": "+10", "callback_data": f"sstep:{code}:10"},
-        ],
-    ]
-    freq_row = []
-    for key, label in freq_labels:
-        chk = "\u2705 " if key == every else ""
-        freq_row.append({"text": f"{chk}{label}",
-                         "callback_data": f"sfreq:{code}:{key}"})
-    rows.append(freq_row)
-    rows.append([
-        {"text": "\u2705 분할매수 저장", "callback_data": f"ssave:{code}"},
-        {"text": "\u274c 취소 (분할 안 함)", "callback_data": f"snone:{code}"},
-    ])
     return {"inline_keyboard": rows}
 
 
@@ -2513,7 +2436,7 @@ def poll_once():
                         continue
                     ctx = ctxp[0]
                     sel = max(0, int(ctx.get("sel", 0) or 0))
-                    # /매수(일시) 모드: 분할 UI 안 가고 바로 저장
+                    # /매수(일시) 모드: 즉시 발주
                     if ctx.get("kind") == "buy":
                         if sel < 1:
                             notify._send_raw(chat_id,
@@ -2525,110 +2448,27 @@ def poll_once():
                         if result is not None:
                             notify._send_raw(chat_id, result)
                         continue
-                    amt = sel * ctx["price"]
-                    if sel >= 1:
-                        print(f"[bot] {user['name']} [버튼] 일시매수 확정: {ctx['name']} {sel}주")
-                    else:
-                        print(f"[bot] {user['name']} [버튼] 일시매수 0주(안함) → 분할설정")
-                    # 일시매수 확정 저장, 분할 설정 초기화 (같은 ctx 재사용)
-                    ctx["onetime"] = sel
-                    ctx["split_qty"] = 1
-                    ctx["every"] = "daily"
-                    _set_pending("pbuy_ctx:" + user["key"], [ctx])
-                    _onetime_line = (f"일시매수 {sel}주 ({amt:,}원) 확정.\n"
-                                     if sel >= 1 else "일시매수 없음 (분할만).\n")
-                    body = (f"✅ (모의) {ctx['name']}({ctx['code']}) "
-                            + _onetime_line +
-                            f"────────\n"
-                            f"📊 분할매수 설정\n"
-                            f"주기당 살 수량과 주기를 고르세요.")
-                    kb = _split_keyboard(ctx["code"], 1, sel, every="daily")
-                    notify._send_raw(chat_id, body, reply_markup=kb)
-                    continue
-                if data.startswith("sstep:"):
-                    _p = data.split(":")
-                    delta = int(_p[2]) if len(_p) > 2 and _p[2].lstrip("-").isdigit() else 0
-                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
-                    if not ctxp:
-                        continue
-                    ctx = ctxp[0]
-                    q = max(1, (ctx.get("split_qty", 1)) + delta)
-                    ctx["split_qty"] = q
-                    _set_pending("pbuy_ctx:" + user["key"], [ctx])
-                    mid = cb_msg.get("message_id")
-                    kb = _split_keyboard(ctx["code"], q, ctx.get("onetime", 0),
-                                         every=ctx.get("every", "daily"))
-                    if mid:
-                        _edit_markup(chat_id, mid, kb)
-                    continue
-                if data.startswith("sfreq:"):
-                    _p = data.split(":")
-                    every = _p[2] if len(_p) > 2 else "daily"
-                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
-                    if not ctxp:
-                        continue
-                    ctx = ctxp[0]
-                    ctx["every"] = every
-                    _set_pending("pbuy_ctx:" + user["key"], [ctx])
-                    mid = cb_msg.get("message_id")
-                    kb = _split_keyboard(ctx["code"], ctx.get("split_qty", 1),
-                                         ctx.get("onetime", 0), every=every)
-                    if mid:
-                        _edit_markup(chat_id, mid, kb)
-                    print(f"[bot] {user['name']} [분할주기] {every}")
-                    continue
-                if data.startswith("ssave:"):
-                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
-                    if not ctxp:
-                        continue
-                    ctx = ctxp[0]
-                    plan = {"onetime": ctx.get("onetime", 0),
-                            "split": {"every": ctx.get("every", "daily"),
-                                      "qty": ctx.get("split_qty", 1)}}
-                    freq_ko = {"daily": "매일", "weekly": "매주",
-                               "biweekly": "격주", "monthly": "매월"}.get(
-                        plan["split"]["every"], plan["split"]["every"])
-                    # 종목이 아직 free_holdings에 없으면 먼저 등록 (모의 흐름)
-                    if _name_by_code(user, ctx["code"]) is None:
-                        _cmd_confirm_add(user)
-                    result = _save_buy_plan(user, ctx["code"], ctx["name"], plan)
-                    _set_pending("pbuy_ctx:" + user["key"], None)
-                    _set_pending("add:" + user["key"], None)
-                    print(f"[bot] {user['name']} [분할매수 저장] {ctx['name']} "
-                          f"일시{plan['onetime']} +{freq_ko}{plan['split']['qty']}주")
-                    notify._send_raw(chat_id,
-                        f"✅ (모의) {ctx['name']} 매수계획 저장\n"
-                        f"  일시매수 {plan['onetime']}주\n"
-                        f"  분할매수 {freq_ko} {plan['split']['qty']}주씩\n" + result)
-                    continue
-                if data.startswith("snone:"):
-                    ctxp = _get_pending("pbuy_ctx:" + user["key"])
-                    if not ctxp:
-                        continue
-                    ctx = ctxp[0]
-                    _onetime = int(ctx.get("onetime", 0) or 0)
-                    # 방어: 일시매수 0주 + 분할 안 함 = 빈 계획 → 저장 안 하고 등록만
-                    if _onetime < 1:
+                    # /추가 플로우(kind=None): 수량 확정 → onetime 으로 바로 저장하고 종료
+                    # (분할매수 기능 제거됨, 2026-09-04 — 예전 snone 핸들러 로직을 흡수).
+                    if sel < 1:
                         if _name_by_code(user, ctx["code"]) is None:
                             _cmd_confirm_add(user)
                         _set_pending("pbuy_ctx:" + user["key"], None)
                         _set_pending("add:" + user["key"], None)
-                        print(f"[bot] {user['name']} [빈 계획 방어] {ctx['name']} 등록만")
+                        print(f"[bot] {user['name']} [빈 계획] {ctx['name']} 등록만")
                         notify._send_raw(chat_id,
-                            f"⚠️ {ctx['name']}: 일시매수 0주 + 분할 안 함이라 "
-                            f"매수 계획이 없어요.\n종목은 등록만 했어요 "
-                            f"(나중에 /승인 으로 매수 계획을 넣을 수 있어요).")
+                            f"⚠️ {ctx['name']}: 매수 수량이 0주라 매수 계획이 없어요.\n"
+                            f"종목은 등록만 했어요 (나중에 /승인 으로 매수 계획을 넣을 수 있어요).")
                         continue
-                    plan = {"onetime": _onetime}
+                    plan = {"onetime": sel}
                     if _name_by_code(user, ctx["code"]) is None:
                         _cmd_confirm_add(user)
                     result = _save_buy_plan(user, ctx["code"], ctx["name"], plan)
                     _set_pending("pbuy_ctx:" + user["key"], None)
                     _set_pending("add:" + user["key"], None)
-                    print(f"[bot] {user['name']} [분할 안함] {ctx['name']} 일시{plan['onetime']}주")
+                    print(f"[bot] {user['name']} [매수예약] {ctx['name']} 일시{sel}주")
                     notify._send_raw(chat_id,
-                        f"✅ (모의) {ctx['name']} 일시매수 {plan['onetime']}주만 저장 "
-                        f"(분할 안 함)\n" + result)
+                        f"✅ (모의) {ctx['name']} 매수 예약 저장 — 일시매수 {sel}주\n" + result)
                     continue
                 if data.startswith("sell_go:"):
                     ctxp = _get_pending("pbuy_ctx:" + user["key"])
@@ -2654,7 +2494,7 @@ def poll_once():
                     continue
                 if data.startswith("buynow_cancel:"):
                     _set_pending("pbuy_ctx:" + user["key"], None)
-                    print(f"[bot] {user['name']} [/매수·분할 취소] 변경 없음")
+                    print(f"[bot] {user['name']} [/매수 취소] 변경 없음")
                     notify._send_raw(chat_id, "취소했어요 (등록·변경 없음).")
                     continue
                 if data.startswith("pbuy_cancel:"):

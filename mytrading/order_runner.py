@@ -46,10 +46,6 @@ def _collect_targets(data, only_user=None):
                     onetime = int(plan.get("onetime", 0) or 0)
                     if onetime > 0:
                         targets.append((user, acc, it, "buy_onetime", onetime))
-                    split = plan.get("split") or {}
-                    sq = int(split.get("qty", 0) or 0)
-                    if sq > 0:
-                        targets.append((user, acc, it, "buy_split", sq))
     return targets
 
 
@@ -90,7 +86,7 @@ def run_orders(dry_run=True, only_user=None):
         name = it.get("name", code)
         side_txt = "매도" if action == "sell" else "매수"
         side_en = "SELL" if action == "sell" else "BUY"  # notify_order_submitted 는 영문 고정
-        kind_txt = {"buy_onetime": "일시", "buy_split": "분할1회", "sell": ""}[action]
+        kind_txt = {"buy_onetime": "일시", "sell": ""}[action]
         line = f"  {name}({code}) {side_txt} {kind_txt} {qty}주"
         if dry_run:
             print(f"[예정]{line}")
