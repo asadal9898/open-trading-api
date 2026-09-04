@@ -128,6 +128,16 @@ class StrategyConfig(BaseModel):
     # $param_name 패턴 (전체 문자열이 $로 시작하는 파라미터 참조인 경우)
     _PARAM_PATTERN = re.compile(r'^\$([a-zA-Z_][a-zA-Z0-9_]*)$')
 
+    @field_validator('id')
+    @classmethod
+    def validate_strategy_id(cls, value: str) -> str:
+        """전략 ID는 표시 이름이 아닌 안정적인 식별자로 제한한다."""
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', value):
+            raise ValueError(
+                "strategy.id must be 1-64 characters using letters, numbers, '_' or '-'"
+            )
+        return value
+
     @model_validator(mode='before')
     @classmethod
     def auto_fill_aliases(cls, values: dict) -> dict:

@@ -6,6 +6,7 @@ import sys
 from fastmcp import FastMCP
 
 from module import setup_environment, EnvironmentMiddleware, EnvironmentConfig, setup_kis_config
+from module.mcp_auth import McpAuthMiddleware, ensure_http_access_token
 from module.plugin import Database
 from tools import *
 
@@ -47,11 +48,12 @@ def main():
         name="My Awesome MCP Server",
         instructions="This is a server for a specific project.",
         version="1.0.0",
-        stateless_http=False,
     )
 
     # middleware
     mcp_server.add_middleware(EnvironmentMiddleware(environment=env_config))
+    access_token = ensure_http_access_token(env_config.mcp_type, env_config.mcp_access_token)
+    mcp_server.add_middleware(McpAuthMiddleware(env_config.mcp_type, access_token or None))
 
     # tools 등록
     DomesticStockTool().register(mcp_server=mcp_server)

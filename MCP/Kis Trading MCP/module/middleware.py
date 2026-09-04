@@ -19,14 +19,14 @@ class EnvironmentMiddleware(Middleware):
 
         # started_at
         started_dt = datetime.now()
-        ctx.set_state(factory.CONTEXT_STARTED_AT, started_dt.strftime("%Y-%m-%d %H:%M:%S"))
+        await ctx.set_state(factory.CONTEXT_STARTED_AT, started_dt.strftime("%Y-%m-%d %H:%M:%S"))
 
         # request id
         request_id = uuid.uuid4().hex
-        ctx.set_state(factory.CONTEXT_REQUEST_ID, request_id)
+        await ctx.set_state(factory.CONTEXT_REQUEST_ID, request_id)
 
         # context setup
-        ctx.set_state(factory.CONTEXT_ENVIRONMENT, self.environment)
+        await ctx.set_state(factory.CONTEXT_ENVIRONMENT, self.environment)
 
         try:
             result = await call_next(context)
@@ -36,11 +36,11 @@ class EnvironmentMiddleware(Middleware):
         finally:
             # ended at
             ended_at = datetime.now()
-            ctx.set_state(factory.CONTEXT_ENDED_AT, ended_at.strftime("%Y-%m-%d %H:%M:%S"))
+            await ctx.set_state(factory.CONTEXT_ENDED_AT, ended_at.strftime("%Y-%m-%d %H:%M:%S"))
 
             # time counter end
             elapsed_sec = time.perf_counter() - t0
-            ctx.set_state(factory.CONTEXT_ELAPSED_SECONDS, round(elapsed_sec, 2))
+            await ctx.set_state(factory.CONTEXT_ELAPSED_SECONDS, round(elapsed_sec, 2))
 
 
 

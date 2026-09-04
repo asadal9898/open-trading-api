@@ -36,7 +36,57 @@ MCP는 Claude를 개발한 Anthropic에서 만든 프로토콜로, AI 모델이 
 
 ### 설정 방법
 
-(9월 중 공개 예정)
+GitHub 저장소: [open-trading-api/MCP/Kis Trading MCP](https://github.com/koreainvestment/open-trading-api/tree/main/MCP/Kis%20Trading%20MCP)
+
+**요구사항:** Python 3.11+, [uv](https://docs.astral.sh/uv/), 한국투자증권 Open API 인증정보
+
+#### 1. Docker + SSE (권장, 모든 OS)
+
+상세 절차는 [KIS Trading MCP README](https://github.com/koreainvestment/open-trading-api/tree/main/MCP/Kis%20Trading%20MCP)를 참고하세요.
+
+1. Docker 이미지 빌드 및 컨테이너 실행 (`MCP_ACCESS_TOKEN` 설정)
+2. Claude Desktop에 `mcp-remote`로 `http://localhost:3000/sse` 연결
+
+```json
+{
+  "mcpServers": {
+    "kis-trade-mcp": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote",
+        "http://localhost:3000/sse",
+        "--header", "Authorization: Bearer your_strong_random_token"
+      ]
+    }
+  }
+}
+```
+
+#### 2. stdio 로컬 연동 (고급)
+
+Docker 없이 Claude Desktop·Cursor에 직접 연결합니다. Windows 사용자는 Docker 방식을 권장합니다.
+
+```json
+{
+  "mcpServers": {
+    "kis-trade-mcp": {
+      "command": "uv",
+      "args": [
+        "--directory", "{프로젝트 절대경로}/MCP/Kis Trading MCP",
+        "run", "python", "server.py"
+      ],
+      "env": {
+        "ENV": "live",
+        "MCP_TYPE": "stdio",
+        "KIS_APP_KEY": "your_app_key",
+        "KIS_APP_SECRET": "your_app_secret"
+      }
+    }
+  }
+}
+```
+
+> `MCP_TYPE=stdio`를 반드시 설정하세요. 상세 내용은 Trading MCP README의 [stdio 로컬 연동](https://github.com/koreainvestment/open-trading-api/tree/main/MCP/Kis%20Trading%20MCP) 섹션을 참고하세요.
 
 ## KIS Code Assistant MCP
 
@@ -48,7 +98,28 @@ MCP는 Claude를 개발한 Anthropic에서 만든 프로토콜로, AI 모델이 
 
 GitHub 저장소: [open-trading-api/MCP/KIS Code Assistant MCP](https://github.com/koreainvestment/open-trading-api/tree/main/MCP/KIS%20Code%20Assistant%20MCP)
 
-#### 사전 준비: 저장소 클론 및 패키지 설치
+**요구사항:** Node.js 18+, Python 3.12+, [uv](https://docs.astral.sh/uv/)
+
+#### 1. Claude Desktop (NPM/npx, 권장)
+
+Claude Desktop 설정 파일(`claude_desktop_config.json`)에 아래 내용을 추가합니다.
+
+> 설정 파일 위치
+> - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+> - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "kis-code-assistant-mcp": {
+      "command": "npx",
+      "args": ["-y", "@koreainvestment/kis-code-assistant-mcp"]
+    }
+  }
+}
+```
+
+#### 1-1. Claude Desktop (소스 클론 + uv)
 
 ```bash
 # 1. 저장소 클론
@@ -58,14 +129,6 @@ cd open-trading-api/MCP/KIS\ Code\ Assistant\ MCP
 # 2. 패키지 설치
 uv sync
 ```
-
-#### 1. Claude Desktop
-
-Claude Desktop 설정 파일(`claude_desktop_config.json`)에 아래 내용을 추가합니다.
-
-> 설정 파일 위치
-> - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-> - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
@@ -116,7 +179,18 @@ Cursor MCP 설정:
 }
 ```
 
-> Cursor는 stdio 방식도 지원합니다. Claude Desktop과 동일한 설정을 사용할 수 있습니다.
+> Cursor는 stdio 방식도 지원합니다. Claude Desktop과 동일한 npx 설정을 사용할 수 있습니다.
+>
+> ```json
+> {
+>   "mcpServers": {
+>     "kis-code-assistant-mcp": {
+>       "command": "npx",
+>       "args": ["-y", "@koreainvestment/kis-code-assistant-mcp"]
+>     }
+>   }
+> }
+> ```
 
 KIS Code Assistant MCP가 연결되었는지 확인 (경로: `Settings` > `MCP Servers`)
     

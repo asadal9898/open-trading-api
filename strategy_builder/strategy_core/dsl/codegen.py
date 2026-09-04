@@ -4,8 +4,9 @@
 파싱된 AST를 Python 전략 클래스 코드로 변환합니다.
 """
 
+import keyword
 import logging
-import os
+import re
 from strategy_core.dsl.parser import (
     StrategyDefinition,
     Condition,
@@ -18,6 +19,7 @@ from strategy_core.dsl.parser import (
     ConditionType,
     parse_strategy,
 )
+from strategy_core.storage import write_generated_strategy
 
 
 class StrategyCodeGenerator:
@@ -54,6 +56,8 @@ class StrategyCodeGenerator:
 
     def _to_class_name(self, name: str) -> str:
         """snake_case를 PascalCase로 변환"""
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", name):
+            raise ValueError(f"유효하지 않은 전략 식별자: {name!r}")
         return "".join(word.capitalize() for word in name.split("_")) + "Strategy"
 
     def _generate_imports(self) -> str:
@@ -91,21 +95,22 @@ from strategy.base_strategy import BaseStrategy'''
         # 시그널 생성 로직
         signal_logic = self._generate_signal_logic(buy_condition, sell_condition, buy_code, sell_code)
 
+        class_description = (
+            f"{name_ko} 전략\n\n"
+            f"매수 조건: {buy_condition if buy_condition else '없음'}\n"
+            f"매도 조건: {sell_condition if sell_condition else '없음'}"
+        )
+
         return f'''
 class {class_name}(BaseStrategy):
-    """
-    {name_ko} 전략
-
-    매수 조건: {buy_condition if buy_condition else '없음'}
-    매도 조건: {sell_condition if sell_condition else '없음'}
-    """
+    {class_description!r}
 
     def __init__(self{init_params}):
 {init_body}
 
     @property
     def name(self) -> str:
-        return "{name_ko}"
+        return {name_ko!r}
 
     @property
     def required_days(self) -> int:
@@ -187,8 +192,10 @@ class {class_name}(BaseStrategy):
 
         param_strs = []
         for name, default in params.items():
+            if not isinstance(name, str) or not name.isidentifier() or keyword.iskeyword(name):
+                raise ValueError(f"유효하지 않은 파라미터 이름: {name!r}")
             if isinstance(default, str):
-                param_strs.append(f'{name}: str = "{default}"')
+                param_strs.append(f"{name}: str = {default!r}")
             elif isinstance(default, float):
                 param_strs.append(f"{name}: float = {default}")
             else:
@@ -269,7 +276,7 @@ class {class_name}(BaseStrategy):
 
         elif name == "consecutive":
             direction = params[0] if params else "up"
-            return f"indicators.calc_consecutive_days(df, '{direction}')"
+            return f"indicators.calc_consecutive_days(df, {direction!r})"
 
         elif name == "change":
             return "indicators.calc_daily_change(df)"
@@ -480,7 +487,7 @@ class {class_name}(BaseStrategy):
             from core.candlestick import PATTERN_DETECTORS
             if name in PATTERN_DETECTORS or name.rstrip("_0123456789") in PATTERN_DETECTORS:
                 pattern_id = name.rstrip("_0123456789") if name not in PATTERN_DETECTORS else name
-                return f"candlestick.detect_pattern(df, '{pattern_id}')"
+                return f"candlestick.detect_pattern(df, {pattern_id!r})"
             logging.warning(f"미지원 지표: {name} → 0으로 대체")
             return "0"
 
@@ -611,7 +618,8 @@ class {class_name}(BaseStrategy):
             lines.append(f"{indent}        stock_name=stock_name,")
             lines.append(f"{indent}        action=Action.BUY,")
             lines.append(f"{indent}        strength=0.7,")
-            lines.append(f'{indent}        reason="매수 조건 충족: {buy_condition}"')
+            buy_reason = f"매수 조건 충족: {buy_condition}"
+            lines.append(f"{indent}        reason={buy_reason!r}")
             lines.append(f"{indent}    )")
             lines.append("")
 
@@ -626,7 +634,8 @@ class {class_name}(BaseStrategy):
             lines.append(f"{indent}        stock_name=stock_name,")
             lines.append(f"{indent}        action=Action.SELL,")
             lines.append(f"{indent}        strength=0.7,")
-            lines.append(f'{indent}        reason="매도 조건 충족: {sell_condition}"')
+            sell_reason = f"매도 조건 충족: {sell_condition}"
+            lines.append(f"{indent}        reason={sell_reason!r}")
             lines.append(f"{indent}    )")
             lines.append("")
 
@@ -649,7 +658,6 @@ def generate_strategy_file(
     buy_condition: str = None,
     sell_condition: str = None,
     params: dict = None,
-    output_dir: str = "strategy"
 ) -> str:
     """
     전략 파일 생성
@@ -660,8 +668,6 @@ def generate_strategy_file(
         buy_condition: 매수 조건 DSL
         sell_condition: 매도 조건 DSL
         params: 추가 파라미터
-        output_dir: 출력 디렉토리
-
     Returns:
         생성된 파일 경로
     """
@@ -672,14 +678,8 @@ def generate_strategy_file(
     generator = StrategyCodeGenerator()
     code = generator.generate(strategy)
 
-    # 파일 저장
-    os.makedirs(output_dir, exist_ok=True)
-    file_path = os.path.join(output_dir, f"strategy_{name}.py")
-
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(code)
-
-    return file_path
+    # 애플리케이션 소스 트리 밖의 전용 디렉터리에 원자적으로 저장
+    return str(write_generated_strategy(name, code))
 
 
 # 테스트

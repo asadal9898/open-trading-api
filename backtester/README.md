@@ -53,13 +53,16 @@ uv sync
 bash scripts/setup_lean_data.sh
 
 # Backend (터미널 1)
-uv run uvicorn backend.main:app --reload --port 8002
+uv run uvicorn backend.main:app --host 127.0.0.1 --port 8002
 
 # Frontend (터미널 2)
 cd frontend
 npm install
 npm run dev
 ```
+
+프론트엔드와 백엔드는 로컬 도구의 안전한 기본값으로 loopback 인터페이스에만 바인딩되며, 백엔드는 자동 reload를 사용하지 않습니다.
+외부 네트워크 제공이 필요한 경우에는 신뢰할 수 있는 인증 reverse proxy와 방화벽 뒤에서만 명시적으로 외부 bind를 설정하십시오.
 
 ### KIS API 키 설정
 

@@ -390,13 +390,14 @@ class LeanCodeGenerator:
                 candlestick_imports = f"\nfrom QuantConnect.Indicators.CandlestickPatterns import {classes_str}"
 
         slippage_info = f"\n슬리피지: {self.config.slippage * 100:.2f}%" if self.config.slippage > 0 else ""
-        return f'''"""자동 생성된 Lean 알고리즘
+        header = f'''자동 생성된 Lean 알고리즘
 전략: {self.schema.name}
 ID: {self.schema.id}
 생성일: {datetime.now().isoformat()}
 수수료율: {self.config.commission_rate * 100:.4f}%
 거래세율: {self.config.tax_rate * 100:.2f}%{slippage_info}
-"""
+'''
+        return f'''{header!r}
 
 from AlgorithmImports import *
 from datetime import datetime, timedelta{candlestick_imports}'''
@@ -559,7 +560,7 @@ class CustomFeeModel(FeeModel):
     ) -> str:
         """Algorithm 클래스 생성"""
         data_class = "USEquity" if self.config.market == "us" else "KRXEquity"
-        symbols_str = ",".join(symbols)
+        symbols_literal = repr(symbols)
 
         # 지표 초기화 코드 생성 (중복 제거됨)
         indicator_init, warmup = self._generate_indicator_init()
@@ -584,10 +585,14 @@ class CustomFeeModel(FeeModel):
         # 리스크 관리 코드 생성
         risk_init, risk_check, risk_update = self._generate_risk_management()
 
-        # 날짜 파싱
-        start_parts = start_date.split("-")
-        end_parts = end_date.split("-")
+        # 날짜는 먼저 파싱한 뒤 숫자만 source에 삽입한다.
+        try:
+            start = datetime.strptime(start_date, "%Y-%m-%d")
+            end = datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError("start_date and end_date must use YYYY-MM-DD format") from exc
         strategy_name = self.schema.name or self.schema.id
+        class_doc = f"{self.schema.name}\n\n{self.schema.description}"
         
         # 캔들스틱 딕셔너리 초기화 (캔들스틱이 있는 경우만)
         candlestick_dict_init = ""
@@ -627,17 +632,14 @@ class CustomFeeModel(FeeModel):
 
         return f'''
 class Algorithm(QCAlgorithm):
-    """{self.schema.name}
-
-    {self.schema.description}
-    """
+    {class_doc!r}
 
     def Initialize(self):
-        self.SetStartDate({start_parts[0]}, {start_parts[1].lstrip("0")}, {start_parts[2].lstrip("0")})
-        self.SetEndDate({end_parts[0]}, {end_parts[1].lstrip("0")}, {end_parts[2].lstrip("0")})
+        self.SetStartDate({start.year}, {start.month}, {start.day})
+        self.SetEndDate({end.year}, {end.month}, {end.day})
         self.SetCash({int(capital)}){benchmark_setup}
 
-        self.strategy_name = "{strategy_name}"
+        self.strategy_name = {strategy_name!r}
         self.symbols = []
         self.indicators = {{}}
         self.candlesticks = {{}}
@@ -645,7 +647,7 @@ class Algorithm(QCAlgorithm):
 {custom_init}
 {risk_init}
 
-        for symbol_str in "{symbols_str}".split(","):
+        for symbol_str in {symbols_literal}:
             symbol = self.AddData({data_class}, symbol_str, Resolution.Daily).Symbol
             self.symbols.append(symbol)
             self.indicators[symbol] = {{}}
@@ -729,35 +731,35 @@ class Algorithm(QCAlgorithm):
             # 커스텀 지표 처리
             if indicator.id == "consecutive":
                 alias = indicator.alias or indicator.id
-                lines.append(f"            self.indicators[symbol]['{alias}'] = 0  # consecutive counter")
+                lines.append(f"            self.indicators[symbol][{alias!r}] = 0  # consecutive counter")
                 max_warmup = max(max_warmup, 2)
                 continue
 
             if indicator.id == "disparity":
                 alias = indicator.alias or indicator.id
                 period = indicator.params.get("period", 20)
-                lines.append(f"            self.indicators[symbol]['{alias}_sma'] = self.SMA(symbol, {period})")
+                lines.append(f"            self.indicators[symbol][{f'{alias}_sma'!r}] = self.SMA(symbol, {period})")
                 max_warmup = max(max_warmup, period + 5)
                 continue
 
             if indicator.id == "volatility_ind":
                 alias = indicator.alias or indicator.id
                 period = indicator.params.get("period", 10)
-                lines.append(f"            self.indicators[symbol]['{alias}_returns'] = []  # daily returns buffer")
-                lines.append(f"            self.indicators[symbol]['{alias}_period'] = {period}")
+                lines.append(f"            self.indicators[symbol][{f'{alias}_returns'!r}] = []  # daily returns buffer")
+                lines.append(f"            self.indicators[symbol][{f'{alias}_period'!r}] = {period}")
                 max_warmup = max(max_warmup, period + 5)
                 continue
 
             if indicator.id == "change":
                 alias = indicator.alias or indicator.id
-                lines.append(f"            self.indicators[symbol]['{alias}'] = 0  # daily change %")
+                lines.append(f"            self.indicators[symbol][{alias!r}] = 0  # daily change %")
                 max_warmup = max(max_warmup, 2)
                 continue
 
             if indicator.id == "returns":
                 alias = indicator.alias or indicator.id
                 period = indicator.params.get("period", 10)
-                lines.append(f"            self.indicators[symbol]['{alias}_roc'] = self.ROCP(symbol, {period})")
+                lines.append(f"            self.indicators[symbol][{f'{alias}_roc'!r}] = self.ROCP(symbol, {period})")
                 max_warmup = max(max_warmup, period + 5)
                 continue
 
@@ -765,9 +767,9 @@ class Algorithm(QCAlgorithm):
                 alias = indicator.alias or indicator.id
                 period = indicator.params.get("period", 20)
                 lines.append(f"            if self.kospi_symbol is not None:")
-                lines.append(f"                self.indicators[symbol]['{alias}'] = self.B(symbol, self.kospi_symbol, {period})")
+                lines.append(f"                self.indicators[symbol][{alias!r}] = self.B(symbol, self.kospi_symbol, {period})")
                 lines.append(f"            else:")
-                lines.append(f"                self.indicators[symbol]['{alias}'] = SimpleMovingAverage(1)  # kospi 없을 때 더미")
+                lines.append(f"                self.indicators[symbol][{alias!r}] = SimpleMovingAverage(1)  # kospi 없을 때 더미")
                 max_warmup = max(max_warmup, period + 5)
                 continue
 
@@ -775,22 +777,23 @@ class Algorithm(QCAlgorithm):
                 alias = indicator.alias or indicator.id
                 period = indicator.params.get("period", 20)
                 lines.append(f"            if self.kospi_symbol is not None:")
-                lines.append(f"                self.indicators[symbol]['{alias}'] = self.A(symbol, self.kospi_symbol, {period})")
+                lines.append(f"                self.indicators[symbol][{alias!r}] = self.A(symbol, self.kospi_symbol, {period})")
                 lines.append(f"            else:")
-                lines.append(f"                self.indicators[symbol]['{alias}'] = SimpleMovingAverage(1)  # kospi 없을 때 더미")
+                lines.append(f"                self.indicators[symbol][{alias!r}] = SimpleMovingAverage(1)  # kospi 없을 때 더미")
                 max_warmup = max(max_warmup, period + 5)
                 continue
 
+            safe_alias = self._get_sanitized_alias(alias)
             init_code, warmup = IndicatorValidator.get_lean_init_code(
-                indicator.id, indicator.params, alias
+                indicator.id, indicator.params, safe_alias
             )
 
             # 주석에 표시 이름(name) 우선, 없으면 alias 사용
             display = indicator.name or alias
             params_str = ", ".join(f"{k}={v}" for k, v in indicator.params.items())
             lines.append(
-                f"            # {display}: {indicator.id}({params_str})\n"
-                f"            self.indicators[symbol]['{alias}'] = {init_code.split(' = ', 1)[1]}"
+                f"            # {display!r}: {indicator.id!r}({params_str!r})\n"
+                f"            self.indicators[symbol][{alias!r}] = {init_code.split(' = ', 1)[1]}"
             )
             max_warmup = max(max_warmup, warmup)
 
@@ -809,14 +812,14 @@ class Algorithm(QCAlgorithm):
         max_warmup = 5
 
         for cs in self.schema.candlesticks:
+            alias = cs.alias or cs.id
             init_code, warmup = IndicatorValidator.get_candlestick_init_code(
-                cs.id, cs.alias or cs.id
+                cs.id, self._get_sanitized_alias(alias)
             )
 
-            alias = cs.alias or cs.id
             # init_code는 "alias = CandlestickPatterns.Xxx()" 형태
             lean_init = init_code.split(" = ", 1)[1]
-            lines.append(f"            self.candlesticks[symbol]['{alias}'] = {lean_init}")
+            lines.append(f"            self.candlesticks[symbol][{alias!r}] = {lean_init}")
             max_warmup = max(max_warmup, warmup)
 
         return "\n".join(lines), max_warmup
@@ -835,7 +838,8 @@ class Algorithm(QCAlgorithm):
         lines = []
         for cs in self.schema.candlesticks:
             alias = cs.alias or cs.id
-            lines.append(f"            {alias}_signal = self.candlesticks[symbol]['{alias}'].Current.Value")
+            var_name = self._get_sanitized_alias(alias)
+            lines.append(f"            {var_name}_signal = self.candlesticks[symbol][{alias!r}].Current.Value")
 
         return "\n".join(lines)
     
@@ -887,50 +891,51 @@ class Algorithm(QCAlgorithm):
 
         for ind in custom_indicators:
             alias = ind.alias or ind.id
+            var_alias = self._get_sanitized_alias(alias)
 
             if ind.id == "consecutive":
                 lines.append(f"            # consecutive 카운터 업데이트")
                 direction = ind.params.get("direction", "up")
                 if direction == "up":
                     lines.append(f"            if price > prev_price:")
-                    lines.append(f"                self.indicators[symbol]['{alias}'] += 1")
+                    lines.append(f"                self.indicators[symbol][{alias!r}] += 1")
                     lines.append(f"            else:")
-                    lines.append(f"                self.indicators[symbol]['{alias}'] = 0")
+                    lines.append(f"                self.indicators[symbol][{alias!r}] = 0")
                 else:
                     lines.append(f"            if price < prev_price:")
-                    lines.append(f"                self.indicators[symbol]['{alias}'] += 1")
+                    lines.append(f"                self.indicators[symbol][{alias!r}] += 1")
                     lines.append(f"            else:")
-                    lines.append(f"                self.indicators[symbol]['{alias}'] = 0")
+                    lines.append(f"                self.indicators[symbol][{alias!r}] = 0")
 
             elif ind.id == "disparity":
                 lines.append(f"            # disparity 이격도 계산")
-                lines.append(f"            {alias}_sma_val = self.indicators[symbol]['{alias}_sma'].Current.Value")
-                lines.append(f"            self.indicators[symbol]['{alias}'] = (price / {alias}_sma_val * 100) if {alias}_sma_val > 0 else 100")
+                lines.append(f"            {var_alias}_sma_val = self.indicators[symbol][{f'{alias}_sma'!r}].Current.Value")
+                lines.append(f"            self.indicators[symbol][{alias!r}] = (price / {var_alias}_sma_val * 100) if {var_alias}_sma_val > 0 else 100")
 
             elif ind.id == "volatility_ind":
                 period = ind.params.get("period", 10)
                 lines.append(f"            # volatility_ind 변동성 계산")
                 lines.append(f"            if prev_price > 0:")
                 lines.append(f"                daily_ret = (price - prev_price) / prev_price")
-                lines.append(f"                self.indicators[symbol]['{alias}_returns'].append(daily_ret)")
-                lines.append(f"                buf = self.indicators[symbol]['{alias}_returns']")
+                lines.append(f"                self.indicators[symbol][{f'{alias}_returns'!r}].append(daily_ret)")
+                lines.append(f"                buf = self.indicators[symbol][{f'{alias}_returns'!r}]")
                 lines.append(f"                if len(buf) > {period}: buf.pop(0)")
                 lines.append(f"                if len(buf) >= 2:")
                 lines.append(f"                    import statistics")
-                lines.append(f"                    self.indicators[symbol]['{alias}'] = statistics.stdev(buf)")
+                lines.append(f"                    self.indicators[symbol][{alias!r}] = statistics.stdev(buf)")
                 lines.append(f"                else:")
-                lines.append(f"                    self.indicators[symbol]['{alias}'] = 0")
+                lines.append(f"                    self.indicators[symbol][{alias!r}] = 0")
                 lines.append(f"            else:")
-                lines.append(f"                self.indicators[symbol]['{alias}'] = 0")
+                lines.append(f"                self.indicators[symbol][{alias!r}] = 0")
 
             elif ind.id == "change":
                 lines.append(f"            # change 전일대비 등락률 계산")
-                lines.append(f"            self.indicators[symbol]['{alias}'] = ((price - prev_price) / prev_price * 100) if prev_price > 0 else 0")
+                lines.append(f"            self.indicators[symbol][{alias!r}] = ((price - prev_price) / prev_price * 100) if prev_price > 0 else 0")
 
             elif ind.id == "returns":
                 lines.append(f"            # returns N일 수익률 계산")
-                lines.append(f"            {alias}_roc_val = self.indicators[symbol]['{alias}_roc'].Current.Value")
-                lines.append(f"            self.indicators[symbol]['{alias}'] = {alias}_roc_val * 100")
+                lines.append(f"            {var_alias}_roc_val = self.indicators[symbol][{f'{alias}_roc'!r}].Current.Value")
+                lines.append(f"            self.indicators[symbol][{alias!r}] = {var_alias}_roc_val * 100")
 
         if custom_indicators:
             lines.append("")
@@ -959,13 +964,13 @@ class Algorithm(QCAlgorithm):
 
             # 커스텀 지표는 저장된 값 직접 사용
             if indicator_id in ("consecutive", "disparity", "volatility_ind", "change", "returns"):
-                lines.append(f"            {var_name} = self.indicators[symbol]['{alias}']")
+                lines.append(f"            {var_name} = self.indicators[symbol][{alias!r}]")
                 continue
 
             # 지표 정보 가져오기
             indicator_info = get_indicator_info(indicator_id)
             if indicator_info is None:
-                lines.append(f"            {var_name} = self.indicators[symbol]['{alias}'].Current.Value")
+                lines.append(f"            {var_name} = self.indicators[symbol][{alias!r}].Current.Value")
                 continue
 
             # 출력값 템플릿
@@ -976,7 +981,7 @@ class Algorithm(QCAlgorithm):
             else:
                 value_template = "{name}.Current.Value"
 
-            value_code = value_template.replace("{name}", f"self.indicators[symbol]['{alias}']")
+            value_code = value_template.replace("{name}", f"self.indicators[symbol][{alias!r}]")
             lines.append(f"            {var_name} = {value_code}")
         
         return "\n".join(lines)
@@ -1000,7 +1005,7 @@ class Algorithm(QCAlgorithm):
                 continue
             generated_values.add(var_name)
 
-            lines.append(f"            self.prev_values[symbol]['{var_name}'] = {var_name}")
+            lines.append(f"            self.prev_values[symbol][{var_name!r}] = {var_name}")
 
         return "\n".join(lines)
     
@@ -1043,7 +1048,7 @@ class Algorithm(QCAlgorithm):
         alias = cond.candlestick
         signal_type = cond.signal or "detected"
 
-        signal_var = f"{alias}_signal"
+        signal_var = f"{self._get_sanitized_alias(alias)}_signal"
 
         if signal_type == "bullish":
             return f"            {name}_signal = {signal_var} > 0  # 캔들스틱 상승 신호"
@@ -1059,13 +1064,13 @@ class Algorithm(QCAlgorithm):
         if cond.value is not None:
             # 숫자와 비교 (예: RSI crosses_above 30)
             threshold = cond.value
-            return f'''            # {name}: 상향 돌파 ({cond.indicator} crosses above {threshold})
+            return f'''            # {name}: 상향 돌파 ({cond.indicator!r} crosses above {threshold})
             prev_{left_var} = self.prev_values[symbol].get('{left_var}', 0)
             {name}_signal = prev_{left_var} <= {threshold} and {left_code} > {threshold}'''
         else:
             # 지표끼리 비교
             right_code, right_var = self._get_indicator_code(cond.compare_to, cond.compare_output)
-            return f'''            # {name}: 상향 돌파 ({cond.indicator} crosses above {cond.compare_to})
+            return f'''            # {name}: 상향 돌파 ({cond.indicator!r} crosses above {cond.compare_to!r})
             prev_{left_var} = self.prev_values[symbol].get('{left_var}', 0)
             prev_{right_var} = self.prev_values[symbol].get('{right_var}', 0)
             {name}_signal = prev_{left_var} <= prev_{right_var} and {left_code} > {right_code}'''
@@ -1076,12 +1081,12 @@ class Algorithm(QCAlgorithm):
         
         if cond.value is not None:
             threshold = cond.value
-            return f'''            # {name}: 하향 돌파 ({cond.indicator} crosses below {threshold})
+            return f'''            # {name}: 하향 돌파 ({cond.indicator!r} crosses below {threshold})
             prev_{left_var} = self.prev_values[symbol].get('{left_var}', 0)
             {name}_signal = prev_{left_var} >= {threshold} and {left_code} < {threshold}'''
         else:
             right_code, right_var = self._get_indicator_code(cond.compare_to, cond.compare_output)
-            return f'''            # {name}: 하향 돌파 ({cond.indicator} crosses below {cond.compare_to})
+            return f'''            # {name}: 하향 돌파 ({cond.indicator!r} crosses below {cond.compare_to!r})
             prev_{left_var} = self.prev_values[symbol].get('{left_var}', 0)
             prev_{right_var} = self.prev_values[symbol].get('{right_var}', 0)
             {name}_signal = prev_{left_var} >= prev_{right_var} and {left_code} < {right_code}'''

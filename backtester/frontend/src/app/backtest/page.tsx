@@ -408,7 +408,7 @@ export default function BacktestPage() {
                 백테스트를 실행하려면 먼저 백엔드 서버를 시작하세요:
               </p>
               <code className="block mt-2 px-3 py-2 bg-red-100 dark:bg-red-900/40 rounded-lg text-sm font-mono text-red-800 dark:text-red-300">
-                cd backend && uv run uvicorn main:app --port 8002 --reload
+                cd backtester && uv run uvicorn backend.main:app --host 127.0.0.1 --port 8002
               </code>
             </div>
           </div>

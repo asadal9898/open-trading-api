@@ -17,7 +17,7 @@ lsof -ti:8000 | xargs kill -9 2>/dev/null
 # Start backend
 cd "$SCRIPT_DIR"
 echo "[Backend] Starting on port 8000..."
-uv run python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload &
+uv run python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 &
 BACKEND_PID=$!
 
 # Wait for backend

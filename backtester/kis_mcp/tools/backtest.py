@@ -338,7 +338,7 @@ async def _run_backtest_task(
 
             # 프로젝트 생성 및 실행
             project = LeanProjectManager.create_project(
-                run_id=f"mcp_{job_id[:8]}_{definition.id}",
+                run_id=LeanProjectManager.generate_run_id(f"mcp_{job_id[:8]}"),
                 symbols=symbols,
                 start_date=start_date,
                 end_date=end_date,

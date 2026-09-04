@@ -12,6 +12,7 @@ Generator, Loader, API 등 모든 컴포넌트가 이 스키마를 사용합니�
 from __future__ import annotations
 
 import logging
+import re
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -353,6 +354,16 @@ class StrategySchema(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="메타데이터")
     version: str = Field(default="1.0", description="버전")
 
+    @field_validator('id')
+    @classmethod
+    def validate_strategy_id(cls, value: str) -> str:
+        """모든 입력 경로에서 동일한 전략 ID 불변조건을 적용한다."""
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', value):
+            raise ValueError(
+                "strategy.id must be 1-64 characters using letters, numbers, '_' or '-'"
+            )
+        return value
+
     @model_validator(mode='after')
     def auto_populate_candlesticks(self) -> 'StrategySchema':
         """조건에서 참조된 캔들스틱 패턴 자동 추가
@@ -571,5 +582,4 @@ def parse_indicators(data: List[Dict[str, Any]]) -> List[IndicatorSchema]:
             output=ind_dict.get("output", "value"),
         ))
     return result
-
 

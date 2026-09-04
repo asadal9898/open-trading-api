@@ -357,7 +357,10 @@ class StrategyDSLParser:
         """DSL 문자열을 AST로 파싱"""
         self.tokens = self.tokenize(text)
         self.pos = 0
-        return self._parse_or_expression()
+        result = self._parse_or_expression()
+        if self._current_token() is not None:
+            raise SyntaxError(f"Unexpected token: {self._current_token()}")
+        return result
 
     def _current_token(self) -> Optional[tuple]:
         if self.pos < len(self.tokens):

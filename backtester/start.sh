@@ -25,7 +25,7 @@ fi
 # Start backend
 cd "$SCRIPT_DIR"
 echo "[Backend] Starting on port 8002..."
-uv run python -m uvicorn backend.main:app --host 0.0.0.0 --port 8002 --reload &
+uv run python -m uvicorn backend.main:app --host 127.0.0.1 --port 8002 &
 BACKEND_PID=$!
 
 # Wait for backend

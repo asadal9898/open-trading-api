@@ -1,9 +1,12 @@
 # 중요 : MCP에 대한 내용을 완전히 숙지하신 뒤 사용해 주십시오. 
 #       이 프로그램을 실행하여 발생한 모든 책임은 사용자 본인에게 있습니다.
 
-# 한국투자증권 OPEN API MCP 서버 - Docker 설치 가이드
+# 한국투자증권 OPEN API MCP 서버 - 설치 가이드
 
-한국투자증권의 다양한 금융 API를 Docker를 통해 Claude Desktop에서 쉽게 사용할 수 있도록 하는 설치 가이드입니다.
+한국투자증권의 다양한 금융 API를 Claude Desktop·Cursor 등 AI 도구에서 사용할 수 있도록 하는 설치 가이드입니다.
+
+> **권장 연결 방식:** Docker + SSE (모든 OS에서 안정적)  
+> **대안:** stdio 로컬 연동 (고급 사용자, 아래 [stdio 로컬 연동](#-stdio-로컬-연동-고급) 참고)
 
 ## 🚀 주요 기능
 
@@ -117,11 +120,13 @@ docker build -t kis-trade-mcp:latest .
 
 #### **4단계: Docker 컨테이너 실행**
 
-**기본 실행:**
+**기본 실행 (로컬 전용 바인딩 권장):**
 ```bash
 docker run -d \
   --name kis-trade-mcp \
-  -p 3000:3000 \
+  -p 127.0.0.1:3000:3000 \
+  -e MCP_HOST=0.0.0.0 \
+  -e MCP_ACCESS_TOKEN="your_strong_random_token" \
   -e KIS_APP_KEY="your_app_key" \
   -e KIS_APP_SECRET="your_app_secret" \
   -e KIS_PAPER_APP_KEY="your_paper_app_key" \
@@ -146,19 +151,16 @@ docker logs kis-trade-mcp
 # 실시간 로그 확인
 docker logs -f kis-trade-mcp
 
-# HTTP 서버 접근 확인
-curl http://localhost:3000/sse
+# HTTP 서버 접근 확인 (MCP_ACCESS_TOKEN 필요)
+curl -H "Authorization: Bearer your_strong_random_token" http://localhost:3000/sse
 ```
 
 #### **6단계: HTTP 서버 접근 확인**
 컨테이너가 정상적으로 실행되면 HTTP 서버에 접근할 수 있습니다:
 
 ```bash
-# 서버 상태 확인
-curl http://localhost:3000/sse
-
-# 또는 브라우저에서 접근
-# http://localhost:3000/sse
+# 서버 상태 확인 (4단계에서 설정한 MCP_ACCESS_TOKEN 사용)
+curl -H "Authorization: Bearer your_strong_random_token" http://localhost:3000/sse
 ```
 
 ### 🔗 Claude Desktop 연동 및 설정
@@ -176,7 +178,13 @@ Claude Desktop 설정 파일에 MCP 서버를 등록하세요.
   "mcpServers": {
     "kis-trade-mcp": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "http://localhost:3000/sse"]
+      "args": [
+        "-y",
+        "mcp-remote",
+        "http://localhost:3000/sse",
+        "--header",
+        "Authorization: Bearer your_strong_random_token"
+      ]
     }
   }
 }
@@ -188,11 +196,88 @@ Claude Desktop 설정 파일에 MCP 서버를 등록하세요.
   "mcpServers": {
     "kis-trade-mcp": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "http://localhost:3000/sse"]
+      "args": [
+        "-y",
+        "mcp-remote",
+        "http://localhost:3000/sse",
+        "--header",
+        "Authorization: Bearer your_strong_random_token"
+      ]
     }
   }
 }
 ```
+
+> `your_strong_random_token`은 Docker 실행 시 설정한 `MCP_ACCESS_TOKEN`과 동일한 값이어야 합니다.
+
+### 🔌 stdio 로컬 연동 (고급)
+
+Docker 없이 Claude Desktop·Cursor에 직접 연결하는 방식입니다. MCP 클라이언트가 서버 프로세스를 직접 실행합니다.
+
+**요구사항:** Python 3.11+, [uv](https://docs.astral.sh/uv/), 한국투자증권 Open API 인증정보
+
+#### 1단계: 프로젝트 준비
+
+```bash
+git clone https://github.com/koreainvestment/open-trading-api.git
+cd "open-trading-api/MCP/Kis Trading MCP"
+uv sync
+```
+
+#### 2단계: Claude Desktop 설정 (stdio)
+
+**설정 파일 위치:**
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "kis-trade-mcp": {
+      "command": "uv",
+      "args": [
+        "--directory", "{프로젝트 절대경로}/MCP/Kis Trading MCP",
+        "run", "python", "server.py"
+      ],
+      "env": {
+        "ENV": "live",
+        "MCP_TYPE": "stdio",
+        "KIS_APP_KEY": "your_app_key",
+        "KIS_APP_SECRET": "your_app_secret",
+        "KIS_PAPER_APP_KEY": "your_paper_app_key",
+        "KIS_PAPER_APP_SECRET": "your_paper_app_secret"
+      }
+    }
+  }
+}
+```
+
+- `{프로젝트 절대경로}`: 저장소를 클론한 경로 (Windows는 `C:\\path\\to\\open-trading-api` 형식)
+- `MCP_TYPE=stdio`를 반드시 설정하세요. `.env.live` 기본값은 `sse`입니다.
+- Claude Desktop 재시작 후 채팅에서 "삼성전자 현재가 알려줘" 등으로 테스트할 수 있습니다.
+
+#### 3단계: MCP Inspector로 테스트 (선택)
+
+Claude Desktop 없이 서버 동작을 확인하려면:
+
+```bash
+# macOS/Linux
+ENV=live MCP_TYPE=stdio uv run python server.py
+
+# Windows PowerShell
+$env:ENV="live"; $env:MCP_TYPE="stdio"; npx @modelcontextprotocol/inspector uv run python server.py
+```
+
+#### ⚠️ stdio 사용 시 주의사항
+
+| 환경 | 권장 여부 | 비고 |
+|------|-----------|------|
+| macOS / Linux (stdio) | ✅ 사용 가능 | |
+| Windows (stdio) | ⚠️ 가능 (패치 후) | v2.11.2+ FastMCP 비동기 API 호환 필요 |
+| Windows / macOS / Linux (Docker) | ✅ **권장** | 가장 안정적 |
+
+- stdio 모드는 `MCP_ACCESS_TOKEN`이 필요 없습니다 (HTTP 인증 미사용).
+- API 실행 시 `.venv` 가상환경이 필요합니다 (`uv sync`로 생성).
 
 ## 💬 사용법 및 질문 예시
 
@@ -324,8 +409,8 @@ docker run -d --name kis-trade-mcp --memory="2g" --cpus="2" ...
 # 포트 확인
 docker port kis-trade-mcp
 
-# 네트워크 연결 테스트
-curl http://localhost:3000/sse
+# 네트워크 연결 테스트 (MCP_ACCESS_TOKEN 필요)
+curl -H "Authorization: Bearer your_strong_random_token" http://localhost:3000/sse
 ```
 
 ### 디버깅 명령어
@@ -345,10 +430,13 @@ docker exec kis-trade-mcp ping github.com
 
 ## 🔒 보안 고려사항
 
+- **로컬 바인딩 우선**: 기본 `MCP_HOST`는 `127.0.0.1`입니다. Docker 사용 시에도 호스트에서는 `-p 127.0.0.1:3000:3000`으로 로컬 접근만 허용하세요.
+- **MCP 접근 토큰 필수**: SSE/HTTP 모드에서는 `MCP_ACCESS_TOKEN` 환경변수가 필수입니다. MCP 클라이언트는 `Authorization: Bearer <token>` 또는 `X-Api-Key` 헤더로 동일한 토큰을 전달해야 합니다.
+- **입력값 검증**: MCP 도구 파라미터는 허용된 값만 처리되며, 사용자 입력이 실행 코드에 직접 포함되지 않도록 검증합니다.
 - **컨테이너 격리**: 호스트 시스템과 완전히 분리된 환경에서 실행
 - **환경변수 보안**: 민감한 정보는 환경변수로 전달, 코드에 하드코딩 금지
 - **임시 파일 정리**: 각 API 호출 후 임시 파일 자동 삭제
-- **네트워크 격리**: 필요한 경우 Docker 네트워크를 통한 추가 격리
+- **네트워크 격리**: 외부 공개가 필요 없는 경우 stdio 모드 사용을 고려할 수 있습니다. 다만 **안정성과 크로스 플랫폼 호환을 위해 Docker + SSE 방식을 권장**합니다.
 
 ## ⚠️ 제한사항 및 성능
 

@@ -13,15 +13,14 @@
 
 import importlib.util
 import os
-import re
 import tempfile
-from pathlib import Path
 from typing import Any, Callable, Dict, List
 
 from strategy_core.dsl.converter import builder_state_to_dsl
 from strategy_core.dsl.parser import parse_strategy
 from strategy_core.dsl.codegen import StrategyCodeGenerator
 from strategy_core.name_utils import sanitize_strategy_name
+from strategy_core.storage import get_generated_strategy_file
 
 
 def execute_with_class(
@@ -101,7 +100,6 @@ def execute_from_builder_state(
 
 def execute_custom_file(
     custom_name: str,
-    strategy_dir: str,
     stocks: List[str],
     log: Callable,
     get_stock_name: Callable,
@@ -115,18 +113,12 @@ def execute_custom_file(
     log("info", f"커스텀 전략: {custom_name}")
     log("info", f"종목: {', '.join(stocks)}")
 
-    # 경로 탐색 방어: 영숫자 + _ 만 허용
-    if not re.fullmatch(r'[a-zA-Z0-9_]+', custom_name):
-        raise ValueError(f"유효하지 않은 전략 이름: {custom_name!r}")
-
-    strategy_file = Path(strategy_dir) / f"strategy_{custom_name}.py"
-
-    # 부모 디렉터리 이탈 검사
-    if not strategy_file.resolve().is_relative_to(Path(strategy_dir).resolve()):
-        raise ValueError("허용되지 않는 전략 경로")
+    strategy_file = get_generated_strategy_file(custom_name)
 
     if not strategy_file.exists():
         raise FileNotFoundError(f"전략 파일을 찾을 수 없습니다: {strategy_file}")
+    if not strategy_file.is_file():
+        raise ValueError("전략 경로가 일반 파일이 아닙니다")
 
     spec = importlib.util.spec_from_file_location(f"strategy_{custom_name}", strategy_file)
     module = importlib.util.module_from_spec(spec)

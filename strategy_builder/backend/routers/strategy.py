@@ -25,6 +25,7 @@ import kis_auth as ka
 from strategy_core.dsl.codegen import StrategyCodeGenerator, generate_strategy_file
 from strategy_core.dsl.parser import parse_strategy, StrategyDSLParser
 from strategy_core.dsl.converter import builder_state_to_dsl
+from strategy_core.storage import get_generated_strategy_dir
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -111,27 +112,18 @@ async def list_strategies():
 @router.get("/custom")
 async def list_custom_strategies():
     """커스텀 전략 목록 조회"""
-    import os
+    import ast
     import re
 
     custom_strategies = []
-    strategy_dir = os.path.join(os.path.dirname(__file__), "..", "..", "strategy")
+    strategy_dir = get_generated_strategy_dir()
 
-    default_files = {
-        'strategy_01_golden_cross.py', 'strategy_02_momentum.py',
-        'strategy_03_week52_high.py', 'strategy_04_consecutive.py',
-        'strategy_05_disparity.py', 'strategy_06_breakout_fail.py',
-        'strategy_07_strong_close.py', 'strategy_08_volatility.py',
-        'strategy_09_mean_reversion.py', 'strategy_10_trend_filter.py',
-        'base_strategy.py', '__init__.py'
-    }
-
-    for filename in os.listdir(strategy_dir):
-        if filename.endswith('.py') and filename not in default_files:
-            filepath = os.path.join(strategy_dir, filename)
+    for filepath in strategy_dir.iterdir():
+        filename = filepath.name
+        if re.fullmatch(r'strategy_[A-Za-z_][A-Za-z0-9_]{0,63}\.py', filename) and not filepath.is_symlink():
 
             try:
-                with open(filepath, 'r', encoding='utf-8') as f:
+                with filepath.open('r', encoding='utf-8') as f:
                     content = f.read()
 
                 name = filename.replace('strategy_', '').replace('.py', '')
@@ -139,21 +131,22 @@ async def list_custom_strategies():
                 sell_condition = ""
                 description = ""
 
-                if '"""' in content:
-                    doc_start = content.find('"""', content.find('class '))
-                    if doc_start > 0:
-                        doc_end = content.find('"""', doc_start + 3)
-                        if doc_end > 0:
-                            doc = content[doc_start+3:doc_end].strip()
-                            for line in doc.split('\n'):
-                                line = line.strip()
-                                if line.startswith('매수 조건:'):
-                                    buy_condition = line.replace('매수 조건:', '').strip()
-                                elif line.startswith('매도 조건:'):
-                                    sell_condition = line.replace('매도 조건:', '').strip()
+                tree = ast.parse(content)
+                strategy_class = next(
+                    (node for node in tree.body if isinstance(node, ast.ClassDef)),
+                    None,
+                )
+                doc = ast.get_docstring(strategy_class, clean=False) if strategy_class else None
+                if doc:
+                    for line in doc.splitlines():
+                        line = line.strip()
+                        if line.startswith('매수 조건:'):
+                            buy_condition = line.removeprefix('매수 조건:').strip()
+                        elif line.startswith('매도 조건:'):
+                            sell_condition = line.removeprefix('매도 조건:').strip()
 
-                            if buy_condition:
-                                description = f"매수: {buy_condition}"
+                    if buy_condition:
+                        description = f"매수: {buy_condition}"
 
                 custom_strategies.append({
                     'id': f'custom:{name}',
@@ -244,7 +237,6 @@ async def execute_strategy(request: ExecuteRequest):
 
         # 2) 커스텀 전략 (파일 기반)
         if strategy_id.startswith('custom:'):
-            import os
             import re
             custom_name = strategy_id.removeprefix('custom:')
             if not re.fullmatch(r'[a-zA-Z0-9_]+', custom_name):
@@ -252,9 +244,8 @@ async def execute_strategy(request: ExecuteRequest):
             log("info", f"커스텀 전략: {custom_name}")
             log("info", f"종목: {', '.join(stocks)}")
 
-            strategy_dir = os.path.join(os.path.dirname(__file__), "..", "..", "strategy")
             results = execute_custom_file(
-                custom_name, strategy_dir, stocks,
+                custom_name, stocks,
                 log, get_stock_name, _api_sleep,
             )
             log("success", "전략 실행 완료")
@@ -325,7 +316,6 @@ async def build_strategy(request: BuildRequest):
             name_ko=request.name,
             buy_condition=request.buy_condition,
             sell_condition=request.sell_condition,
-            output_dir="strategy",
         )
 
         return {

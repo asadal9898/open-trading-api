@@ -47,13 +47,21 @@ cd strategy_builder
 uv sync
 
 # Backend (터미널 1)
-uv run uvicorn backend.main:app --reload --port 8000
+uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000
 
 # Frontend (터미널 2)
 cd frontend
 npm install
 npm run dev
 ```
+
+생성된 커스텀 Python 전략은 기본적으로 애플리케이션 소스와 분리된
+`~/.kis_strategy_builder/strategies`에 저장됩니다. 다른 위치가 필요하면 서버 시작 전에
+`KIS_STRATEGY_DIR` 환경변수로 전용 디렉터리를 지정할 수 있습니다.
+
+기본 프론트엔드와 백엔드는 로컬 호스트에서만 접근할 수 있습니다. 외부 접속이 필요한
+경우에는 인증과 접근통제가 적용된 역방향 프록시 뒤에서 운영하고 방화벽으로 직접 접근을
+제한하십시오.
 
 ---
 

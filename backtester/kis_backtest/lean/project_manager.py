@@ -5,10 +5,13 @@ Lean 워크스페이스와 프로젝트 디렉토리 구조를 관리.
 
 import json
 import logging
+import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +50,8 @@ class LeanProject:
 
 class LeanProjectManager:
     """Lean 프로젝트 관리자"""
+
+    _RUN_ID_PREFIX_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
     
     workspace: Path = DEFAULT_WORKSPACE
     
@@ -54,6 +59,54 @@ class LeanProjectManager:
     def set_workspace(cls, path: str) -> None:
         """워크스페이스 경로 설정"""
         cls.workspace = Path(path)
+
+    @classmethod
+    def generate_run_id(cls, prefix: str = "bt") -> str:
+        """사용자 입력과 무관한 내부 실행 ID를 생성한다."""
+        if not cls._RUN_ID_PREFIX_PATTERN.fullmatch(prefix):
+            raise ValueError("Invalid run ID prefix")
+        return f"{prefix}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:12]}"
+
+    @staticmethod
+    def _validate_run_id(run_id: str) -> None:
+        """과거의 안전한 표시 문자는 허용하되 경로 의미를 갖는 값은 거부한다."""
+        if not isinstance(run_id, str) or not 1 <= len(run_id) <= 255:
+            raise ValueError("Invalid run ID")
+        if run_id in {".", ".."} or "/" in run_id or "\\" in run_id or ":" in run_id:
+            raise ValueError("Invalid run ID")
+        if any(ord(char) < 32 or ord(char) == 127 for char in run_id):
+            raise ValueError("Invalid run ID")
+        if Path(run_id).is_absolute() or Path(run_id).name != run_id:
+            raise ValueError("Invalid run ID")
+
+    @classmethod
+    def _projects_root(cls, create: bool = False) -> Path:
+        workspace_root = cls.workspace.resolve()
+        if create:
+            workspace_root.mkdir(parents=True, exist_ok=True)
+        root = workspace_root / "projects"
+        if root.is_symlink():
+            raise ValueError("Symbolic-link projects root is not allowed")
+        if create:
+            root.mkdir(exist_ok=True)
+        resolved = root.resolve()
+        if resolved.parent != workspace_root:
+            raise ValueError("Projects root escapes workspace")
+        return resolved
+
+    @classmethod
+    def _project_path(cls, run_id: str, *, create_root: bool = False) -> Path:
+        """검증된 단일 경로 요소를 projects root 아래 경로로 변환한다."""
+        cls._validate_run_id(run_id)
+
+        root = cls._projects_root(create=create_root)
+        candidate = root / run_id
+        resolved = candidate.resolve(strict=False)
+        if resolved.parent != root:
+            raise ValueError("Project path escapes projects root")
+        if candidate.is_symlink():
+            raise ValueError("Symbolic-link projects are not allowed")
+        return candidate
     
     @classmethod
     def init_workspace(cls) -> Path:
@@ -76,8 +129,7 @@ class LeanProjectManager:
         data_dir.mkdir(parents=True, exist_ok=True)
         
         # projects 디렉토리 생성
-        projects_dir = ws / "projects"
-        projects_dir.mkdir(parents=True, exist_ok=True)
+        cls._projects_root(create=True)
         
         logger.info(f"[Lean] 워크스페이스 초기화: {ws}")
         return ws
@@ -104,8 +156,12 @@ class LeanProjectManager:
         ws = cls.init_workspace()
         
         # 프로젝트 디렉토리 생성
-        project_dir = ws / "projects" / run_id
-        project_dir.mkdir(parents=True, exist_ok=True)
+        project_dir = cls._project_path(run_id, create_root=True)
+        if os.path.lexists(project_dir):
+            raise FileExistsError(f"Project already exists: {run_id}")
+        project_dir.mkdir()
+        if project_dir.resolve().parent != cls._projects_root():
+            raise ValueError("Project path escapes projects root")
         
         # 데이터 디렉토리 (마켓별 분리)
         # krx: /data/equity/krx/daily/
@@ -159,7 +215,7 @@ class LeanProjectManager:
     @classmethod
     def get_project(cls, run_id: str) -> Optional[LeanProject]:
         """기존 프로젝트 조회"""
-        project_dir = cls.workspace / "projects" / run_id
+        project_dir = cls._project_path(run_id)
         
         if not project_dir.exists():
             return None
@@ -191,18 +247,18 @@ class LeanProjectManager:
     @classmethod
     def list_projects(cls) -> List[str]:
         """모든 프로젝트 목록"""
-        projects_dir = cls.workspace / "projects"
+        projects_dir = cls._projects_root()
         if not projects_dir.exists():
             return []
         
-        return [p.name for p in projects_dir.iterdir() if p.is_dir()]
+        return [p.name for p in projects_dir.iterdir() if p.is_dir() and not p.is_symlink()]
     
     @classmethod
     def cleanup_project(cls, run_id: str) -> bool:
         """프로젝트 삭제"""
         import shutil
         
-        project_dir = cls.workspace / "projects" / run_id
+        project_dir = cls._project_path(run_id)
         
         if project_dir.exists():
             shutil.rmtree(project_dir)
@@ -218,7 +274,7 @@ class LeanProjectManager:
         Returns:
             최근 실행 목록 (run_id, 전략, 종목, 날짜, 통계 요약)
         """
-        projects_dir = cls.workspace / "projects"
+        projects_dir = cls._projects_root()
         if not projects_dir.exists():
             return []
         
@@ -226,7 +282,7 @@ class LeanProjectManager:
         
         # 프로젝트 디렉토리 목록 (수정 시간 역순)
         project_dirs = sorted(
-            [p for p in projects_dir.iterdir() if p.is_dir()],
+            [p for p in projects_dir.iterdir() if p.is_dir() and not p.is_symlink()],
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )[:limit]
@@ -396,7 +452,7 @@ class LeanProjectManager:
     @classmethod
     def update_project_name(cls, run_id: str, display_name: str) -> bool:
         """프로젝트 이름 수정"""
-        project_dir = cls.workspace / "projects" / run_id
+        project_dir = cls._project_path(run_id)
         config_path = project_dir / "config.json"
         
         if not config_path.exists():
@@ -501,13 +557,13 @@ class LeanProjectManager:
         """
         import shutil
         
-        projects_dir = cls.workspace / "projects"
+        projects_dir = cls._projects_root()
         if not projects_dir.exists():
             return 0
         
         count = 0
         for project_dir in projects_dir.iterdir():
-            if project_dir.is_dir():
+            if project_dir.is_dir() and not project_dir.is_symlink():
                 shutil.rmtree(project_dir)
                 count += 1
         

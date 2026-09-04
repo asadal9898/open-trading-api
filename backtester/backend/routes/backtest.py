@@ -584,7 +584,7 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
     # 프로젝트 생성 및 백테스트 실행
     try:
         project = LeanProjectManager.create_project(
-            run_id=f"bt_{definition.id}",
+            run_id=LeanProjectManager.generate_run_id("bt"),
             symbols=request.symbols,
             start_date=start_date,
             end_date=end_date,
@@ -728,7 +728,7 @@ async def run_custom_backtest(request: CustomBacktestRequest) -> BacktestRespons
     # 프로젝트 생성 및 백테스트 실행
     try:
         project = LeanProjectManager.create_project(
-            run_id=f"bt_custom_{schema.id}",
+            run_id=LeanProjectManager.generate_run_id("bt_custom"),
             symbols=request.symbols,
             start_date=request.start_date,
             end_date=request.end_date,
