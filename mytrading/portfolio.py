@@ -146,11 +146,11 @@ class Portfolio:
         판정 우선순위:
           1) AccountInfo.moderate_confirm[code] (allocations.yaml, 새 계좌명 밑,
              2-7 — 배분액 moderate/free 와 같은 depth)
-          2) universe_ko.yaml 의 confirm(사람) — 마이그레이션 후 더 이상 안 써지는
-             동결된 값이지만, 폴백으로 계속 읽는다(신규 위치가 비어있을 때 안전망).
-          3) auto_confirm(자동, score_dividend.py)
-        1)/2) 어느 쪽이든 값이 있으면 그 값만으로 판정하고(Approval 만 통과), 3)은 1)/2)
-        둘 다 없을 때만 본다. 둘 다 없으면 매매 불가(기존과 동일 — 명시적 승인만 매매).
+          2) auto_confirm(자동, score_dividend.py) — 1)이 없을 때만 본다.
+        ⚠️ universe_ko.yaml 의 confirm(사람, 동결) 폴백은 제거됨(동결 해제, 2026-09-04)
+        — 새 위치가 15개를 완전히 커버해 실제로 한 번도 발동한 적이 없었고(실측
+        확인), 모드 무관 필드라 vps 승인이 prod 조회로 새는 경로이기도 했다(3-2
+        발견). 1)이 없으면 매매 불가(기존과 동일 — 명시적 승인만 매매).
         """
         cats = [category] if category else _CATEGORIES
         user_confirm = self._confirm_for(user_key, account, mode)
@@ -159,8 +159,6 @@ class Portfolio:
             for s in self.universe.get(cat, []):
                 code = s["code"]
                 confirm = user_confirm.get(str(code).zfill(6))
-                if confirm is None:
-                    confirm = s.get("confirm")
                 if confirm is not None:
                     ok = (confirm == "Approval")
                 else:
@@ -173,7 +171,7 @@ class Portfolio:
                        account: str = None, mode: str = None) -> List[str]:
         """confirm == "Paused" 인 종목 코드 (보유 유지, 신규매매 중단).
         인자/판정 우선순위는 tradable_symbols 와 동일(생략 시 Owner/일반증권/vps
-        폴백, 회귀 0)."""
+        폴백, 회귀 0) — universe_ko confirm 폴백 제거도 동일(2026-09-04)."""
         cats = [category] if category else _CATEGORIES
         user_confirm = self._confirm_for(user_key, account, mode)
         out = []
@@ -181,8 +179,6 @@ class Portfolio:
             for s in self.universe.get(cat, []):
                 code = s["code"]
                 confirm = user_confirm.get(str(code).zfill(6))
-                if confirm is None:
-                    confirm = s.get("confirm")
                 if confirm == "Paused":
                     out.append(code)
         return out
